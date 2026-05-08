@@ -12,16 +12,14 @@ import { CliError } from "../errors.js";
 import { normalizeAddress, normalizeHexResult } from "../eth/client.js";
 import { compactAddress, redactString, toJson } from "../output.js";
 import {
-  createRelayJsonRpcClient,
+  createPortoRelayClient,
   relayErrorToCliError,
   sendRelayCalls,
+  type PortoRelayActions,
+  type PortoRelayClient,
   type RelayCall,
-  type RelayJsonRpcClient,
 } from "../relay/sendCalls.js";
-import {
-  sessionKeyFromProfile,
-  type RelaySessionKey,
-} from "../relay/sessionKey.js";
+import { sessionKeyFromProfile } from "../relay/sessionKey.js";
 import {
   isSuccessfulRelayStatus,
   pollRelayCallsStatus,
@@ -64,14 +62,14 @@ export type ExecuteCommandResult = {
 };
 
 export type ExecuteCommandDependencies = {
-  createRelayClient?: (relayUrl: string) => RelayJsonRpcClient;
+  createRelayClient?: (relayUrl: string, network: Network) => PortoRelayClient;
   env?: NodeJS.ProcessEnv;
   now?: () => Date;
   readProfile?: (
     network: Network,
     env: NodeJS.ProcessEnv,
   ) => Promise<WalletProfile>;
-  signDigest?: (key: RelaySessionKey, digest: HexString) => Promise<HexString>;
+  relayActions?: PortoRelayActions;
   sleep?: (ms: number) => Promise<void>;
   stdout?: OutputWriter;
 };
@@ -145,19 +143,19 @@ export async function executeWalletCalls(
   assertProfileActive(profile, dependencies.now ?? (() => new Date()));
   const sessionKey = sessionKeyFromProfile(profile);
   const client =
-    dependencies.createRelayClient?.(profile.relayUrl) ??
-    createRelayJsonRpcClient(profile.relayUrl);
+    dependencies.createRelayClient?.(profile.relayUrl, network) ??
+    createPortoRelayClient(profile.relayUrl, network);
 
   try {
     const sent = await sendRelayCalls({
       accountAddress: profile.accountAddress,
+      actions: dependencies.relayActions,
       calls,
       client,
-      network,
       sessionKey,
-      signDigest: dependencies.signDigest,
     });
     const status = await pollRelayCallsStatus({
+      actions: dependencies.relayActions,
       client,
       id: sent.id,
       intervalMs: options.pollIntervalMs,

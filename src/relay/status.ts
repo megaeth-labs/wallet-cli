@@ -1,6 +1,10 @@
 import type { HexString } from "../config/profile.js";
 import { CliError } from "../errors.js";
-import type { RelayJsonRpcClient } from "./sendCalls.js";
+import {
+  portoRelayActions,
+  type PortoRelayActions,
+  type PortoRelayClient,
+} from "./sendCalls.js";
 
 export const pendingRelayStatuses = new Set([100, 201]);
 
@@ -27,7 +31,8 @@ export type RelayCallsStatus = {
 };
 
 export type PollCallsStatusOptions = {
-  client: RelayJsonRpcClient;
+  actions?: PortoRelayActions;
+  client: PortoRelayClient;
   id: HexString;
   intervalMs?: number;
   now?: () => number;
@@ -39,11 +44,11 @@ const defaultIntervalMs = 1_000;
 const defaultTimeoutMs = 120_000;
 
 export async function getRelayCallsStatus(
-  client: RelayJsonRpcClient,
+  client: PortoRelayClient,
   id: HexString,
+  actions: PortoRelayActions = portoRelayActions,
 ): Promise<RelayCallsStatus> {
-  const result = await client.request<unknown>("wallet_getCallsStatus", [id]);
-  return parseRelayCallsStatus(result);
+  return actions.getCallsStatus(client, { id });
 }
 
 export async function pollRelayCallsStatus(
@@ -62,7 +67,11 @@ export async function pollRelayCallsStatus(
   const deadline = now() + timeoutMs;
 
   for (;;) {
-    const status = await getRelayCallsStatus(options.client, options.id);
+    const status = await getRelayCallsStatus(
+      options.client,
+      options.id,
+      options.actions,
+    );
     if (!pendingRelayStatuses.has(status.status)) {
       return status;
     }
@@ -80,102 +89,6 @@ export function isSuccessfulRelayStatus(status: number): boolean {
   return status < 300;
 }
 
-function parseRelayCallsStatus(value: unknown): RelayCallsStatus {
-  if (!isObject(value)) {
-    throw new CliError("relay status response must be an object");
-  }
-  const id = value["id"];
-  if (typeof id !== "string" || id.length === 0) {
-    throw new CliError("relay status response id is invalid");
-  }
-
-  const receipts = value["receipts"];
-  const parsed: RelayCallsStatus = {
-    id,
-    status: parseRpcNumber(value["status"], "relay status code is invalid"),
-  };
-  if (receipts !== undefined) {
-    if (!Array.isArray(receipts)) {
-      throw new CliError("relay status receipts must be an array");
-    }
-    parsed.receipts = receipts.map(parseRelayReceipt);
-  }
-
-  return parsed;
-}
-
-function parseRelayReceipt(value: unknown): RelayReceipt {
-  if (!isObject(value)) {
-    throw new CliError("relay status receipt must be an object");
-  }
-  const logs = value["logs"];
-  if (!Array.isArray(logs)) {
-    throw new CliError("relay status receipt logs must be an array");
-  }
-
-  return {
-    blockHash: parseHex(value["blockHash"], "receipt blockHash is invalid"),
-    blockNumber: parseRpcNumber(
-      value["blockNumber"],
-      "receipt blockNumber is invalid",
-    ),
-    chainId: parseRpcNumber(value["chainId"], "receipt chainId is invalid"),
-    gasUsed: parseRpcNumber(value["gasUsed"], "receipt gasUsed is invalid"),
-    logs: logs.map(parseRelayReceiptLog),
-    status: parseHex(value["status"], "receipt status is invalid"),
-    transactionHash: parseHex(
-      value["transactionHash"],
-      "receipt transactionHash is invalid",
-    ),
-  };
-}
-
-function parseRelayReceiptLog(value: unknown): RelayReceiptLog {
-  if (!isObject(value)) {
-    throw new CliError("relay status receipt log must be an object");
-  }
-  const topics = value["topics"];
-  if (!Array.isArray(topics)) {
-    throw new CliError("relay status receipt log topics must be an array");
-  }
-
-  return {
-    address: parseHex(value["address"], "receipt log address is invalid"),
-    data: parseHex(value["data"], "receipt log data is invalid", true),
-    topics: topics.map((topic) =>
-      parseHex(topic, "receipt log topic is invalid"),
-    ),
-  };
-}
-
-function parseRpcNumber(value: unknown, message: string): number {
-  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
-    return value;
-  }
-
-  if (typeof value === "string" && /^0x[0-9a-fA-F]+$/.test(value)) {
-    const parsed = Number.parseInt(value.slice(2), 16);
-    if (Number.isSafeInteger(parsed)) {
-      return parsed;
-    }
-  }
-
-  throw new CliError(message);
-}
-
-function parseHex(
-  value: unknown,
-  message: string,
-  allowEmpty = false,
-): HexString {
-  const pattern = allowEmpty ? /^0x[0-9a-fA-F]*$/ : /^0x[0-9a-fA-F]+$/;
-  if (typeof value !== "string" || !pattern.test(value)) {
-    throw new CliError(message);
-  }
-
-  return value as HexString;
-}
-
 function normalizePositiveInteger(value: number, message: string): number {
   if (!Number.isSafeInteger(value) || value <= 0) {
     throw new CliError(message);
@@ -188,8 +101,4 @@ function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
