@@ -1,0 +1,186 @@
+import { Command } from "commander";
+
+import { isNetwork, type Network } from "../config/chains.js";
+import { CliError } from "../errors.js";
+import { encodeAbiCall, loadAbiFile, parseAbiArgs } from "../eth/abi.js";
+import {
+  createEthCallClient,
+  getDefaultRpcUrl,
+  normalizeAddress,
+  normalizeHexResult,
+  type EthCallClient,
+  type HexString,
+} from "../eth/client.js";
+
+export type CallCommandOptions = {
+  abi?: string;
+  args?: string;
+  data?: string;
+  function?: string;
+  json?: boolean;
+  network?: string;
+  rpcUrl?: string;
+  terse?: boolean;
+  to?: string;
+};
+
+export type CallCommandResult = {
+  data: HexString;
+  network: Network;
+  result: HexString;
+  rpcUrl: string;
+  to: `0x${string}`;
+};
+
+export type CallCommandDependencies = {
+  createClient?: (network: Network, rpcUrl: string) => EthCallClient;
+  stdout?: OutputWriter;
+};
+
+type OutputWriter = {
+  write(chunk: string): unknown;
+};
+
+export function registerCallCommand(
+  wallet: Command,
+  dependencies: CallCommandDependencies = {},
+): void {
+  wallet
+    .command("call")
+    .description("Run a read-only eth_call")
+    .requiredOption("--to <address>", "contract address to call")
+    .option("--data <hex>", "raw calldata")
+    .option("--abi <path>", "contract ABI JSON file")
+    .option("--function <name>", "ABI function name")
+    .option("--args <json>", "ABI function args as a JSON array")
+    .option("--network <network>", "MegaETH network", "testnet")
+    .option("--rpc-url <url>", "Ethereum JSON-RPC URL")
+    .option("--json", "print JSON output")
+    .option("-t, --terse", "print compact output")
+    .action(async (options: CallCommandOptions) => {
+      await runWalletCall(options, dependencies);
+    });
+}
+
+export async function runWalletCall(
+  options: CallCommandOptions,
+  dependencies: CallCommandDependencies = {},
+): Promise<CallCommandResult> {
+  const network = normalizeNetwork(options.network);
+  const rpcUrl = normalizeRpcUrl(options.rpcUrl ?? getDefaultRpcUrl(network));
+  const to = normalizeAddress(options.to, "call target");
+  const data = await resolveCallData(options);
+  const client =
+    dependencies.createClient?.(network, rpcUrl) ??
+    createEthCallClient(network, rpcUrl);
+  const result = await executeEthCall(client, { data, to });
+  const commandResult = { data, network, result, rpcUrl, to };
+
+  renderCallResult(
+    commandResult,
+    options,
+    dependencies.stdout ?? process.stdout,
+  );
+
+  return commandResult;
+}
+
+async function executeEthCall(
+  client: EthCallClient,
+  request: { data: HexString; to: `0x${string}` },
+): Promise<HexString> {
+  try {
+    return await client.call(request);
+  } catch (error) {
+    if (error instanceof CliError) {
+      throw error;
+    }
+
+    const suffix =
+      error instanceof Error && error.message.length > 0
+        ? `: ${firstLine(error.message)}`
+        : "";
+    throw new CliError(`eth_call failed${suffix}`);
+  }
+}
+
+async function resolveCallData(
+  options: CallCommandOptions,
+): Promise<HexString> {
+  const hasRawData = options.data !== undefined;
+  const hasAbiInput =
+    options.abi !== undefined ||
+    options.function !== undefined ||
+    options.args !== undefined;
+
+  if (hasRawData && hasAbiInput) {
+    throw new CliError(
+      "use either --data or --abi/--function/--args, not both",
+    );
+  }
+
+  if (hasRawData) {
+    return normalizeHexResult(options.data, "call data");
+  }
+
+  if (options.abi === undefined || options.function === undefined) {
+    throw new CliError("provide --data or both --abi and --function");
+  }
+
+  const abi = await loadAbiFile(options.abi);
+  const args = parseAbiArgs(options.args);
+
+  return encodeAbiCall(abi, options.function, args);
+}
+
+function normalizeNetwork(value: string | undefined): Network {
+  const network = value ?? "testnet";
+  if (!isNetwork(network)) {
+    throw new CliError(`unsupported network: ${network}`);
+  }
+
+  return network;
+}
+
+function normalizeRpcUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      throw new Error("unsupported protocol");
+    }
+
+    return url.toString();
+  } catch {
+    throw new CliError("RPC URL must be an HTTP(S) URL");
+  }
+}
+
+function renderCallResult(
+  result: CallCommandResult,
+  options: CallCommandOptions,
+  stdout: OutputWriter,
+): void {
+  if (options.json) {
+    stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return;
+  }
+
+  if (options.terse) {
+    stdout.write(`${result.result}\n`);
+    return;
+  }
+
+  stdout.write(
+    [
+      `eth_call result: ${result.result}`,
+      `network: ${result.network}`,
+      `rpc: ${result.rpcUrl}`,
+      `to: ${result.to}`,
+      "",
+    ].join("\n"),
+  );
+}
+
+function firstLine(value: string): string {
+  return value.split("\n", 1)[0] ?? value;
+}
