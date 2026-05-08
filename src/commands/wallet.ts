@@ -2,6 +2,10 @@ import { Command } from "commander";
 
 import { registerCallCommand } from "./call.js";
 import { registerExecuteCommand } from "./execute.js";
+import {
+  registerTransferCommand,
+  type TransferCommandDependencies,
+} from "./transfer.js";
 import { getChainConfig, isNetwork, type Network } from "../config/chains.js";
 import {
   deleteWalletProfile,
@@ -41,6 +45,7 @@ export type WalletCommandDependencies = {
   env?: NodeJS.ProcessEnv;
   now?: () => Date;
   stdout?: OutputWriter;
+  transfer?: TransferCommandDependencies;
 };
 
 export type WalletStatusResult = ProfileSummary & {
@@ -136,13 +141,12 @@ export function registerWalletCommands(
 
   registerCallCommand(wallet);
   registerExecuteCommand(wallet);
-
-  wallet
-    .command("transfer")
-    .description("Transfer native ETH or ERC20 tokens through wallet execute")
-    .action(() => {
-      throw new CliError("wallet transfer is not implemented yet");
-    });
+  registerTransferCommand(wallet, {
+    env: dependencies.env,
+    now: dependencies.now,
+    stdout: dependencies.stdout,
+    ...dependencies.transfer,
+  });
 }
 
 export async function login(
