@@ -1,3 +1,4 @@
 plugins/*
 .agents/*
-
+dist/
+node_modules/
