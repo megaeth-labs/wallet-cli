@@ -1,5 +1,6 @@
 import { Command } from "commander";
 
+import { registerCallCommand } from "./commands/call.js";
 import { CliError, formatErrorMessage } from "./errors.js";
 
 export const commandName = "mega";
@@ -14,7 +15,9 @@ export function createCli(): Command {
     .showHelpAfterError()
     .exitOverride();
 
-  const wallet = program.command("wallet").description("Manage MegaETH wallet workflows");
+  const wallet = program
+    .command("wallet")
+    .description("Manage MegaETH wallet workflows");
 
   wallet
     .command("login")
@@ -44,12 +47,7 @@ export function createCli(): Command {
       throw new CliError("wallet logout is not implemented yet");
     });
 
-  wallet
-    .command("call")
-    .description("Run a read-only eth_call")
-    .action(() => {
-      throw new CliError("wallet call is not implemented yet");
-    });
+  registerCallCommand(wallet);
 
   wallet
     .command("execute")
