@@ -1,6 +1,7 @@
 import { Command } from "commander";
 
 import { registerCallCommand } from "./call.js";
+import { registerExecuteCommand } from "./execute.js";
 import { getChainConfig, isNetwork, type Network } from "../config/chains.js";
 import {
   deleteWalletProfile,
@@ -134,13 +135,7 @@ export function registerWalletCommands(
     });
 
   registerCallCommand(wallet);
-
-  wallet
-    .command("execute")
-    .description("Submit one or more write calls through the MegaETH relay")
-    .action(() => {
-      throw new CliError("wallet execute is not implemented yet");
-    });
+  registerExecuteCommand(wallet);
 
   wallet
     .command("transfer")
