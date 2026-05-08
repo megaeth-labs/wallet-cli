@@ -19,7 +19,8 @@
     "format": "prettier --write ."
   },
   "dependencies": {
-    "commander": "^14.0.2"
+    "commander": "^14.0.2",
+    "viem": "2.48.4"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",

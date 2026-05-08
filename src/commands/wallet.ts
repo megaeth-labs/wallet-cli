@@ -1,5 +1,6 @@
 import { Command } from "commander";
 
+import { registerCallCommand } from "./call.js";
 import { getChainConfig, isNetwork, type Network } from "../config/chains.js";
 import { summarizeProfile, type WalletProfile } from "../config/profile.js";
 import { CliError } from "../errors.js";
@@ -73,12 +74,7 @@ export function registerWalletCommands(program: Command): void {
       throw new CliError("wallet logout is not implemented yet");
     });
 
-  wallet
-    .command("call")
-    .description("Run a read-only eth_call")
-    .action(() => {
-      throw new CliError("wallet call is not implemented yet");
-    });
+  registerCallCommand(wallet);
 
   wallet
     .command("execute")
