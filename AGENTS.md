@@ -26,6 +26,22 @@ Core commands:
 Only mainnet is supported for now. Keep `--network testnet` fenced off until the
 wallet UI and relay path are known.
 
+## Distribution
+
+The local install path is repo-owned and deterministic:
+
+- `scripts/install.sh` builds the CLI, installs a versioned release under
+  `~/.mega/wallet-cli/releases/`, updates `~/.mega/wallet-cli/current`, and
+  writes `mega` / `wallet` wrappers into `~/.local/bin` by default.
+- `scripts/install-skill.sh` installs the in-repo `SKILL.md` into Codex and/or
+  Claude skill directories.
+- `pnpm install:local -- --dry-run` and `pnpm install:skill -- --dry-run`
+  should remain safe, non-mutating checks.
+
+When changing installation behavior, update `README.md`, package scripts, and
+the installer regression tests together. Installer scripts must not read wallet
+profiles, private keys, or auth material.
+
 ## Architecture
 
 `mega wallet login` is a native-app loopback flow:

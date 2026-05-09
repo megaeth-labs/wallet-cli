@@ -19,6 +19,40 @@ npm link
 mega wallet --help
 ```
 
+## Install And Update
+
+For a local developer install from this checkout:
+
+```bash
+./scripts/install.sh --with-skill --skill-agent codex
+```
+
+The installer builds the CLI, installs a versioned release under
+`~/.mega/wallet-cli/releases/`, points `~/.mega/wallet-cli/current` at that
+release, and writes `mega` / `wallet` wrappers into `~/.local/bin` by default.
+Add `~/.local/bin` to `PATH` if your shell does not already include it.
+
+To install the agent-facing skill for both Codex and Claude:
+
+```bash
+./scripts/install-skill.sh --agent all --force
+```
+
+To update an existing install, pull the latest checkout and rerun the installer:
+
+```bash
+git pull
+./scripts/install.sh --with-skill --skill-agent codex --force-skill
+```
+
+Useful overrides:
+
+```bash
+./scripts/install.sh --bin-dir "$HOME/bin"
+./scripts/install.sh --install-root "$HOME/.mega/wallet-cli"
+./scripts/install.sh --dry-run --with-skill
+```
+
 ## Functional Regression E2E
 
 The CLI has a functional regression suite that replays the command matrix used
@@ -254,6 +288,8 @@ pnpm build
 pnpm test
 pnpm typecheck
 pnpm lint
+pnpm install:local -- --dry-run
+pnpm install:skill -- --dry-run
 ```
 
 Command changes should include focused Vitest coverage for the command runner,

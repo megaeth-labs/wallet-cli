@@ -8,6 +8,24 @@ description: Use the MegaETH Wallet CLI for local loopback login, profile inspec
 Use this skill when an agent needs to operate a local MegaETH wallet through
 `mega wallet` commands.
 
+## Setup
+
+If `mega wallet --help` is unavailable and the wallet CLI checkout is present,
+install the local CLI and this skill from the repo root:
+
+```bash
+./scripts/install.sh --with-skill --skill-agent codex
+```
+
+For Claude support too, install the skill into both agent homes:
+
+```bash
+./scripts/install-skill.sh --agent all --force
+```
+
+After installing or updating a skill, restart the target agent process so it can
+load the new instructions.
+
 ## Safety Rules
 
 - Never print, log, request, or transmit private keys, bearer tokens, API keys,
