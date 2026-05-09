@@ -84,11 +84,12 @@ By default, login uses `https://account.megaeth.com` for the wallet UI and
 testing a local wallet UI. Use `--relay-url` only for an explicit non-canonical
 relay target.
 
-The default permission request uses ETH as the fee token with a `0.01 ETH`
-fee allowance, and asks for daily spend caps of `0.01 ETH` and `20 USDM`.
-Use `--permissions ./permissions.json` to replace this default with a full
-custom permission object when a single `--allow-call` entry is not enough.
-Login writes one active default profile per network with file mode `0600`.
+The default permission request expires after one week. It uses ETH as the fee
+token with a `0.01 ETH` fee allowance, and asks for a flat `100 USDM/week`
+spending limit. Use `--permissions ./permissions.json` to replace this default
+with a full custom permission object when a single `--allow-call` entry is not
+enough. Login writes one active default profile per network with file mode
+`0600`.
 
 ### Whoami
 

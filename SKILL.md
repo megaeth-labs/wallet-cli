@@ -36,9 +36,9 @@ Login defaults to `https://account.megaeth.com` and
 `https://wallet-relay.megaeth.com`. Use `--wallet-url` only when testing a local
 wallet UI, and use `--relay-url` only for an explicit non-canonical relay.
 
-Default login permissions use ETH as the fee token with a `0.01 ETH` allowance,
-and daily spend caps of `0.01 ETH` plus `20 USDM`. Use a custom permissions
-file when the user needs narrower or different limits.
+Default login permissions expire after one week, use ETH as the fee token with
+a `0.01 ETH` allowance, and ask for a flat `100 USDM/week` spending limit. Use
+a custom permissions file when the user needs narrower or different limits.
 
 Only `mainnet` is enabled for now. Do not use `--network testnet`; the CLI
 rejects it until the testnet wallet path is available.

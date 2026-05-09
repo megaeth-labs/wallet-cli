@@ -19,10 +19,9 @@ export type ResolvePermissionsOptions = {
   now?: Date;
 };
 
-const defaultPermissionTtlSeconds = 30 * 24 * 60 * 60;
+const defaultPermissionTtlSeconds = 7 * 24 * 60 * 60;
 const defaultFeeTokenLimit = "0.01";
-const defaultNativeSpendLimit = "10000000000000000";
-const defaultUsdmSpendLimit = "20000000000000000000";
+const defaultUsdmSpendLimit = "100000000000000000000";
 const mainnetUsdmAddress = "0xfafddbb3fc7688494971a79cc65dca3ef82079e7";
 const periods = new Set(["minute", "hour", "day", "week", "month", "year"]);
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
@@ -64,12 +63,8 @@ export function defaultLoginPermissions(
       calls: [],
       spend: [
         {
-          limit: defaultNativeSpendLimit,
-          period: "day",
-        },
-        {
           limit: defaultUsdmSpendLimit,
-          period: "day",
+          period: "week",
           token: mainnetUsdmAddress,
         },
       ],

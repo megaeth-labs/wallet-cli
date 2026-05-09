@@ -895,14 +895,8 @@ async function assertPermissionScreen(page, timeoutMs) {
   });
   await waitForBodyText(
     page,
-    (text) => /Spend up to\s+0\.01\s+ETH\s+per\s+day/i.test(text),
-    "0.01 ETH/day spend permission",
-    timeoutMs,
-  );
-  await waitForBodyText(
-    page,
-    (text) => /Spend up to\s+20\s+\S+\s+per\s+day/i.test(text),
-    "20 USDM/day spend permission",
+    (text) => /Spend up to\s+100\s+\S+\s+total over the next week/i.test(text),
+    "100 USDM/week spend permission",
     timeoutMs,
   );
 

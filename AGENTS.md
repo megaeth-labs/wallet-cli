@@ -84,12 +84,11 @@ intended for the relay/orchestrator path. It is not EVM gas introspection and it
 is not a separate magical gas-only permission at the final relay permission
 layer. Be careful when changing defaults or copy around this.
 
-The agent-oriented default intentionally allows broad protocol interaction with
-capped daily spend and expiry: ETH is the fee token with a `0.01 ETH` allowance,
-and the visible spend caps are `0.01 ETH/day` plus `20 USDM/day`. Keep those
-caps explicit in prompt/UI copy, avoid ambiguous empty or omitted permissions,
-and update `README.md`, `SKILL.md`, tests, and this file together when changing
-the default.
+The agent-oriented default keeps the visible approval simple: one-week expiry,
+ETH as the fee token with a `0.01 ETH` allowance, and a flat `100 USDM/week`
+spend cap. Keep those caps explicit in prompt/UI copy, avoid ambiguous empty or
+omitted permissions, and update `README.md`, `SKILL.md`, tests, and this file
+together when changing the default.
 
 ## Commands
 

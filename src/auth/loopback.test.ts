@@ -69,7 +69,7 @@ describe("loopback login", () => {
         "utf8",
       ),
     ) as ReturnType<typeof defaultLoginPermissions>;
-    expect(decodedPermissions.expiry).toBe(1_780_704_000);
+    expect(decodedPermissions.expiry).toBe(1_778_716_800);
     expect(decodedPermissions.feeToken).toEqual({
       limit: "0.01",
       symbol: "ETH",
@@ -78,12 +78,8 @@ describe("loopback login", () => {
       calls: [],
       spend: [
         {
-          limit: "10000000000000000",
-          period: "day",
-        },
-        {
-          limit: "20000000000000000000",
-          period: "day",
+          limit: "100000000000000000000",
+          period: "week",
           token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
         },
       ],
