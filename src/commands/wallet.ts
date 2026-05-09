@@ -1,7 +1,12 @@
 import { Command } from "commander";
 
 import { registerCallCommand } from "./call.js";
+import {
+  registerDebugCommand,
+  type DebugCommandDependencies,
+} from "./debug.js";
 import { registerExecuteCommand } from "./execute.js";
+import { registerFundCommand, type FundCommandDependencies } from "./fund.js";
 import {
   registerTransferCommand,
   type TransferCommandDependencies,
@@ -50,6 +55,8 @@ type OutputWriter = {
 
 export type WalletCommandDependencies = {
   env?: NodeJS.ProcessEnv;
+  debug?: DebugCommandDependencies;
+  fund?: FundCommandDependencies;
   now?: () => Date;
   stdout?: OutputWriter;
   transfer?: TransferCommandDependencies;
@@ -155,6 +162,17 @@ export function registerWalletSubcommands(
 
   registerCallCommand(wallet);
   registerExecuteCommand(wallet);
+  registerFundCommand(wallet, {
+    env: dependencies.env,
+    stdout: dependencies.stdout,
+    ...dependencies.fund,
+  });
+  registerDebugCommand(wallet, {
+    env: dependencies.env,
+    now: dependencies.now,
+    stdout: dependencies.stdout,
+    ...dependencies.debug,
+  });
   registerTransferCommand(wallet, {
     env: dependencies.env,
     now: dependencies.now,

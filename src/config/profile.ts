@@ -101,8 +101,8 @@ export async function readWalletProfile(
     if (isNodeError(error, "ENOENT")) {
       const loginInstruction =
         network === defaultNetwork
-          ? "wallet login"
-          : `wallet login --network ${network}`;
+          ? "mega wallet login"
+          : `mega wallet login --network ${network}`;
       throw new CliError(
         `no ${network} wallet profile found; run ${loginInstruction}`,
       );

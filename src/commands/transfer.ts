@@ -14,8 +14,19 @@ import {
   unsupportedNetworkMessage,
 } from "../config/chains.js";
 import { CliError } from "../errors.js";
-import { normalizeAddress } from "../eth/client.js";
-import { encodeErc20TransferCall, parseDecimalUnits } from "../eth/erc20.js";
+import {
+  createEthCallClient,
+  getDefaultRpcUrl,
+  normalizeAddress,
+  normalizeRpcUrl,
+  type EthCallClient,
+} from "../eth/client.js";
+import {
+  encodeErc20TransferCall,
+  parseDecimalUnits,
+  readErc20Metadata,
+  type Erc20Metadata,
+} from "../eth/erc20.js";
 import { compactAddress, redactString, toJson } from "../output.js";
 
 export type TransferCommandOptions = {
@@ -24,6 +35,7 @@ export type TransferCommandOptions = {
   json?: boolean;
   network?: string;
   pollIntervalMs: number;
+  rpcUrl?: string;
   terse?: boolean;
   timeoutMs: number;
   to?: string;
@@ -44,6 +56,7 @@ export type TransferDetails =
       to: `0x${string}`;
       token: `0x${string}`;
       units: string;
+      symbol?: string;
     };
 
 export type TransferCommandResult = ExecuteCommandResult & {
@@ -51,13 +64,21 @@ export type TransferCommandResult = ExecuteCommandResult & {
 };
 
 export type TransferCommandDependencies = ExecuteCommandDependencies & {
+  createTokenClient?: (network: Network, rpcUrl: string) => EthCallClient;
   executeWalletCalls?: ExecuteWalletCallsExecutor;
+  readTokenMetadata?: TokenMetadataReader;
 };
 
 type ExecuteWalletCallsExecutor = (
   options: ExecuteWalletCallsOptions,
   dependencies: ExecuteCommandDependencies,
 ) => Promise<ExecuteCommandResult>;
+
+type TokenMetadataReader = (options: {
+  network: Network;
+  rpcUrl: string;
+  token: `0x${string}`;
+}) => Promise<Erc20Metadata>;
 
 type OutputWriter = {
   write(chunk: string): unknown;
@@ -73,8 +94,13 @@ export function registerTransferCommand(
     .requiredOption("--to <address>", "recipient address")
     .requiredOption("--amount <amount>", "amount in ETH or token units")
     .option("--token <address>", "ERC20 token contract address")
-    .option("--decimals <decimals>", "ERC20 token decimals", parseDecimals)
+    .option(
+      "--decimals <decimals>",
+      "ERC20 token decimals override",
+      parseDecimals,
+    )
     .option("--network <network>", "MegaETH network", defaultNetwork)
+    .option("--rpc-url <url>", "Ethereum JSON-RPC URL for token metadata")
     .option(
       "--poll-interval-ms <ms>",
       "relay status polling interval",
@@ -99,7 +125,7 @@ export async function runWalletTransfer(
   dependencies: TransferCommandDependencies = {},
 ): Promise<TransferCommandResult> {
   const network = normalizeNetwork(options.network);
-  const transfer = buildTransfer(options);
+  const transfer = await buildTransfer(options, network, dependencies);
   const executor = dependencies.executeWalletCalls ?? executeWalletCalls;
   const execution = await executor(
     {
@@ -120,10 +146,14 @@ export async function runWalletTransfer(
   return result;
 }
 
-function buildTransfer(options: TransferCommandOptions): {
+async function buildTransfer(
+  options: TransferCommandOptions,
+  network: Network,
+  dependencies: TransferCommandDependencies,
+): Promise<{
   call: ExecuteWalletCallsOptions["calls"][number];
   details: TransferDetails;
-} {
+}> {
   const amount = normalizeAmount(options.amount);
   const recipient = normalizeAddress(options.to, "transfer recipient");
 
@@ -149,12 +179,14 @@ function buildTransfer(options: TransferCommandOptions): {
     };
   }
 
-  if (options.decimals === undefined) {
-    throw new CliError("provide --decimals for ERC20 transfers");
-  }
-
   const token = normalizeAddress(options.token, "ERC20 token");
-  const units = parseDecimalUnits(amount, options.decimals, "transfer amount");
+  const metadata = await resolveTokenMetadata(
+    options,
+    network,
+    token,
+    dependencies,
+  );
+  const units = parseDecimalUnits(amount, metadata.decimals, "transfer amount");
 
   return {
     call: {
@@ -165,12 +197,49 @@ function buildTransfer(options: TransferCommandOptions): {
     details: {
       amount,
       asset: "erc20",
-      decimals: options.decimals,
+      decimals: metadata.decimals,
       to: recipient,
       token,
       units: units.toString(),
+      ...(metadata.symbol === undefined ? {} : { symbol: metadata.symbol }),
     },
   };
+}
+
+async function resolveTokenMetadata(
+  options: Pick<TransferCommandOptions, "decimals" | "rpcUrl">,
+  network: Network,
+  token: `0x${string}`,
+  dependencies: TransferCommandDependencies,
+): Promise<Erc20Metadata> {
+  if (options.decimals !== undefined) {
+    return { decimals: options.decimals };
+  }
+
+  const rpcUrl = normalizeRpcUrl(options.rpcUrl ?? getDefaultRpcUrl(network));
+  const readMetadata: TokenMetadataReader =
+    dependencies.readTokenMetadata ??
+    ((metadataOptions) => {
+      const client =
+        dependencies.createTokenClient?.(
+          metadataOptions.network,
+          metadataOptions.rpcUrl,
+        ) ??
+        createEthCallClient(metadataOptions.network, metadataOptions.rpcUrl);
+      return readErc20Metadata(client, metadataOptions.token);
+    });
+
+  try {
+    return await readMetadata({ network, rpcUrl, token });
+  } catch (error) {
+    const suffix =
+      error instanceof Error && error.message.length > 0
+        ? `: ${firstLine(error.message)}`
+        : "";
+    throw new CliError(
+      `failed to read ERC20 decimals; pass --decimals or --rpc-url${suffix}`,
+    );
+  }
 }
 
 function renderTransferResult(
@@ -198,7 +267,7 @@ function renderTransferResult(
   const asset =
     result.transfer.asset === "native"
       ? "ETH"
-      : `ERC20 ${compactAddress(result.transfer.token)}`;
+      : `${result.transfer.symbol ?? "ERC20"} ${compactAddress(result.transfer.token)}`;
   const lines = [
     "Transfer submitted.",
     `Asset: ${asset}`,
@@ -240,6 +309,10 @@ function parsePositiveInteger(value: string): number {
   }
 
   return parsed;
+}
+
+function firstLine(value: string): string {
+  return value.split("\n", 1)[0] ?? value;
 }
 
 function normalizeNetwork(value: string | undefined): Network {

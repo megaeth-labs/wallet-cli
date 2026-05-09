@@ -29,6 +29,14 @@ export type RelayExecutionResult = RelaySendResult & {
   signature: HexString;
 };
 
+export type RelayAccountKey = {
+  expiry?: unknown;
+  hash?: unknown;
+  id?: unknown;
+  publicKey?: unknown;
+  role?: unknown;
+};
+
 export type PortoRelayClient = unknown;
 
 export type PortoRelayActions = {
@@ -53,6 +61,10 @@ export type PortoRelayActions = {
     client: PortoRelayClient,
     parameters: { id: HexString },
   ): Promise<RelayCallsStatus>;
+  getKeys?(
+    client: PortoRelayClient,
+    parameters: { account: HexString; chainIds?: readonly number[] },
+  ): Promise<readonly RelayAccountKey[]>;
 };
 
 export type SendRelayCallsOptions = {

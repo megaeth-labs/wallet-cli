@@ -109,7 +109,54 @@ describe("wallet transfer", () => {
     });
   });
 
-  it("requires decimals for ERC20 transfers", async () => {
+  it("resolves ERC20 decimals when no decimals override is provided", async () => {
+    let captured: ExecuteWalletCallsOptions | undefined;
+
+    const result = await runWalletTransfer(
+      {
+        amount: "1.5",
+        network: "mainnet",
+        pollIntervalMs: 1,
+        timeoutMs: 1_000,
+        to: recipient,
+        token,
+      },
+      dependencies({
+        executeWalletCalls: async (options) => {
+          captured = options;
+          return executionResult();
+        },
+        readTokenMetadata: async (options) => {
+          expect(options).toEqual({
+            network: "mainnet",
+            rpcUrl: "https://mainnet.megaeth.com/rpc",
+            token,
+          });
+          return { decimals: 6, symbol: "USDM" };
+        },
+        stdout: memoryOutput(),
+      }),
+    );
+
+    expect(captured?.calls[0]).toEqual({
+      data: "0xa9059cbb000000000000000000000000abcdefabcdefabcdefabcdefabcdefabcdefabcd000000000000000000000000000000000000000000000000000000000016e360",
+      to: token,
+      value: 0n,
+    });
+    expect(result.transfer).toEqual({
+      amount: "1.5",
+      asset: "erc20",
+      decimals: 6,
+      symbol: "USDM",
+      to: recipient,
+      token,
+      units: "1500000",
+    });
+  });
+
+  it("surfaces token metadata failures before executing", async () => {
+    const execute = vi.fn(async () => executionResult());
+
     await expect(
       runWalletTransfer(
         {
@@ -120,9 +167,17 @@ describe("wallet transfer", () => {
           to: recipient,
           token,
         },
-        dependencies(),
+        dependencies({
+          executeWalletCalls: execute,
+          readTokenMetadata: async () => {
+            throw new Error("method not found");
+          },
+        }),
       ),
-    ).rejects.toThrow("provide --decimals for ERC20 transfers");
+    ).rejects.toThrow(
+      "failed to read ERC20 decimals; pass --decimals or --rpc-url: method not found",
+    );
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it("rejects testnet before executing transfer calls", async () => {
@@ -232,6 +287,7 @@ function dependencies(
     executeWalletCalls?: (
       options: ExecuteWalletCallsOptions,
     ) => Promise<ExecuteCommandResult>;
+    readTokenMetadata?: TransferCommandDependencies["readTokenMetadata"];
     stdout?: { write(chunk: string): void };
   } = {},
 ): TransferCommandDependencies {
@@ -241,6 +297,7 @@ function dependencies(
       vi.fn(async () => {
         throw new Error("unexpected execute call");
       }),
+    readTokenMetadata: options.readTokenMetadata,
     stdout: options.stdout,
   };
 }

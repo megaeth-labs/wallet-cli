@@ -34,7 +34,7 @@ describe("wallet status commands", () => {
 
     await expect(
       runWalletWhoami({ network: "mainnet" }, { env, stdout: memoryOutput() }),
-    ).rejects.toThrow("no mainnet wallet profile found; run wallet login");
+    ).rejects.toThrow("no mainnet wallet profile found; run mega wallet login");
   });
 
   it("rejects testnet before reading wallet profiles", async () => {
@@ -127,7 +127,7 @@ describe("wallet status commands", () => {
     expect(stdout.text).toBe(`mainnet\tremoved\t${profile.accessAddress}\n`);
     await expect(profileExists("mainnet", env)).resolves.toBe(false);
     await expect(readWalletProfile("mainnet", env)).rejects.toThrow(
-      "run wallet login",
+      "run mega wallet login",
     );
   });
 

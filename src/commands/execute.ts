@@ -299,7 +299,7 @@ function assertProfileActive(profile: WalletProfile, now: () => Date): void {
     throw new CliError(
       `wallet profile expired at ${new Date(
         profile.authorizedKey.expiry * 1000,
-      ).toISOString()}; run wallet login --network ${profile.network}`,
+      ).toISOString()}; run mega wallet login --network ${profile.network}`,
     );
   }
 }

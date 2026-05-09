@@ -6,26 +6,29 @@ task unless a small adjacent test or documentation update is required.
 
 ## Product Shape
 
-The canonical user-facing binary is `wallet`; `mega wallet ...` is the
-namespaced compatibility entry point. Keep examples and agent-facing docs on
-`wallet <command>` unless compatibility is the point being tested.
+The canonical user-facing command shape is `mega wallet <command>`. The
+standalone `wallet` binary exists as a compatibility shortcut, but examples,
+agent-facing docs, and user-facing recovery messages should teach
+`mega wallet ...`.
 
 Core commands:
 
-- `wallet login`: local loopback authorization for a delegated session key.
-- `wallet whoami`: show the active account, delegated key, expiry, and limits.
-- `wallet keys`: list locally known delegated/access keys and approved limits.
-- `wallet call`: read-only `eth_call`; does not use the relay for writes.
-- `wallet execute`: submit state-changing calls through the MegaETH/Porto relay.
-- `wallet transfer`: convenience wrapper over `execute`.
-- `wallet logout`: remove the local profile only; it does not revoke on-chain.
+- `mega wallet login`: local loopback authorization for a delegated session key.
+- `mega wallet whoami`: show the active account, delegated key, expiry, and limits.
+- `mega wallet keys`: list locally known delegated/access keys and approved limits.
+- `mega wallet call`: read-only `eth_call`; does not use the relay for writes.
+- `mega wallet execute`: submit state-changing calls through the MegaETH/Porto relay.
+- `mega wallet transfer`: convenience wrapper over `execute`.
+- `mega wallet fund`: open the wallet deposit flow for the active account.
+- `mega wallet debug`: inspect local profile, balance, and relay key status without private key output.
+- `mega wallet logout`: remove the local profile only; it does not revoke on-chain.
 
 Only mainnet is supported for now. Keep `--network testnet` fenced off until the
 wallet UI and relay path are known.
 
 ## Architecture
 
-`wallet login` is a native-app loopback flow:
+`mega wallet login` is a native-app loopback flow:
 
 1. The CLI generates a delegated secp256k1 private key locally.
 2. The CLI opens MegaETH Wallet at `/cli-auth/loopback` with the delegated
@@ -99,6 +102,12 @@ pnpm lint
 pnpm typecheck
 pnpm format
 ```
+
+When adding or changing wallet commands, update the command unit tests in
+`src/commands/*.test.ts`, the shared helpers they depend on, `README.md`,
+`SKILL.md`, and this file in the same commit. New user-facing commands must be
+wired through `registerWalletCommands` and tested through the canonical
+`mega wallet <command>` shape.
 
 For command-level regression checks, use:
 

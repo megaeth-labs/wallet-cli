@@ -1,12 +1,12 @@
 ---
 name: mega-wallet-cli
-description: Use the MegaETH Wallet CLI for local loopback login, profile inspection, read-only calls, relay-backed execution, and transfers.
+description: Use the MegaETH Wallet CLI for local loopback login, profile inspection, read-only calls, relay-backed execution, transfers, funding, and diagnostics.
 ---
 
 # MegaETH Wallet CLI
 
-Use this skill when an agent needs to operate a local MegaETH wallet through the
-`wallet` CLI.
+Use this skill when an agent needs to operate a local MegaETH wallet through
+`mega wallet` commands.
 
 ## Safety Rules
 
@@ -14,8 +14,8 @@ Use this skill when an agent needs to operate a local MegaETH wallet through the
   passkeys, WebAuthn material, or relay secrets.
 - Treat profile files as local secrets. Do not copy profile contents into chat,
   issue comments, logs, or telemetry.
-- Use `wallet call` for read-only `eth_call` workflows.
-- Use `wallet execute` or `wallet transfer` only when the user asked
+- Use `mega wallet call` for read-only `eth_call` workflows.
+- Use `mega wallet execute` or `mega wallet transfer` only when the user asked
   for a state-changing operation.
 - Prefer `--json` for machine-readable output and `-t` only for compact text.
 
@@ -24,7 +24,7 @@ Use this skill when an agent needs to operate a local MegaETH wallet through the
 Run loopback login on the same machine as the browser:
 
 ```bash
-wallet login
+mega wallet login
 ```
 
 The CLI opens MegaETH Wallet in the system browser, listens on
@@ -46,8 +46,8 @@ rejects it until the testnet wallet path is available.
 ## Inspect The Active Wallet
 
 ```bash
-wallet whoami --json
-wallet keys --json
+mega wallet whoami --json
+mega wallet keys --json
 ```
 
 Use these before writes to verify the account, delegated access address, expiry,
@@ -56,7 +56,7 @@ network, and approved permission limits.
 ## Read State
 
 ```bash
-wallet call \
+mega wallet call \
   --to 0x1234567890abcdef1234567890abcdef12345678 \
   --data 0x
 ```
@@ -66,7 +66,7 @@ wallet call \
 ## Execute Writes
 
 ```bash
-wallet execute \
+mega wallet execute \
   --to 0x1234567890abcdef1234567890abcdef12345678 \
   --data 0x \
   --value 0
@@ -80,25 +80,46 @@ operation fits the approved delegated-key permissions before executing.
 Native ETH:
 
 ```bash
-wallet transfer --to 0xabcdefabcdefabcdefabcdefabcdefabcdefabcd --amount 0.1
+mega wallet transfer --to 0xabcdefabcdefabcdefabcdefabcdefabcdefabcd --amount 0.1
 ```
 
 ERC20:
 
 ```bash
-wallet transfer \
+mega wallet transfer \
   --token 0x1234567890abcdef1234567890abcdef12345678 \
   --to 0xabcdefabcdefabcdefabcdefabcdefabcdefabcd \
-  --amount 100 \
-  --decimals 18
+  --amount 100
 ```
 
 `transfer` is a wrapper over `execute`; it is still a write operation.
+For ERC20s, the CLI reads token decimals from RPC unless `--decimals` is
+provided.
+
+## Fund The Wallet
+
+```bash
+mega wallet fund
+mega wallet fund --no-open --json
+```
+
+`fund` opens or prints the wallet deposit URL for the active account. It does
+not transfer funds by itself.
+
+## Debug
+
+```bash
+mega wallet debug --json
+mega wallet debug --skip-chain --json
+```
+
+Use `debug` to inspect profile path/mode, account, delegated key expiry, native
+balance, and relay key status. Do not print or copy profile files.
 
 ## Logout
 
 ```bash
-wallet logout
+mega wallet logout
 ```
 
 Logout removes the local profile only. It does not revoke the delegated key

@@ -14,6 +14,7 @@ import {
   getDefaultRpcUrl,
   normalizeAddress,
   normalizeHexResult,
+  normalizeRpcUrl,
   type EthCallClient,
   type HexString,
 } from "../eth/client.js";
@@ -149,19 +150,6 @@ function normalizeNetwork(value: string | undefined): Network {
   }
 
   return network;
-}
-
-function normalizeRpcUrl(value: string): string {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== "http:" && url.protocol !== "https:") {
-      throw new Error("unsupported protocol");
-    }
-
-    return url.toString();
-  } catch {
-    throw new CliError("RPC URL must be an HTTP(S) URL");
-  }
 }
 
 function renderCallResult(

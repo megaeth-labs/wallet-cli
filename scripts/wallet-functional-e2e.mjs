@@ -98,6 +98,29 @@ async function main() {
     assertAddress(keys.keys[0].accessAddress, "key access address");
   });
 
+  await test("debug skip-chain reports local diagnostics", async () => {
+    const result = await wallet(["debug", "--skip-chain", "--json"]);
+    const debug = JSON.parse(result.stdout);
+    assertEqual(debug.network, "mainnet", "expected mainnet debug result");
+    assertEqual(debug.accountAddress, profile.accountAddress, "debug account");
+    assertEqual(debug.accessAddress, profile.accessAddress, "debug access key");
+    assertEqual(
+      debug.delegatedKey.chainStatus,
+      "skipped",
+      "debug chain status",
+    );
+    assert(!("privateKey" in debug), "debug must not print privateKey");
+  });
+
+  await test("fund no-open prints the wallet deposit URL", async () => {
+    const result = await wallet(["fund", "--no-open", "--json"]);
+    const fund = JSON.parse(result.stdout);
+    assertEqual(fund.network, "mainnet", "expected mainnet fund result");
+    assertEqual(fund.accountAddress, profile.accountAddress, "fund account");
+    assertEqual(fund.opened, false, "fund should not open browser");
+    assertIncludes(fund.fundingUrl, "/deposit?");
+  });
+
   await test("logout only removes a copied local profile", async () => {
     await exerciseLogoutWithoutTouchingActiveProfile(options.configDir);
   });
@@ -324,13 +347,13 @@ async function main() {
             options.recipient,
             "--amount",
             "1",
-            "--token",
-            usdmAddress,
+            "--decimals",
+            "18",
           ],
           { expectCode: 1 },
         )
       ).stderr,
-      "provide --decimals for ERC20 transfers",
+      "--decimals can only be used with --token",
     );
   });
 
@@ -426,8 +449,8 @@ async function runWriteTests(profile, fixtures) {
       options.amount,
       "--token",
       usdmAddress,
-      "--decimals",
-      "18",
+      "--rpc-url",
+      options.rpcUrl,
       "-t",
     ]);
     assertTerseRelayResult(result.stdout);

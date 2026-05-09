@@ -24,7 +24,14 @@ export type EthCallClient = {
   call(request: EthCallRequest): Promise<HexString>;
 };
 
+export type EthBalanceClient = {
+  getBalance(address: EthAddress): Promise<bigint>;
+};
+
+export type EthReadClient = EthCallClient & EthBalanceClient;
+
 export type ViemPublicCallClient = Pick<PublicClient, "call">;
+export type ViemPublicReadClient = Pick<PublicClient, "call" | "getBalance">;
 
 const defaultRpcUrls: Record<Network, string> = {
   mainnet: "https://mainnet.megaeth.com/rpc",
@@ -39,6 +46,21 @@ export function createEthCallClient(
   network: Network,
   rpcUrl = getDefaultRpcUrl(network),
 ): EthCallClient {
+  return fromViemPublicClient(createViemPublicClient(network, rpcUrl));
+}
+
+export function createEthReadClient(
+  network: Network,
+  rpcUrl = getDefaultRpcUrl(network),
+): EthReadClient {
+  return fromViemPublicReadClient(createViemPublicClient(network, rpcUrl));
+}
+
+function createViemPublicClient(
+  network: Network,
+  rpcUrl = getDefaultRpcUrl(network),
+): PublicClient {
+  const url = normalizeRpcUrl(rpcUrl);
   const config = getChainConfig(network);
   const chain = defineChain({
     id: config.chainId,
@@ -55,12 +77,10 @@ export function createEthCallClient(
     },
   });
 
-  return fromViemPublicClient(
-    createPublicClient({
-      chain,
-      transport: http(rpcUrl),
-    }),
-  );
+  return createPublicClient({
+    chain,
+    transport: http(url),
+  });
 }
 
 export function fromViemPublicClient(
@@ -74,6 +94,19 @@ export function fromViemPublicClient(
       });
 
       return normalizeHexResult(result.data ?? "0x", "eth_call result");
+    },
+  };
+}
+
+export function fromViemPublicReadClient(
+  client: ViemPublicReadClient,
+): EthReadClient {
+  return {
+    ...fromViemPublicClient(client),
+    async getBalance(address: EthAddress): Promise<bigint> {
+      return client.getBalance({
+        address: address as Address,
+      });
     },
   };
 }
@@ -92,6 +125,19 @@ export function normalizeHexResult(value: unknown, label: string): HexString {
   }
 
   return value as HexString;
+}
+
+export function normalizeRpcUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      throw new Error("unsupported protocol");
+    }
+
+    return url.toString();
+  } catch {
+    throw new CliError("RPC URL must be an HTTP(S) URL");
+  }
 }
 
 export function isValidHexBytes(value: string): value is HexString {

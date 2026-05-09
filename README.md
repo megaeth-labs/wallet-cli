@@ -6,16 +6,17 @@ generates a delegated secp256k1 key locally, opens MegaETH Wallet in the system
 browser, receives approval metadata on `127.0.0.1`, and stores the approved
 profile on the local machine.
 
-The package exposes both binaries after build:
+The package exposes both binaries after build. `mega wallet` is the canonical
+command shape; `wallet` remains a compatibility shortcut.
 
-- `wallet`: wallet commands at the root, e.g. `wallet login`
 - `mega`: namespaced commands, e.g. `mega wallet login`
+- `wallet`: wallet commands at the root, e.g. `wallet login`
 
 ```bash
 pnpm install
 pnpm build
 npm link
-wallet --help
+mega wallet --help
 ```
 
 ## Functional Regression E2E
@@ -38,7 +39,7 @@ pnpm e2e:functional:writes
 Write mode requires an active profile whose delegated key has these call scopes:
 
 ```bash
-wallet login \
+mega wallet login \
   --allow-call '0xfafddbb3fc7688494971a79cc65dca3ef82079e7:transfer(address,uint256)' \
   --allow-call '0xfafddbb3fc7688494971a79cc65dca3ef82079e7:approve(address,uint256)' \
   --allow-call '0x7e324AbC5De01d112AfC03a584966ff199741C28:supply(address,uint256,address,uint16)' \
@@ -51,7 +52,7 @@ submits another paid bundle and expects the CLI to time out locally.
 
 ## Loopback Limitation
 
-`wallet login` is local-machine only. The browser and CLI process must run
+`mega wallet login` is local-machine only. The browser and CLI process must run
 on the same computer because MegaETH Wallet redirects to a random
 `http://127.0.0.1:<port>/callback` URL owned by the CLI. The callback carries
 public approval metadata and a high-entropy `state`; it never carries the
@@ -73,8 +74,8 @@ off until the testnet wallet and relay path are known.
 Authorize a local delegated key and save the approved profile:
 
 ```bash
-wallet login
-wallet login \
+mega wallet login
+mega wallet login \
   --wallet-url http://127.0.0.1:4000 \
   --allow-call 0x1234567890abcdef1234567890abcdef12345678:transfer(address,uint256)
 ```
@@ -97,22 +98,22 @@ Show the active wallet account, delegated key, network, expiry, and derived
 permission summary:
 
 ```bash
-wallet whoami
-wallet whoami --json
-wallet whoami -t
+mega wallet whoami
+mega wallet whoami --json
+mega wallet whoami -t
 ```
 
 `whoami` never prints the private key. If no profile exists, run
-`wallet login` first.
+`mega wallet login` first.
 
 ### Keys
 
 List locally known delegated keys and approved limits:
 
 ```bash
-wallet keys
-wallet keys --json
-wallet keys -t
+mega wallet keys
+mega wallet keys --json
+mega wallet keys -t
 ```
 
 `keys` reports local delegated/access keys, not passkey credentials.
@@ -122,8 +123,8 @@ wallet keys -t
 Remove the local profile for a network:
 
 ```bash
-wallet logout
-wallet logout -t
+mega wallet logout
+mega wallet logout -t
 ```
 
 Logout is local-only in v1. It does not revoke the key on-chain.
@@ -134,11 +135,11 @@ Logout is local-only in v1. It does not revoke the key on-chain.
 transaction through the relay:
 
 ```bash
-wallet call \
+mega wallet call \
   --to 0x1234567890abcdef1234567890abcdef12345678 \
   --data 0x70a08231000000000000000000000000abcdefabcdefabcdefabcdefabcdefabcdefabcd
 
-wallet call \
+mega wallet call \
   --to 0x1234567890abcdef1234567890abcdef12345678 \
   --abi ./erc20.json \
   --function balanceOf \
@@ -154,12 +155,12 @@ permission grant.
 relay using the locally delegated key:
 
 ```bash
-wallet execute \
+mega wallet execute \
   --to 0x1234567890abcdef1234567890abcdef12345678 \
   --data 0xa9059cbb000000000000000000000000abcdefabcdefabcdefabcdefabcdefabcdefabcd0000000000000000000000000000000000000000000000000000000000000001 \
   --value 0
 
-wallet execute --calls ./calls.json
+mega wallet execute --calls ./calls.json
 ```
 
 Use `execute` only for writes. The relay prepares calls, the CLI signs with the
@@ -186,7 +187,7 @@ reported as delegated-key authorization errors.
 Native ETH transfer:
 
 ```bash
-wallet transfer \
+mega wallet transfer \
   --to 0xabcdefabcdefabcdefabcdefabcdefabcdefabcd \
   --amount 0.1
 ```
@@ -194,22 +195,51 @@ wallet transfer \
 ERC20 transfer:
 
 ```bash
-wallet transfer \
+mega wallet transfer \
   --token 0x1234567890abcdef1234567890abcdef12345678 \
   --to 0xabcdefabcdefabcdefabcdefabcdefabcdefabcd \
-  --amount 100 \
-  --decimals 18
+  --amount 100
 ```
+
+For ERC20 transfers, the CLI reads `decimals()` from the token contract by
+default. Use `--decimals` as an explicit override for nonstandard tokens or
+offline flows, and `--rpc-url` when token metadata should be read from a
+specific RPC endpoint.
+
+## Funding
+
+`fund` opens the MegaETH Wallet deposit flow for the active account:
+
+```bash
+mega wallet fund
+mega wallet fund --no-open --json
+```
+
+The command uses the active profile account. It does not transfer funds by
+itself; the browser wallet handles the deposit flow.
+
+## Debug Diagnostics
+
+`debug` prints local wallet diagnostics without private key material:
+
+```bash
+mega wallet debug
+mega wallet debug --skip-chain --json
+```
+
+It reports the profile path/mode, account, delegated access key, expiry, native
+balance when RPC is reachable, and whether the relay still reports the delegated
+key for the account.
 
 ## Agent Usage
 
 Agents should prefer deterministic output:
 
 ```bash
-wallet whoami --json
-wallet keys --json
-wallet call --to 0x... --data 0x... --json
-wallet transfer --to 0x... --amount 0.01 --json
+mega wallet whoami --json
+mega wallet keys --json
+mega wallet call --to 0x... --data 0x... --json
+mega wallet transfer --to 0x... --amount 0.01 --json
 ```
 
 Use `-t` only when compact text is easier to route through a shell pipeline.
@@ -226,6 +256,11 @@ pnpm typecheck
 pnpm lint
 ```
 
+Command changes should include focused Vitest coverage for the command runner,
+registry wiring, JSON/terse output, and secret redaction where applicable. The
+functional E2E script covers the local profile path plus read-only RPC checks;
+paid relay writes stay opt-in.
+
 The v1 command surface is scaffolded incrementally across orchestration tasks.
 This documentation defines the intended CLI contract; implementation tasks fill
-in the command behavior behind the same `wallet ...` entry points.
+in the command behavior behind the same `mega wallet ...` entry points.
