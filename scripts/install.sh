@@ -7,9 +7,18 @@ install_root="${MEGA_WALLET_CLI_HOME:-$HOME/.mega/wallet-cli}"
 bin_dir="${MEGA_WALLET_CLI_BIN_DIR:-$prefix/bin}"
 build=1
 dry_run=0
-with_skill=0
-skill_agent="codex"
+with_skill=1
+skill_agent="all"
 force_skill=0
+assume_yes=0
+default_wallet_url="${MEGA_WALLET_CLI_DEFAULT_WALLET_URL:-}"
+required_node_major=22
+package_manager="$(grep -E '"packageManager":' "$repo_root/package.json" | head -n 1 | sed -E 's/.*"packageManager":[[:space:]]*"([^"]+)".*/\1/')"
+pnpm_package="pnpm@10.23.0"
+case "$package_manager" in
+  pnpm@*) pnpm_package="$package_manager" ;;
+esac
+pnpm_version="${pnpm_package#pnpm@}"
 
 usage() {
   cat <<'USAGE'
@@ -22,15 +31,17 @@ Options:
   --bin-dir DIR            Directory for mega/wallet wrappers (default: <prefix>/bin)
   --install-root DIR       Versioned install root (default: ~/.mega/wallet-cli)
   --skip-build             Reuse existing dist/ instead of running pnpm install/build
-  --with-skill             Also install the agent skill from SKILL.md
-  --skill-agent AGENT      Skill target: codex, claude, or all (default: codex)
-  --force-skill            Replace existing installed skill when --with-skill is used
+  --no-skill               Skip installing the agent skill from SKILL.md
+  --skill-agent AGENT      Skill target: codex, claude, or all (default: all)
+  --force-skill            Replace existing installed skill when it differs
+  --default-wallet-url URL Bake a default wallet URL into installed wrappers
+  -y, --yes                Install missing prerequisites without prompting
   --dry-run                Print actions without writing files or running builds
   -h, --help               Show this help
 
 Examples:
   scripts/install.sh
-  scripts/install.sh --with-skill --skill-agent all
+  scripts/install.sh --skill-agent all
   scripts/install.sh --bin-dir "$HOME/bin" --install-root "$HOME/.mega/wallet-cli"
 USAGE
 }
@@ -57,12 +68,24 @@ while [ "$#" -gt 0 ]; do
       with_skill=1
       shift
       ;;
+    --no-skill)
+      with_skill=0
+      shift
+      ;;
     --skill-agent)
       skill_agent="${2:?missing value for --skill-agent}"
       shift 2
       ;;
     --force-skill)
       force_skill=1
+      shift
+      ;;
+    --default-wallet-url)
+      default_wallet_url="${2:?missing value for --default-wallet-url}"
+      shift 2
+      ;;
+    -y|--yes)
+      assume_yes=1
       shift
       ;;
     --dry-run)
@@ -78,8 +101,18 @@ while [ "$#" -gt 0 ]; do
       usage >&2
       exit 2
       ;;
-  esac
+esac
 done
+
+if [ -n "$default_wallet_url" ]; then
+  case "$default_wallet_url" in
+    http://*|https://*) ;;
+    *)
+      echo "--default-wallet-url must be an HTTP(S) URL" >&2
+      exit 2
+      ;;
+  esac
+fi
 
 run() {
   if [ "$dry_run" -eq 1 ]; then
@@ -101,6 +134,74 @@ require_command() {
   fi
 }
 
+confirm_install() {
+  prompt="$1"
+
+  if [ "$dry_run" -eq 1 ]; then
+    echo "would prompt: $prompt"
+    return 0
+  fi
+
+  if [ "$assume_yes" -eq 1 ]; then
+    return 0
+  fi
+
+  if [ ! -t 0 ]; then
+    echo "$prompt" >&2
+    echo "not running interactively; rerun with --yes to install missing prerequisites" >&2
+    return 1
+  fi
+
+  printf '%s [y/N] ' "$prompt" >&2
+  read -r answer
+  case "$answer" in
+    y|Y|yes|YES|Yes) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+node_major_version() {
+  node -p "Number(process.versions.node.split('.')[0])"
+}
+
+install_node_with_brew() {
+  reason="$1"
+
+  if ! command -v brew >/dev/null 2>&1; then
+    echo "$reason" >&2
+    echo "no supported automatic Node.js installer found; install Node.js >= $required_node_major and rerun" >&2
+    exit 1
+  fi
+
+  if ! confirm_install "$reason Install or upgrade Node.js with Homebrew now?"; then
+    echo "Node.js >= $required_node_major is required" >&2
+    exit 1
+  fi
+
+  run brew install node || run brew upgrade node
+
+  if [ "$dry_run" -eq 1 ]; then
+    return
+  fi
+
+  if ! command -v node >/dev/null 2>&1; then
+    echo "Node.js install completed, but node is still not on PATH" >&2
+    exit 1
+  fi
+}
+
+ensure_node() {
+  if ! command -v node >/dev/null 2>&1; then
+    install_node_with_brew "Node.js >= $required_node_major is missing."
+    return
+  fi
+
+  current_major="$(node_major_version)"
+  if [ "$current_major" -lt "$required_node_major" ]; then
+    install_node_with_brew "Node.js >= $required_node_major is required; found major version $current_major."
+  fi
+}
+
 detect_pnpm() {
   if command -v pnpm >/dev/null 2>&1; then
     pnpm_cmd=(pnpm)
@@ -108,11 +209,52 @@ detect_pnpm() {
   fi
 
   if command -v corepack >/dev/null 2>&1; then
+    if ! confirm_install "pnpm is not installed. Activate $pnpm_package with Corepack now?"; then
+      echo "pnpm is required; install pnpm or rerun and approve Corepack activation" >&2
+      exit 1
+    fi
+    run corepack enable
+    run corepack prepare "$pnpm_package" --activate
+
+    if command -v pnpm >/dev/null 2>&1; then
+      pnpm_cmd=(pnpm)
+      return
+    fi
+
     pnpm_cmd=(corepack pnpm)
     return
   fi
 
-  echo "missing pnpm; install pnpm or enable corepack first" >&2
+  if command -v npm >/dev/null 2>&1; then
+    if ! confirm_install "pnpm is not installed. Install pnpm@$pnpm_version globally with npm now?"; then
+      echo "pnpm is required" >&2
+      exit 1
+    fi
+    run npm install -g "pnpm@$pnpm_version"
+    if [ "$dry_run" -ne 1 ] && ! command -v pnpm >/dev/null 2>&1; then
+      echo "pnpm install completed, but pnpm is still not on PATH" >&2
+      exit 1
+    fi
+    pnpm_cmd=(pnpm)
+    return
+  fi
+
+  if command -v brew >/dev/null 2>&1; then
+    if ! confirm_install "pnpm is not installed. Install pnpm with Homebrew now?"; then
+      echo "pnpm is required" >&2
+      exit 1
+    fi
+    run brew install pnpm
+    if [ "$dry_run" -ne 1 ] && ! command -v pnpm >/dev/null 2>&1; then
+      echo "pnpm install completed, but pnpm is still not on PATH" >&2
+      exit 1
+    fi
+    pnpm_cmd=(pnpm)
+    return
+  fi
+
+  echo "pnpm is missing and no supported automatic installer was found" >&2
+  echo "install pnpm@$pnpm_version or enable Corepack, then rerun" >&2
   exit 1
 }
 
@@ -128,6 +270,9 @@ write_wrapper() {
   mkdir -p "$(dirname "$target")"
   {
     printf '#!/usr/bin/env sh\n'
+    if [ -n "$default_wallet_url" ]; then
+      printf 'export MEGA_WALLET_CLI_WALLET_URL="${MEGA_WALLET_CLI_WALLET_URL:-%s}"\n' "$default_wallet_url"
+    fi
     printf 'exec node "%s/current/dist/%s" "$@"\n' "$install_root" "$entry"
   } >"$target"
   chmod 0755 "$target"
@@ -140,7 +285,7 @@ path_contains() {
   esac
 }
 
-require_command node
+ensure_node
 detect_pnpm
 
 if [ "$dry_run" -eq 0 ] && [ "$build" -eq 1 ]; then
@@ -155,7 +300,7 @@ if [ "$dry_run" -eq 0 ]; then
   fi
 fi
 
-version="$(cd "$repo_root" && node -p "require('./package.json').version")"
+version="$(grep -E '"version":' "$repo_root/package.json" | head -n 1 | sed -E 's/.*"version":[[:space:]]*"([^"]+)".*/\1/')"
 git_rev="$(git -C "$repo_root" rev-parse --short HEAD 2>/dev/null || true)"
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 release_id="$version"

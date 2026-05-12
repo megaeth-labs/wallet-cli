@@ -7,6 +7,7 @@ import {
   type Network,
   unsupportedNetworkMessage,
 } from "../config/chains.js";
+import { readWalletProfile, type WalletProfile } from "../config/profile.js";
 import { CliError } from "../errors.js";
 import { encodeAbiCall, loadAbiFile, parseAbiArgs } from "../eth/abi.js";
 import {
@@ -23,6 +24,7 @@ export type CallCommandOptions = {
   abi?: string;
   args?: string;
   data?: string;
+  from?: string;
   function?: string;
   json?: boolean;
   network?: string;
@@ -33,6 +35,7 @@ export type CallCommandOptions = {
 
 export type CallCommandResult = {
   data: HexString;
+  from?: `0x${string}`;
   network: Network;
   result: HexString;
   rpcUrl: string;
@@ -41,6 +44,11 @@ export type CallCommandResult = {
 
 export type CallCommandDependencies = {
   createClient?: (network: Network, rpcUrl: string) => EthCallClient;
+  env?: NodeJS.ProcessEnv;
+  readProfile?: (
+    network: Network,
+    env: NodeJS.ProcessEnv,
+  ) => Promise<WalletProfile>;
   stdout?: OutputWriter;
 };
 
@@ -57,6 +65,7 @@ export function registerCallCommand(
     .description("Run a read-only eth_call")
     .requiredOption("--to <address>", "contract address to call")
     .option("--data <hex>", "raw calldata")
+    .option("--from <address>", "eth_call sender address")
     .option("--abi <path>", "contract ABI JSON file")
     .option("--function <name>", "ABI function name")
     .option("--args <json>", "ABI function args as a JSON array")
@@ -76,12 +85,20 @@ export async function runWalletCall(
   const network = normalizeNetwork(options.network);
   const rpcUrl = normalizeRpcUrl(options.rpcUrl ?? getDefaultRpcUrl(network));
   const to = normalizeAddress(options.to, "call target");
+  const from = await resolveFrom(options, network, dependencies);
   const data = await resolveCallData(options);
   const client =
     dependencies.createClient?.(network, rpcUrl) ??
     createEthCallClient(network, rpcUrl);
-  const result = await executeEthCall(client, { data, to });
-  const commandResult = { data, network, result, rpcUrl, to };
+  const result = await executeEthCall(client, { data, from, to });
+  const commandResult = {
+    data,
+    ...(from === undefined ? {} : { from }),
+    network,
+    result,
+    rpcUrl,
+    to,
+  };
 
   renderCallResult(
     commandResult,
@@ -94,7 +111,7 @@ export async function runWalletCall(
 
 async function executeEthCall(
   client: EthCallClient,
-  request: { data: HexString; to: `0x${string}` },
+  request: { data: HexString; from?: `0x${string}`; to: `0x${string}` },
 ): Promise<HexString> {
   try {
     return await client.call(request);
@@ -108,6 +125,38 @@ async function executeEthCall(
         ? `: ${firstLine(error.message)}`
         : "";
     throw new CliError(`eth_call failed${suffix}`);
+  }
+}
+
+async function resolveFrom(
+  options: CallCommandOptions,
+  network: Network,
+  dependencies: CallCommandDependencies,
+): Promise<`0x${string}` | undefined> {
+  if (options.from !== undefined) {
+    return normalizeAddress(options.from, "call sender");
+  }
+
+  try {
+    const profile = await (dependencies.readProfile ?? readWalletProfile)(
+      network,
+      dependencies.env ?? process.env,
+    );
+    return profile.accountAddress;
+  } catch (error) {
+    if (
+      error instanceof CliError &&
+      error.message.includes("no mainnet wallet profile found")
+    ) {
+      return undefined;
+    }
+    if (
+      error instanceof CliError &&
+      error.message.includes("no testnet wallet profile found")
+    ) {
+      return undefined;
+    }
+    throw error;
   }
 }
 
@@ -173,6 +222,7 @@ function renderCallResult(
       `network: ${result.network}`,
       `rpc: ${result.rpcUrl}`,
       `to: ${result.to}`,
+      ...(result.from === undefined ? [] : [`from: ${result.from}`]),
       "",
     ].join("\n"),
   );

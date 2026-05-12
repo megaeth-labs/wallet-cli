@@ -14,18 +14,21 @@ export type ChainConfig = {
   relayUrl: string;
 };
 
+const walletUrlOverride = readOptionalEnv("MEGA_WALLET_CLI_WALLET_URL");
+const relayUrlOverride = readOptionalEnv("MEGA_WALLET_CLI_RELAY_URL");
+
 export const chainConfigs: Record<Network, ChainConfig> = {
   mainnet: {
     network: "mainnet",
     chainId: 4326,
-    walletUrl: "https://account.megaeth.com",
-    relayUrl: "https://wallet-relay.megaeth.com",
+    walletUrl: walletUrlOverride ?? "https://account.megaeth.com",
+    relayUrl: relayUrlOverride ?? "https://wallet-relay.megaeth.com",
   },
   testnet: {
     network: "testnet",
     chainId: 6343,
-    walletUrl: "https://testnet-wallet.megaeth.com",
-    relayUrl: "https://testnet-relay.megaeth.com",
+    walletUrl: walletUrlOverride ?? "https://testnet-wallet.megaeth.com",
+    relayUrl: relayUrlOverride ?? "https://testnet-relay.megaeth.com",
   },
 };
 
@@ -43,4 +46,9 @@ export function unsupportedNetworkMessage(network: Network): string {
 
 export function getChainConfig(network: Network): ChainConfig {
   return chainConfigs[network];
+}
+
+function readOptionalEnv(name: string): string | undefined {
+  const value = process.env[name];
+  return value === undefined || value.length === 0 ? undefined : value;
 }

@@ -13,7 +13,7 @@ agent-facing docs, and user-facing recovery messages should teach
 
 Core commands:
 
-- `mega wallet login`: local loopback authorization for a delegated session key.
+- `mega wallet login`: connect the first local wallet profile through loopback authorization.
 - `mega wallet whoami`: show the active account, delegated key, expiry, and limits.
 - `mega wallet keys`: list locally known delegated/access keys and approved limits.
 - `mega wallet call`: read-only `eth_call`; does not use the relay for writes.
@@ -21,7 +21,7 @@ Core commands:
 - `mega wallet transfer`: convenience wrapper over `execute`.
 - `mega wallet fund`: open the wallet deposit flow for the active account.
 - `mega wallet debug`: inspect local profile, balance, and relay key status without private key output.
-- `mega wallet logout`: remove the local profile only; it does not revoke on-chain.
+- `mega wallet logout`: delete the local profile and delegated private key material; it does not revoke on-chain.
 
 Only mainnet is supported for now. Keep `--network testnet` fenced off until the
 wallet UI and relay path are known.
@@ -33,10 +33,19 @@ The local install path is repo-owned and deterministic:
 - `scripts/install.sh` builds the CLI, installs a versioned release under
   `~/.mega/wallet-cli/releases/`, updates `~/.mega/wallet-cli/current`, and
   writes `mega` / `wallet` wrappers into `~/.local/bin` by default.
+  It must check Node.js `>=22` and pnpm before building. Interactive runs may
+  prompt to install missing prerequisites; non-interactive runs must fail with
+  instructions instead of changing system tooling silently.
+  `--default-wallet-url` may bake a local wallet UI URL into wrappers for dev
+  testing; production installs should omit it.
 - `scripts/install-skill.sh` installs the in-repo `SKILL.md` into Codex and/or
-  Claude skill directories.
+  Claude skill directories. The main installer installs the Codex skill by
+  default; use `--no-skill` for binary-only installs.
+- `scripts/uninstall.sh` removes local install artifacts for agent-readiness
+  testing; wallet profiles are removed only when `--config` is passed.
 - `pnpm install:local -- --dry-run` and `pnpm install:skill -- --dry-run`
-  should remain safe, non-mutating checks.
+  should remain safe, non-mutating checks. `pnpm uninstall:local -- --dry-run`
+  should remain safe and non-mutating too.
 
 When changing installation behavior, update `README.md`, package scripts, and
 the installer regression tests together. Installer scripts must not read wallet
@@ -57,6 +66,11 @@ profiles, private keys, or auth material.
 5. The CLI validates `state`, persists the local private key plus the approved
    `authorizedKey` metadata, and uses those fields to reconstruct the Porto
    session key for later relay execution.
+
+Login is a profile bootstrap command. If a profile already exists, it must fail
+before browser auth and direct the user to either `mega wallet logout` or
+`mega wallet create-key`. Use `create-key` to add delegated keys to an existing
+wallet profile.
 
 The browser and CLI process must run on the same machine. This is not a
 server-friendly device-code flow. Do not add remote/server login behavior unless
@@ -104,10 +118,20 @@ is not a separate magical gas-only permission at the final relay permission
 layer. Be careful when changing defaults or copy around this.
 
 The agent-oriented default keeps the visible approval simple: one-week expiry,
-ETH as the fee token with a `0.01 ETH` allowance, and a flat `100 USDM/week`
-spend cap. Keep those caps explicit in prompt/UI copy, avoid ambiguous empty or
-omitted permissions, and update `README.md`, `SKILL.md`, tests, and this file
-together when changing the default.
+USDM as the fee token with a `1 USDM` allowance, and a flat `100 USDM` spend
+cap for the authorization window. It intentionally omits `permissions.calls`,
+which Porto treats as broad contract execution authority for a session key. Use
+`permissions.calls: []` only when the key should have no app-level call scopes,
+or provide explicit call scopes when a more restrictive key is required. Keep
+those caps and call-scope requirements explicit in prompt/UI copy, avoid
+ambiguous empty or omitted permissions, and update `README.md`, `SKILL.md`,
+tests, and this file together when changing the default.
+
+`mega wallet create-key --spend-limit <amount>` is a shorthand for overriding
+the default mainnet USDM spend cap on the new key request. It accepts a human
+USDM amount and preserves the default fee token, expiry, spend token, and spend
+period. Use a full `--permissions` file for anything outside that narrow
+override.
 
 ## Commands
 
@@ -154,6 +178,9 @@ and the test wallet has enough USDM to cover relay fees. Add
 - Keep profile files private to the local user when implementing storage.
 - The local profile contains delegated private key material. Preserve `0600`
   file permissions and redact profile contents in logs, errors, tests, and docs.
+- Treat `mega wallet logout` as a destructive local forget operation: it deletes
+  the local profile and delegated private key material without revoking the
+  on-chain key authorization.
 - Do not construct JSON or calldata by string concatenation for wallet or relay
   payloads. Use structured encoders/parsers and validate untrusted callback and
   profile data.

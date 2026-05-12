@@ -10,8 +10,10 @@ import { chromium } from "playwright";
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const defaultE2eDir = resolve(repoRoot, ".e2e");
 const usdmAddress = "0xfafddbb3fc7688494971a79cc65dca3ef82079e7";
-const nativeTokenAddress = "0x0000000000000000000000000000000000000000";
+const nativeTokenAddress = "native";
 const defaultRelayUrl = "https://wallet-relay.megaeth.com";
+const anyCallTarget = "0x3232323232323232323232323232323232323232";
+const anyCallSelector = "0x32323232";
 
 class ScreenOnlyComplete extends Error {
   constructor() {
@@ -27,10 +29,16 @@ if (options.reset) {
 await mkdir(options.e2eDir, { recursive: true });
 
 const shim = await startShimBackend({
+  mockRelay: options.mockRelay,
   port: options.shimPort,
   statePath: resolve(options.e2eDir, "shim-state.json"),
   relayUrl: options.relayUrl,
 });
+
+if (options.shimOnly) {
+  console.log("Loopback E2E shim ready. Press Ctrl+C to exit.");
+  await new Promise(() => {});
+}
 
 let browser;
 let page;
@@ -64,11 +72,15 @@ try {
   } else {
     console.log("Loopback authorization completed.");
     console.log(`Account: ${loginResult.profile.accountAddress}`);
-    console.log(`Access key: ${loginResult.profile.accessAddress}`);
+    console.log(`Access key: ${loginResult.profile.keys[0].accessAddress}`);
     console.log(
-      `Expires: ${new Date(loginResult.profile.authorizedKey.expiry * 1000).toISOString()}`,
+      `Expires: ${new Date(loginResult.profile.keys[0].authorizedKey.expiry * 1000).toISOString()}`,
     );
     console.log(`CLI config: ${options.configDir}`);
+
+    if (options.management) {
+      await runKeyManagementE2E(page, options, loginResult.profile);
+    }
   }
 
   if (options.hold) {
@@ -98,9 +110,13 @@ function parseArgs(args) {
     headed: false,
     hold: false,
     relayUrl: defaultRelayUrl,
+    formInputs: false,
+    management: false,
+    mockRelay: false,
     reset: false,
     screenOnly: false,
     shimPort: 4002,
+    shimOnly: false,
     timeoutMs: 120_000,
     walletUrl: "http://localhost:4000",
     allowCalls: [],
@@ -134,6 +150,15 @@ function parseArgs(args) {
       case "--hold":
         parsed.hold = true;
         break;
+      case "--form-inputs":
+        parsed.formInputs = true;
+        break;
+      case "--management":
+        parsed.management = true;
+        break;
+      case "--mock-relay":
+        parsed.mockRelay = true;
+        break;
       case "--profile-dir":
         profileDir = resolve(readValue(args, ++index, arg));
         break;
@@ -154,6 +179,9 @@ function parseArgs(args) {
           readValue(args, ++index, arg),
           arg,
         );
+        break;
+      case "--shim-only":
+        parsed.shimOnly = true;
         break;
       case "--timeout-ms":
         parsed.timeoutMs = parsePositiveInteger(
@@ -212,11 +240,15 @@ Options:
   --screen-only          Stop after verifying the wallet permission screen
   --headed               Show the Playwright Chromium window
   --hold                 Keep the browser open after the check
+  --form-inputs          Exercise permission edit-form inputs before approving
+  --management           Run live delegated-key management checks after login
+  --mock-relay           Mock relay send/status/key RPCs in the local shim
   --reset                Delete .e2e state before starting
   --wallet-url <url>     Wallet UI URL (default: http://localhost:4000)
   --permissions <path>   Permission request JSON file
   --allow-call <scope>   Add target:signature call scope, repeatable
   --shim-port <port>     Local shim backend port (default: 4002)
+  --shim-only            Start only the local shim backend
   --relay-url <url>      Relay proxy target (default: ${defaultRelayUrl})
   --timeout-ms <ms>      Login timeout (default: 120000)
   --profile-dir <path>   Playwright profile directory
@@ -336,12 +368,15 @@ function redactTelemetry(value) {
   );
 }
 
-async function startShimBackend({ port, statePath, relayUrl }) {
+async function startShimBackend({ mockRelay, port, statePath, relayUrl }) {
   const state = await readShimState(statePath);
 
   const server = createServer(async (request, response) => {
     try {
-      await handleShimRequest(request, response, state, statePath, relayUrl);
+      await handleShimRequest(request, response, state, statePath, {
+        mockRelay,
+        relayUrl,
+      });
     } catch (error) {
       json(response, request, 500, {
         error: error instanceof Error ? error.message : "shim backend error",
@@ -408,7 +443,7 @@ async function handleShimRequest(
   response,
   state,
   statePath,
-  relayUrl,
+  { mockRelay, relayUrl },
 ) {
   applyCors(request, response);
 
@@ -426,7 +461,28 @@ async function handleShimRequest(
   }
 
   if (url.pathname === "/rpc") {
-    await proxyRelayRpc(request, response, relayUrl);
+    if (mockRelay) {
+      await handleMockRelayRpc(request, response, state, relayUrl);
+    } else {
+      await proxyRelayRpc(request, response, relayUrl);
+    }
+    return;
+  }
+
+  if (request.method === "PUT" && url.pathname === "/__mega_cli_e2e/mock-key") {
+    const body = await readJson(request);
+    const id = normalizeAddress(body.id ?? body.accessAddress);
+    state.mockKeys[id] = {
+      chainId: "0x10e6",
+      hash: body.hash ?? mockKeyHash(id),
+      key: toRelayMockKey({
+        expiry: body.expiry ?? 0,
+        permissions: body.permissions,
+        publicKey: body.publicKey ?? body.accessAddress,
+      }),
+    };
+    await writeShimState(statePath, state);
+    json(response, request, 200, { ok: true });
     return;
   }
 
@@ -451,10 +507,10 @@ async function handleShimRequest(
         name: "Ether",
         symbol: "ETH",
         decimals: 18,
-        balance: "1000000000000000000",
-        displayBalance: "1",
+        balance: "0",
+        displayBalance: "0",
         usdPrice: "1",
-        usdBalance: "1",
+        usdBalance: "0",
       },
       {
         address: usdmAddress,
@@ -553,8 +609,8 @@ async function handleShimRequest(
   });
 }
 
-async function proxyRelayRpc(request, response, relayUrl) {
-  const body = await readRawBody(request);
+async function proxyRelayRpc(request, response, relayUrl, bodyOverride) {
+  const body = bodyOverride ?? (await readRawBody(request));
   const relayResponse = await fetch(relayUrl, {
     method: "POST",
     headers: {
@@ -570,6 +626,203 @@ async function proxyRelayRpc(request, response, relayUrl) {
       relayResponse.headers.get("content-type") ?? "application/json",
   });
   response.end(Buffer.from(await relayResponse.arrayBuffer()));
+}
+
+async function handleMockRelayRpc(request, response, state, relayUrl) {
+  const body = await readJson(request);
+  const requests = Array.isArray(body) ? body : [body];
+  if (requests.some((entry) => !isMockRelayMethod(entry?.method))) {
+    await proxyRelayRpc(
+      request,
+      response,
+      relayUrl,
+      Buffer.from(JSON.stringify(body)),
+    );
+    return;
+  }
+
+  const results = requests.map((entry) => mockRelayResult(entry, state));
+  json(response, request, 200, Array.isArray(body) ? results : results[0]);
+}
+
+function isMockRelayMethod(method) {
+  return [
+    "wallet_prepareCalls",
+    "wallet_sendPreparedCalls",
+    "wallet_sendCalls",
+    "wallet_getCallsStatus",
+    "wallet_getKeys",
+  ].includes(method);
+}
+
+function mockRelayResult(entry, state) {
+  const id = entry?.id ?? null;
+  const method = entry?.method;
+
+  switch (method) {
+    case "wallet_prepareCalls":
+      return mockPrepareCalls(entry);
+    case "wallet_sendPreparedCalls":
+    case "wallet_sendCalls":
+      return {
+        jsonrpc: "2.0",
+        id,
+        result: {
+          id: `0x${randomBytes(32).toString("hex")}`,
+        },
+      };
+    case "wallet_getCallsStatus": {
+      const callId = entry?.params?.[0]?.id ?? `0x${"11".repeat(32)}`;
+      return {
+        jsonrpc: "2.0",
+        id,
+        result: {
+          id: callId,
+          receipts: [
+            {
+              blockHash: `0x${"22".repeat(32)}`,
+              blockNumber: "0x1",
+              chainId: "0x10e6",
+              gasUsed: "0x5208",
+              logs: [],
+              status: "0x1",
+              transactionHash: `0x${randomBytes(32).toString("hex")}`,
+            },
+          ],
+          status: 200,
+        },
+      };
+    }
+    case "wallet_getKeys":
+      return {
+        jsonrpc: "2.0",
+        id,
+        result: buildMockKeysByChain(state.mockKeys),
+      };
+    default:
+      return {
+        jsonrpc: "2.0",
+        id,
+        error: {
+          code: -32601,
+          message: `mock relay does not implement ${method}`,
+        },
+      };
+  }
+}
+
+function mockPrepareCalls(entry) {
+  const id = entry?.id ?? null;
+  const parameters = entry?.params?.[0] ?? {};
+  const revokeKeys = parameters.capabilities?.revokeKeys ?? null;
+  const authorizeKeys = parameters.capabilities?.authorizeKeys ?? null;
+
+  return {
+    jsonrpc: "2.0",
+    id,
+    result: {
+      capabilities: {
+        authorizeKeys: authorizeKeys
+          ? authorizeKeys.map((key) => ({
+              ...key,
+              hash: mockKeyHashFromPublicKey(key.publicKey),
+            }))
+          : null,
+        revokeKeys,
+      },
+      context: {},
+      digest: `0x${randomBytes(32).toString("hex")}`,
+      key: parameters.key ?? null,
+      signature: `0x${randomBytes(65).toString("hex")}`,
+      typedData: {
+        domain: {},
+        message: {},
+        primaryType: "EIP712Domain",
+        types: {},
+      },
+    },
+  };
+}
+
+function buildMockKeysByChain(mockKeys) {
+  const result = {};
+  for (const entry of Object.values(mockKeys)) {
+    result[entry.chainId] ??= [];
+    result[entry.chainId].push({
+      ...entry.key,
+      hash: entry.hash,
+    });
+  }
+  return result;
+}
+
+function toRelayMockKey({ expiry, permissions, publicKey }) {
+  return {
+    expiry: toHexQuantity(expiry),
+    permissions: toRelayMockPermissions(permissions),
+    prehash: false,
+    publicKey,
+    role: "normal",
+    type: "secp256k1",
+  };
+}
+
+function toRelayMockPermissions(permissions) {
+  const result = [];
+
+  if (permissions?.calls === undefined) {
+    result.push({
+      selector: anyCallSelector,
+      to: anyCallTarget,
+      type: "call",
+    });
+  }
+
+  for (const call of permissions?.calls ?? []) {
+    result.push({
+      selector: call.signature ?? anyCallSelector,
+      to: call.to ?? anyCallTarget,
+      type: "call",
+    });
+  }
+
+  for (const spend of permissions?.spend ?? []) {
+    result.push({
+      limit: toHexQuantity(spend.limit),
+      period: spend.period,
+      ...(spend.token === undefined ? {} : { token: spend.token }),
+      type: "spend",
+    });
+  }
+
+  return result;
+}
+
+function toHexQuantity(value) {
+  if (typeof value === "bigint") {
+    return `0x${value.toString(16)}`;
+  }
+  if (typeof value === "number") {
+    return `0x${BigInt(value).toString(16)}`;
+  }
+  if (typeof value === "string") {
+    if (value.startsWith("0x")) {
+      return value;
+    }
+    return `0x${BigInt(value).toString(16)}`;
+  }
+  throw new Error("expected bigint-compatible permission limit");
+}
+
+function mockKeyHash(id) {
+  return `0x${id.slice(2).padStart(64, "0")}`;
+}
+
+function mockKeyHashFromPublicKey(publicKey) {
+  if (typeof publicKey !== "string" || !/^0x[0-9a-fA-F]+$/.test(publicKey)) {
+    return `0x${"00".repeat(32)}`;
+  }
+  return `0x${publicKey.slice(2).padStart(64, "0").slice(-64)}`;
 }
 
 function applyCors(request, response) {
@@ -617,11 +870,13 @@ async function readShimState(path) {
   try {
     const parsed = JSON.parse(await readFile(path, "utf8"));
     return {
+      mockKeys: parsed.mockKeys ?? {},
       publicKeyLookup: parsed.publicKeyLookup ?? {},
       wallets: parsed.wallets ?? {},
     };
   } catch {
     return {
+      mockKeys: {},
       publicKeyLookup: {},
       wallets: {},
     };
@@ -854,6 +1109,7 @@ async function runCliLogin(page, runOptions) {
     allowCalls: runOptions.allowCalls,
     permissionsFile: runOptions.permissionsFile,
   });
+  let editedPermissionExpectation;
 
   try {
     const result = await runLoopbackLogin({
@@ -870,6 +1126,13 @@ async function runCliLogin(page, runOptions) {
         await page.goto(authUrl, { waitUntil: "domcontentloaded" });
         await assertPermissionScreen(page, runOptions.timeoutMs);
 
+        if (runOptions.formInputs) {
+          editedPermissionExpectation = await exercisePermissionEditor(
+            page,
+            runOptions.timeoutMs,
+          );
+        }
+
         if (runOptions.screenOnly) {
           throw new ScreenOnlyComplete();
         }
@@ -877,6 +1140,12 @@ async function runCliLogin(page, runOptions) {
         await page.getByRole("button", { name: "Approve" }).click();
       },
     });
+    if (editedPermissionExpectation) {
+      assertEditedPermissions(
+        result.profile.keys[0]?.authorizedKey,
+        editedPermissionExpectation,
+      );
+    }
     return {
       screenOnly: false,
       profile: result.profile,
@@ -887,6 +1156,318 @@ async function runCliLogin(page, runOptions) {
     }
     throw error;
   }
+}
+
+async function runKeyManagementE2E(page, runOptions, initialProfile) {
+  const [walletCommands, loopback, profileStore] = await Promise.all([
+    import(pathToFileURL(resolve(repoRoot, "dist/commands/wallet.js")).href),
+    import(pathToFileURL(resolve(repoRoot, "dist/auth/loopback.js")).href),
+    import(pathToFileURL(resolve(repoRoot, "dist/config/profile.js")).href),
+  ]);
+  const env = {
+    ...process.env,
+    MEGA_WALLET_CLI_CONFIG_DIR: runOptions.configDir,
+  };
+  const firstKey = initialProfile.keys[0];
+  if (!firstKey?.id) {
+    throw new Error("initial loopback profile did not include a delegated key");
+  }
+
+  console.log("Running delegated-key management E2E...");
+
+  const created = await withOutput((stdout) =>
+    walletCommands.runWalletCreateKey(
+      {
+        allowCall: [],
+        label: "e2e-management",
+        network: "mainnet",
+        timeoutMs: runOptions.timeoutMs,
+      },
+      {
+        authorizeKey: (options) =>
+          loopback.authorizeLoopbackKey({
+            ...options,
+            env,
+            openBrowser: async (authUrl) => {
+              await page.goto(authUrl, { waitUntil: "domcontentloaded" });
+              await assertPermissionScreen(page, runOptions.timeoutMs);
+              await page.getByRole("button", { name: "Approve" }).click();
+            },
+          }),
+        env,
+        stdout,
+      },
+    ),
+  );
+  const secondKey = created.result.key;
+  assert(
+    secondKey.id.toLowerCase() !== firstKey.id.toLowerCase(),
+    "create-key reused the existing key id",
+  );
+  assertIncludes(created.stdout, "This key is now the default");
+  if (runOptions.mockRelay) {
+    await fetch(
+      `http://127.0.0.1:${runOptions.shimPort}/__mega_cli_e2e/mock-key`,
+      {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          accessAddress: secondKey.accessAddress,
+          expiry: secondKey.authorizedKey.expiry,
+          id: secondKey.id,
+          permissions: secondKey.authorizedKey.permissions,
+          publicKey: secondKey.authorizedKey.publicKey,
+        }),
+      },
+    );
+  }
+
+  const listAfterCreate = await withOutput((stdout) =>
+    walletCommands.runWalletList(
+      { network: "mainnet", showInactive: true, json: true },
+      { env, stdout },
+    ),
+  );
+  assert(
+    listAfterCreate.result.keys.length >= 2,
+    "expected list to include both delegated keys",
+  );
+  assert(
+    listAfterCreate.result.keys.some(
+      (key) => key.id.toLowerCase() === secondKey.id.toLowerCase(),
+    ),
+    "created key missing from list output",
+  );
+
+  const permissions = await withOutput((stdout) =>
+    walletCommands.runWalletPermissions(
+      secondKey.id,
+      { network: "mainnet" },
+      { env, stdout },
+    ),
+  );
+  assertIncludes(
+    permissions.stdout,
+    "Can spend up to 100 USDM until key expiry",
+  );
+
+  await withOutput((stdout) =>
+    walletCommands.runWalletLabel(
+      secondKey.id,
+      "e2e-renamed",
+      { network: "mainnet", terse: true },
+      { env, stdout },
+    ),
+  );
+
+  const switchFirst = await withOutput((stdout) =>
+    walletCommands.runWalletSwitch(
+      firstKey.id,
+      { network: "mainnet", terse: true },
+      { env, stdout },
+    ),
+  );
+  assertIncludes(switchFirst.stdout, firstKey.id);
+
+  const switchSecond = await withOutput((stdout) =>
+    walletCommands.runWalletSwitch(
+      secondKey.id,
+      { network: "mainnet", terse: true },
+      { env, stdout },
+    ),
+  );
+  assertIncludes(switchSecond.stdout, secondKey.id);
+
+  const revoked = await withOutput((stdout) =>
+    walletCommands.runWalletRevoke(
+      secondKey.id,
+      { network: "mainnet", timeoutMs: runOptions.timeoutMs },
+      {
+        env,
+        revokeKey: (options) =>
+          loopback.runLoopbackRevoke({
+            ...options,
+            openBrowser: async (authUrl) => {
+              await page.goto(authUrl, { waitUntil: "domcontentloaded" });
+              await page
+                .getByText(/Revok(e|ing) Mega CLI Key/)
+                .waitFor({ timeout: runOptions.timeoutMs / 2 })
+                .catch(() => undefined);
+            },
+          }),
+        stdout,
+      },
+    ),
+  );
+  assertEqual(
+    revoked.result.key.effectiveStatus,
+    "revoked",
+    "revoked key should be inactive locally",
+  );
+
+  const stored = await profileStore.readWalletProfile("mainnet", env);
+  const storedRevoked = stored.keys.find(
+    (key) => key.id.toLowerCase() === secondKey.id.toLowerCase(),
+  );
+  assert(storedRevoked, "revoked key missing from local audit log");
+  assertEqual(storedRevoked.status, "revoked", "key status was not revoked");
+  assert(
+    !Object.hasOwn(storedRevoked, "privateKey"),
+    "revoked key retained privateKey material",
+  );
+
+  await withOutput((stdout) =>
+    walletCommands.runWalletSwitch(
+      firstKey.id,
+      { network: "mainnet", terse: true },
+      { env, stdout },
+    ),
+  );
+
+  console.log("Delegated-key management E2E completed.");
+  console.log(`Created/revoked key: ${secondKey.accessAddress}`);
+  console.log(`Restored active key: ${firstKey.accessAddress}`);
+}
+
+async function withOutput(action) {
+  const stdout = memoryOutput();
+  const result = await action(stdout);
+  return {
+    result,
+    stdout: stdout.text,
+  };
+}
+
+function memoryOutput() {
+  let text = "";
+
+  return {
+    get text() {
+      return text;
+    },
+    write(chunk) {
+      text += chunk;
+    },
+  };
+}
+
+async function exercisePermissionEditor(page, timeoutMs) {
+  const secondToken = "0x2222222222222222222222222222222222222222";
+  const removedToken = "0x9999999999999999999999999999999999999999";
+  const exactTarget = "0x3333333333333333333333333333333333333333";
+  const contractTarget = "0x4444444444444444444444444444444444444444";
+  const exactSignature = "transfer(address,uint256)";
+  const signatureOnly = "approve(address,uint256)";
+  const expiryValue = formatDatetimeLocal(
+    new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
+  );
+
+  await page.getByRole("button", { name: "Edit" }).click();
+  await waitForBodyText(
+    page,
+    (text) => text.includes("Contract interactions"),
+    "permission editor",
+    timeoutMs,
+  );
+
+  await page.getByLabel("Expiry date").fill(expiryValue);
+  await page.getByLabel("Amount").first().fill("75");
+  await page.getByLabel("Limit reload").first().selectOption("none");
+
+  await page.getByRole("button", { name: "Add token limit" }).click();
+  await page.getByLabel("Token address").nth(1).fill(secondToken);
+  await page.getByLabel("Amount").nth(1).fill("2.5");
+  await page.getByLabel("Limit reload").nth(1).selectOption("day");
+
+  await page.getByRole("button", { name: "Add token limit" }).click();
+  await page.getByLabel("Token address").nth(2).fill(removedToken);
+  await page.getByRole("button", { name: "Remove token limit" }).last().click();
+
+  await page.getByLabel("Contract interactions").selectOption("all");
+  await waitForBodyText(
+    page,
+    (text) => text.includes("This key can call any contract"),
+    "arbitrary call mode",
+    timeoutMs,
+  );
+
+  await page.getByLabel("Contract interactions").selectOption("none");
+  await waitForBodyText(
+    page,
+    (text) => text.includes("No contract interactions"),
+    "no-call mode",
+    timeoutMs,
+  );
+
+  await page.getByLabel("Contract interactions").selectOption("scoped");
+  await page.getByRole("button", { name: "Add allowed call" }).click();
+  await page.getByLabel("Contract address").nth(0).fill(exactTarget);
+  await page.getByLabel("Function signature").nth(0).fill(exactSignature);
+
+  await page.getByRole("button", { name: "Add allowed call" }).click();
+  await page.getByLabel("Contract address").nth(1).fill(contractTarget);
+
+  await page.getByRole("button", { name: "Add allowed call" }).click();
+  await page.getByLabel("Function signature").nth(2).fill(signatureOnly);
+
+  return {
+    calls: [
+      {
+        to: exactTarget,
+        signature: exactSignature,
+      },
+      {
+        to: contractTarget,
+      },
+      {
+        signature: signatureOnly,
+      },
+    ],
+    spend: [
+      {
+        limit: "75000000000000000000",
+        period: "year",
+        token: usdmAddress,
+      },
+      {
+        limit: "2500000000000000000",
+        period: "day",
+        token: secondToken,
+      },
+    ],
+    expiry: Math.floor(new Date(expiryValue).getTime() / 1000),
+  };
+}
+
+function assertEditedPermissions(authorizedKey, expected) {
+  assert(authorizedKey, "edited login did not return an authorized key");
+  const permissions = authorizedKey.permissions;
+  assertEqual(
+    JSON.stringify(permissions.calls),
+    JSON.stringify(expected.calls),
+    "edited call permissions were not serialized correctly",
+  );
+  assertEqual(
+    JSON.stringify(permissions.spend),
+    JSON.stringify(expected.spend),
+    "edited spend permissions were not serialized correctly",
+  );
+  assertEqual(
+    authorizedKey.expiry,
+    expected.expiry,
+    "edited expiry was not serialized correctly",
+  );
+}
+
+function formatDatetimeLocal(date) {
+  const year = date.getFullYear().toString().padStart(4, "0");
+  const month = (date.getMonth() + 1).toString().padStart(2, "0");
+  const day = date.getDate().toString().padStart(2, "0");
+  const hour = date.getHours().toString().padStart(2, "0");
+  const minute = date.getMinutes().toString().padStart(2, "0");
+  return `${year}-${month}-${day}T${hour}:${minute}`;
 }
 
 async function assertPermissionScreen(page, timeoutMs) {
@@ -912,6 +1493,24 @@ function assertMissing(text, forbidden) {
     throw new Error(
       `permission screen still contains unexpected copy: ${forbidden}`,
     );
+  }
+}
+
+function assert(condition, message) {
+  if (!condition) {
+    throw new Error(message);
+  }
+}
+
+function assertEqual(actual, expected, message) {
+  if (actual !== expected) {
+    throw new Error(`${message}: expected ${expected}, got ${actual}`);
+  }
+}
+
+function assertIncludes(value, expected) {
+  if (!value.includes(expected)) {
+    throw new Error(`expected output to include ${expected}`);
   }
 }
 

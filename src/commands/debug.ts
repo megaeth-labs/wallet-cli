@@ -10,10 +10,12 @@ import {
 } from "../config/chains.js";
 import { getProfilePath } from "../config/paths.js";
 import {
+  getActiveWalletKey,
   getProfileMode,
   readWalletProfile,
   type AuthorizedKey,
   type HexString,
+  type WalletKeyRecord,
   type WalletProfile,
 } from "../config/profile.js";
 import { CliError } from "../errors.js";
@@ -32,7 +34,7 @@ import {
   type PortoRelayClient,
   type RelayAccountKey,
 } from "../relay/sendCalls.js";
-import { sessionKeyFromProfile } from "../relay/sessionKey.js";
+import { sessionKeyFromWalletKey } from "../relay/sessionKey.js";
 
 export type DebugCommandOptions = {
   json?: boolean;
@@ -116,12 +118,16 @@ export async function runWalletDebug(
   const network = normalizeNetwork(options.network);
   const env = dependencies.env ?? process.env;
   const profile = await readWalletProfile(network, env);
+  const activeKey = getActiveWalletKey(profile);
+  if (activeKey === undefined) {
+    throw new CliError("wallet profile has no active delegated key");
+  }
   const rpcUrl = normalizeRpcUrl(options.rpcUrl ?? getDefaultRpcUrl(network));
   const result: DebugCommandResult = {
-    accessAddress: profile.accessAddress,
+    accessAddress: activeKey.accessAddress,
     accountAddress: profile.accountAddress,
     createdAt: profile.createdAt,
-    delegatedKey: await inspectDelegatedKey(profile, {
+    delegatedKey: await inspectDelegatedKey(profile, activeKey, {
       createRelayClient: dependencies.createRelayClient,
       now: dependencies.now,
       relayActions: dependencies.relayActions,
@@ -134,15 +140,15 @@ export async function runWalletDebug(
       skipChain: options.skipChain,
     }),
     network,
-    permissions: profile.authorizedKey.permissions,
+    permissions: activeKey.authorizedKey.permissions,
     profilePath: getProfilePath(network, env),
     relayUrl: profile.relayUrl,
     rpcUrl,
     updatedAt: profile.updatedAt,
     walletUrl: profile.walletUrl,
-    ...(profile.grantTxHash === undefined
+    ...(activeKey.grantTxHash === undefined
       ? {}
-      : { grantTxHash: profile.grantTxHash }),
+      : { grantTxHash: activeKey.grantTxHash }),
   };
 
   const mode = await readProfileMode(network, env);
@@ -157,6 +163,7 @@ export async function runWalletDebug(
 
 async function inspectDelegatedKey(
   profile: WalletProfile,
+  activeKey: WalletKeyRecord,
   options: {
     createRelayClient?: (
       relayUrl: string,
@@ -171,16 +178,16 @@ async function inspectDelegatedKey(
     (options.now ?? (() => new Date()))().getTime() / 1000,
   );
   let localStatus: DebugCommandResult["delegatedKey"]["localStatus"] =
-    profile.authorizedKey.expiry <= nowSeconds ? "expired" : "active";
+    activeKey.authorizedKey.expiry <= nowSeconds ? "expired" : "active";
   try {
-    sessionKeyFromProfile(profile);
+    sessionKeyFromWalletKey(activeKey);
   } catch {
     localStatus = "invalid";
   }
 
   const base = {
     chainStatus: options.skipChain ? "skipped" : "unavailable",
-    expiresAt: new Date(profile.authorizedKey.expiry * 1000).toISOString(),
+    expiresAt: new Date(activeKey.authorizedKey.expiry * 1000).toISOString(),
     localStatus,
   } satisfies DebugCommandResult["delegatedKey"];
 
@@ -205,7 +212,7 @@ async function inspectDelegatedKey(
       account: profile.accountAddress,
       chainIds: [getChainConfig(profile.network).chainId],
     });
-    const chainKey = keys.find((key) => keyMatchesProfile(key, profile));
+    const chainKey = keys.find((key) => keyMatchesProfile(key, activeKey));
 
     if (!chainKey) {
       return {
@@ -327,12 +334,12 @@ function renderDebugResult(
 
 function keyMatchesProfile(
   key: RelayAccountKey,
-  profile: WalletProfile,
+  activeKey: WalletKeyRecord,
 ): boolean {
   return (
-    matchesHex(key.id, profile.accessAddress) ||
-    matchesHex(key.publicKey, profile.accessAddress) ||
-    matchesHex(key.hash, profile.accessAddress)
+    matchesHex(key.id, activeKey.accessAddress) ||
+    matchesHex(key.publicKey, activeKey.accessAddress) ||
+    matchesHex(key.hash, activeKey.accessAddress)
   );
 }
 

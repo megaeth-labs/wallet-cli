@@ -1,7 +1,11 @@
 import { readFile } from "node:fs/promises";
 
 import { CliError } from "../errors.js";
-import type { AuthorizedKey, HexString } from "../config/profile.js";
+import type {
+  AuthorizedKey,
+  CallPermission,
+  HexString,
+} from "../config/profile.js";
 
 export type CliPermissionRequest = {
   expiry: number;
@@ -17,21 +21,35 @@ export type ResolvePermissionsOptions = {
   permissionsFile?: string;
   allowCalls?: string[];
   now?: Date;
+  spendLimit?: string;
 };
 
 const defaultPermissionTtlSeconds = 7 * 24 * 60 * 60;
-const defaultFeeTokenLimit = "0.01";
+const defaultFeeTokenLimit = "1";
+const defaultFeeTokenSymbol = "USDM";
 const defaultUsdmSpendLimit = "100000000000000000000";
+const usdmDecimals = 18;
 const mainnetUsdmAddress = "0xfafddbb3fc7688494971a79cc65dca3ef82079e7";
+const selectorPattern = /^0x[0-9a-fA-F]{8}$/;
 const periods = new Set(["minute", "hour", "day", "week", "month", "year"]);
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
+const decimalAmountPattern = /^(?:0|[1-9]\d*)(?:\.\d+)?$/;
 
 export async function resolveLoginPermissions(
   options: ResolvePermissionsOptions = {},
 ): Promise<CliPermissionRequest> {
+  if (
+    options.permissionsFile !== undefined &&
+    options.spendLimit !== undefined
+  ) {
+    throw new CliError("use either --permissions or --spend-limit, not both");
+  }
+
   const request =
     options.permissionsFile === undefined
-      ? defaultLoginPermissions(options.now)
+      ? defaultLoginPermissions(options.now, {
+          spendLimit: options.spendLimit,
+        })
       : parsePermissionRequest(
           JSON.parse(await readFile(options.permissionsFile, "utf8")),
         );
@@ -45,26 +63,29 @@ export async function resolveLoginPermissions(
     ...request,
     permissions: {
       ...request.permissions,
-      calls: [...request.permissions.calls, ...allowCalls.map(parseAllowCall)],
+      calls: [
+        ...(request.permissions.calls ?? []),
+        ...allowCalls.map(parseAllowCall),
+      ],
     },
   };
 }
 
 export function defaultLoginPermissions(
   now = new Date(),
+  options: Pick<ResolvePermissionsOptions, "spendLimit"> = {},
 ): CliPermissionRequest {
   return {
     expiry: Math.floor(now.getTime() / 1000) + defaultPermissionTtlSeconds,
     feeToken: {
       limit: defaultFeeTokenLimit,
-      symbol: "ETH",
+      symbol: defaultFeeTokenSymbol,
     },
     permissions: {
-      calls: [],
       spend: [
         {
-          limit: defaultUsdmSpendLimit,
-          period: "week",
+          limit: normalizeDefaultUsdmSpendLimit(options.spendLimit),
+          period: "year",
           token: mainnetUsdmAddress,
         },
       ],
@@ -132,9 +153,7 @@ export function parsePermissionRequest(value: unknown): CliPermissionRequest {
   return request;
 }
 
-export function parseAllowCall(
-  value: string,
-): AuthorizedKey["permissions"]["calls"][number] {
+export function parseAllowCall(value: string): CallPermission {
   const separator = value.indexOf(":");
   if (separator <= 0 || separator === value.length - 1) {
     throw new CliError("allow-call must use 0xTarget:signature");
@@ -160,7 +179,7 @@ export function parsePermissionScope(
     throw new CliError("permissions scope must be an object");
   }
 
-  if (!Array.isArray(value.calls)) {
+  if (value.calls !== undefined && !Array.isArray(value.calls)) {
     throw new CliError("permissions calls must be an array");
   }
 
@@ -168,31 +187,50 @@ export function parsePermissionScope(
     throw new CliError("permissions spend must be an array");
   }
 
-  return {
-    calls: value.calls.map(parseCallPermission),
+  const permissions: AuthorizedKey["permissions"] = {
     spend: value.spend.map(parseSpendPermission),
   };
+  if (value.calls !== undefined) {
+    permissions.calls = value.calls.map(parseCallPermission);
+  }
+
+  return permissions;
 }
 
-function parseCallPermission(
-  value: unknown,
-): AuthorizedKey["permissions"]["calls"][number] {
+function parseCallPermission(value: unknown): CallPermission {
   if (!isObject(value)) {
     throw new CliError("call permission must be an object");
   }
 
-  assertAddress(
-    value.to,
-    "call permission target must be a 20-byte hex address",
-  );
-  if (typeof value.signature !== "string" || value.signature.length === 0) {
-    throw new CliError("call permission signature is required");
+  if (value.to === undefined && value.signature === undefined) {
+    throw new CliError("call permission target or signature is required");
   }
 
-  return {
-    to: value.to,
-    signature: value.signature,
-  };
+  const call: CallPermission = {};
+
+  if (value.to !== undefined) {
+    assertAddress(
+      value.to,
+      "call permission target must be a 20-byte hex address",
+    );
+    call.to = value.to;
+  }
+  if (value.signature !== undefined) {
+    if (typeof value.signature !== "string" || value.signature.length === 0) {
+      throw new CliError("call permission signature is required");
+    }
+    if (
+      !selectorPattern.test(value.signature) &&
+      (!value.signature.includes("(") || !value.signature.endsWith(")"))
+    ) {
+      throw new CliError(
+        "call permission signature must be a function signature or 4-byte selector",
+      );
+    }
+    call.signature = value.signature;
+  }
+
+  return call;
 }
 
 function parseSpendPermission(
@@ -247,6 +285,34 @@ function normalizeIntegerString(value: unknown, message: string): string {
   }
 
   throw new CliError(message);
+}
+
+function normalizeDefaultUsdmSpendLimit(value: string | undefined): string {
+  if (value === undefined) {
+    return defaultUsdmSpendLimit;
+  }
+
+  const amount = value.trim();
+  if (!decimalAmountPattern.test(amount)) {
+    throw new CliError("--spend-limit must be a positive decimal USDM amount");
+  }
+
+  const [whole = "", fraction = ""] = amount.split(".", 2);
+  if (fraction.length > usdmDecimals) {
+    throw new CliError(
+      "--spend-limit must use at most 18 decimal places for USDM",
+    );
+  }
+
+  const scale = 10n ** BigInt(usdmDecimals);
+  const fractionalUnits =
+    fraction.length === 0 ? 0n : BigInt(fraction.padEnd(usdmDecimals, "0"));
+  const units = BigInt(whole) * scale + fractionalUnits;
+  if (units <= 0n) {
+    throw new CliError("--spend-limit must be greater than zero");
+  }
+
+  return units.toString();
 }
 
 function normalizeDecimalString(value: unknown, message: string): string {

@@ -33,6 +33,7 @@ export type TransferCommandOptions = {
   amount?: string;
   decimals?: number;
   json?: boolean;
+  key?: string;
   network?: string;
   pollIntervalMs: number;
   rpcUrl?: string;
@@ -94,6 +95,7 @@ export function registerTransferCommand(
     .requiredOption("--to <address>", "recipient address")
     .requiredOption("--amount <amount>", "amount in ETH or token units")
     .option("--token <address>", "ERC20 token contract address")
+    .option("--key <key>", "delegated key id or access address to use")
     .option(
       "--decimals <decimals>",
       "ERC20 token decimals override",
@@ -130,6 +132,7 @@ export async function runWalletTransfer(
   const execution = await executor(
     {
       calls: [transfer.call],
+      ...(options.key === undefined ? {} : { key: options.key }),
       network,
       pollIntervalMs: options.pollIntervalMs,
       timeoutMs: options.timeoutMs,

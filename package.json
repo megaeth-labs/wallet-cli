@@ -20,6 +20,7 @@
     "e2e:loopback:screen": "npm run e2e:loopback -- --screen-only",
     "install:local": "scripts/install.sh",
     "install:skill": "scripts/install-skill.sh",
+    "uninstall:local": "scripts/uninstall.sh",
     "test": "vitest run",
     "lint": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",

@@ -49,38 +49,97 @@ describe("wallet profile storage", () => {
   it("serializes approved permissions without deriving them from private key material", () => {
     const profile = makeProfile();
 
-    expect(serializePermissions(profile.authorizedKey.permissions)).toBe(
-      JSON.stringify(profile.authorizedKey.permissions),
-    );
+    expect(
+      serializePermissions(profile.keys[0]!.authorizedKey.permissions),
+    ).toBe(JSON.stringify(profile.keys[0]!.authorizedKey.permissions));
+  });
+
+  it("accepts arbitrary and partial call permission scopes", () => {
+    const arbitrary = parseWalletProfile({
+      ...makeProfile(),
+      keys: [
+        {
+          ...makeProfile().keys[0]!,
+          authorizedKey: {
+            ...makeProfile().keys[0]!.authorizedKey,
+            permissions: {
+              spend: makeProfile().keys[0]!.authorizedKey.permissions.spend,
+            },
+          },
+        },
+      ],
+    });
+    expect(arbitrary.keys[0]!.authorizedKey.permissions.calls).toBeUndefined();
+
+    const partial = parseWalletProfile({
+      ...makeProfile(),
+      keys: [
+        {
+          ...makeProfile().keys[0]!,
+          authorizedKey: {
+            ...makeProfile().keys[0]!.authorizedKey,
+            permissions: {
+              calls: [
+                {
+                  to: "0x4444444444444444444444444444444444444444",
+                },
+                {
+                  signature: "transfer(address,uint256)",
+                },
+              ],
+              spend: makeProfile().keys[0]!.authorizedKey.permissions.spend,
+            },
+          },
+        },
+      ],
+    });
+    expect(partial.keys[0]!.authorizedKey.permissions.calls).toEqual([
+      {
+        to: "0x4444444444444444444444444444444444444444",
+      },
+      {
+        signature: "transfer(address,uint256)",
+      },
+    ]);
   });
 
   it("redacts private keys from summaries and json output", () => {
     const profile = makeProfile();
 
-    expect(summarizeProfile(profile)).not.toHaveProperty("privateKey");
+    expect(JSON.stringify(summarizeProfile(profile))).not.toContain(
+      profile.keys[0]!.privateKey,
+    );
 
     const rendered = toJson(profile);
-    expect(rendered).not.toContain(profile.privateKey);
+    expect(rendered).not.toContain(profile.keys[0]!.privateKey);
     expect(rendered).toContain(`"privateKey": "${redactedValue}"`);
     expect(rendered).toContain(
-      profile.authorizedKey.permissions.spend[0]!.token,
+      profile.keys[0]!.authorizedKey.permissions.spend[0]!.token,
     );
   });
 
   it("rejects invalid profile shapes", () => {
     expect(() =>
-      parseWalletProfile({ ...makeProfile(), privateKey: "0x1234" }),
+      parseWalletProfile({
+        ...makeProfile(),
+        keys: [{ ...makeProfile().keys[0]!, privateKey: "0x1234" }],
+      }),
     ).toThrow("privateKey must be a 32-byte hex string");
     expect(() =>
       parseWalletProfile({
         ...makeProfile(),
-        authorizedKey: {
-          ...makeProfile().authorizedKey,
-          permissions: {
-            calls: [],
-            spend: [{ limit: "1", period: "century" }],
+        keys: [
+          {
+            ...makeProfile().keys[0]!,
+            authorizedKey: {
+              ...makeProfile().keys[0]!.authorizedKey,
+              permissions: {
+                calls: [],
+                spend: [{ limit: "1", period: "century" }],
+              },
+            },
           },
-        },
+        ],
       }),
     ).toThrow("unsupported spend permission period");
   });
@@ -110,35 +169,44 @@ function makeProfile(): WalletProfile {
     version: 1,
     network: "testnet",
     accountAddress: "0x1111111111111111111111111111111111111111",
-    accessAddress: "0x2222222222222222222222222222222222222222",
-    privateKey:
-      "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    authorizedKey: {
-      type: "secp256k1",
-      role: "session",
-      publicKey: "0x3333333333333333333333333333333333333333",
-      expiry: 1_800_000_000,
-      feeToken: {
-        limit: "1000000000000000",
-        symbol: "ETH",
-      },
-      permissions: {
-        calls: [
-          {
-            to: "0x4444444444444444444444444444444444444444",
-            signature: "transfer(address,uint256)",
+    activeKeyId: "0x2222222222222222222222222222222222222222",
+    keys: [
+      {
+        id: "0x2222222222222222222222222222222222222222",
+        accessAddress: "0x2222222222222222222222222222222222222222",
+        privateKey:
+          "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        authorizedKey: {
+          type: "secp256k1",
+          role: "session",
+          publicKey: "0x3333333333333333333333333333333333333333",
+          expiry: 1_800_000_000,
+          feeToken: {
+            limit: "1000000000000000",
+            symbol: "ETH",
           },
-        ],
-        spend: [
-          {
-            limit: "100000000000000000",
-            period: "day",
-            token: "0x5555555555555555555555555555555555555555",
+          permissions: {
+            calls: [
+              {
+                to: "0x4444444444444444444444444444444444444444",
+                signature: "transfer(address,uint256)",
+              },
+            ],
+            spend: [
+              {
+                limit: "100000000000000000",
+                period: "day",
+                token: "0x5555555555555555555555555555555555555555",
+              },
+            ],
           },
-        ],
+        },
+        grantTxHash: "0x666666",
+        status: "active",
+        createdAt: "2026-05-07T00:00:00.000Z",
+        updatedAt: "2026-05-07T00:00:00.000Z",
       },
-    },
-    grantTxHash: "0x666666",
+    ],
     walletUrl: "https://wallet.example",
     relayUrl: "https://relay.example",
     createdAt: "2026-05-07T00:00:00.000Z",

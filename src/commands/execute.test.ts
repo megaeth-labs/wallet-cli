@@ -201,7 +201,7 @@ describe("wallet execute", () => {
           relayActions,
         }),
       ),
-    ).rejects.toThrow("wallet profile expired");
+    ).rejects.toThrow("is expired");
 
     expect(relayActions.prepareCalls).not.toHaveBeenCalled();
   });
@@ -396,33 +396,42 @@ function makeProfile(
     version: 1,
     network: "mainnet",
     accountAddress,
-    accessAddress,
-    privateKey,
-    authorizedKey: {
-      type: "secp256k1",
-      role: "session",
-      publicKey: accessAddress,
-      expiry: overrides.expiry ?? 1_900_000_000,
-      feeToken: {
-        limit: "1",
-        symbol: "ETH",
-      },
-      permissions: {
-        calls: [
-          {
-            to: target,
-            signature: "transfer(address,uint256)",
+    activeKeyId: accessAddress,
+    keys: [
+      {
+        id: accessAddress,
+        accessAddress,
+        privateKey,
+        authorizedKey: {
+          type: "secp256k1",
+          role: "session",
+          publicKey: accessAddress,
+          expiry: overrides.expiry ?? 1_900_000_000,
+          feeToken: {
+            limit: "1",
+            symbol: "ETH",
           },
-        ],
-        spend: [
-          {
-            limit: "5",
-            period: "day",
-            token: feeToken,
+          permissions: {
+            calls: [
+              {
+                to: target,
+                signature: "transfer(address,uint256)",
+              },
+            ],
+            spend: [
+              {
+                limit: "5",
+                period: "day",
+                token: feeToken,
+              },
+            ],
           },
-        ],
+        },
+        status: "active",
+        createdAt: "2026-05-07T00:00:00.000Z",
+        updatedAt: "2026-05-07T00:00:00.000Z",
       },
-    },
+    ],
     relayUrl: "https://relay.example",
     walletUrl: "https://wallet.example",
     createdAt: "2026-05-07T00:00:00.000Z",

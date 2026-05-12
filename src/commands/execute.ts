@@ -10,8 +10,12 @@ import {
   unsupportedNetworkMessage,
 } from "../config/chains.js";
 import {
+  markWalletKeyUsed,
   readWalletProfile,
+  requireUsableWalletKey,
+  writeWalletProfile,
   type HexString,
+  type WalletKeyRecord,
   type WalletProfile,
 } from "../config/profile.js";
 import { CliError } from "../errors.js";
@@ -25,7 +29,7 @@ import {
   type PortoRelayClient,
   type RelayCall,
 } from "../relay/sendCalls.js";
-import { sessionKeyFromProfile } from "../relay/sessionKey.js";
+import { sessionKeyFromWalletKey } from "../relay/sessionKey.js";
 import {
   isSuccessfulRelayStatus,
   pollRelayCallsStatus,
@@ -36,6 +40,7 @@ export type ExecuteCommandOptions = {
   calls?: string;
   data?: string;
   json?: boolean;
+  key?: string;
   network?: string;
   pollIntervalMs: number;
   terse?: boolean;
@@ -52,6 +57,7 @@ export type ExecuteCallInput = {
 
 export type ExecuteWalletCallsOptions = {
   calls: readonly ExecuteCallInput[];
+  key?: string;
   network?: string;
   pollIntervalMs?: number;
   timeoutMs?: number;
@@ -78,6 +84,10 @@ export type ExecuteCommandDependencies = {
   relayActions?: PortoRelayActions;
   sleep?: (ms: number) => Promise<void>;
   stdout?: OutputWriter;
+  writeProfile?: (
+    profile: WalletProfile,
+    env: NodeJS.ProcessEnv,
+  ) => Promise<void>;
 };
 
 type OutputWriter = {
@@ -95,6 +105,7 @@ export function registerExecuteCommand(
     .option("--data <hex>", "raw calldata")
     .option("--value <wei>", "native value in wei")
     .option("--calls <path>", "JSON file containing calls to execute")
+    .option("--key <key>", "delegated key id or access address to use")
     .option("--network <network>", "MegaETH network", defaultNetwork)
     .option(
       "--poll-interval-ms <ms>",
@@ -122,6 +133,7 @@ export async function runWalletExecute(
   const result = await executeWalletCalls(
     {
       calls: await resolveCliCalls(options),
+      ...(options.key === undefined ? {} : { key: options.key }),
       network: options.network,
       pollIntervalMs: options.pollIntervalMs,
       timeoutMs: options.timeoutMs,
@@ -146,8 +158,12 @@ export async function executeWalletCalls(
     env,
   );
 
-  assertProfileActive(profile, dependencies.now ?? (() => new Date()));
-  const sessionKey = sessionKeyFromProfile(profile);
+  const selectedKey = requireUsableWalletKey(
+    profile,
+    options.key,
+    (dependencies.now ?? (() => new Date()))(),
+  );
+  const sessionKey = sessionKeyFromWalletKey(selectedKey);
   const client =
     dependencies.createRelayClient?.(profile.relayUrl, network) ??
     createPortoRelayClient(profile.relayUrl, network);
@@ -175,8 +191,10 @@ export async function executeWalletCalls(
       );
     }
 
+    await markSelectedKeyUsed(profile, selectedKey, env, dependencies);
+
     return {
-      accessAddress: profile.accessAddress,
+      accessAddress: selectedKey.accessAddress,
       accountAddress: profile.accountAddress,
       id: sent.id,
       network,
@@ -293,15 +311,28 @@ function normalizeValue(value: unknown): bigint {
   throw new CliError("execute value must be a non-negative integer");
 }
 
-function assertProfileActive(profile: WalletProfile, now: () => Date): void {
-  const nowSeconds = Math.floor(now().getTime() / 1000);
-  if (profile.authorizedKey.expiry <= nowSeconds) {
-    throw new CliError(
-      `wallet profile expired at ${new Date(
-        profile.authorizedKey.expiry * 1000,
-      ).toISOString()}; run mega wallet login --network ${profile.network}`,
-    );
+async function markSelectedKeyUsed(
+  profile: WalletProfile,
+  selectedKey: WalletKeyRecord,
+  env: NodeJS.ProcessEnv,
+  dependencies: ExecuteCommandDependencies,
+): Promise<void> {
+  const writer =
+    dependencies.writeProfile ??
+    (dependencies.readProfile === undefined ? writeWalletProfile : undefined);
+
+  if (writer === undefined) {
+    return;
   }
+
+  await writer(
+    markWalletKeyUsed(
+      profile,
+      selectedKey.id,
+      (dependencies.now ?? (() => new Date()))(),
+    ),
+    env,
+  );
 }
 
 function normalizeNetwork(value: string | undefined): Network {

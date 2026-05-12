@@ -71,11 +71,11 @@ async function main() {
     profile = JSON.parse(result.stdout);
     assertEqual(profile.network, "mainnet", "expected mainnet profile");
     assertAddress(profile.accountAddress, "profile accountAddress");
-    assertAddress(profile.accessAddress, "profile accessAddress");
+    assertAddress(profile.activeKey.accessAddress, "profile active key");
     assert(!("privateKey" in profile), "whoami must not print privateKey");
     assert(
-      profile.expired === false,
-      `profile is expired at ${profile.expiresAt}`,
+      profile.activeKey.expired === false,
+      `profile is expired at ${profile.activeKey.expiresAt}`,
     );
   });
   fixtures = await writeFixtures(options, profile.accountAddress);
@@ -90,12 +90,12 @@ async function main() {
     assert(["active", "expired"].includes(fields[3]), "invalid status field");
   });
 
-  await test("keys json lists the active delegated key", async () => {
-    const result = await wallet(["keys", "--json"]);
-    const keys = JSON.parse(result.stdout);
-    assertEqual(keys.network, "mainnet", "expected mainnet keys result");
-    assertEqual(keys.keys.length, 1, "expected one local active key");
-    assertAddress(keys.keys[0].accessAddress, "key access address");
+  await test("list json lists the active delegated key", async () => {
+    const result = await wallet(["list", "--json"]);
+    const list = JSON.parse(result.stdout);
+    assertEqual(list.network, "mainnet", "expected mainnet list result");
+    assert(list.keys.length >= 1, "expected at least one local active key");
+    assertAddress(list.keys[0].accessAddress, "key access address");
   });
 
   await test("debug skip-chain reports local diagnostics", async () => {
@@ -103,7 +103,11 @@ async function main() {
     const debug = JSON.parse(result.stdout);
     assertEqual(debug.network, "mainnet", "expected mainnet debug result");
     assertEqual(debug.accountAddress, profile.accountAddress, "debug account");
-    assertEqual(debug.accessAddress, profile.accessAddress, "debug access key");
+    assertEqual(
+      debug.accessAddress,
+      profile.activeKey.accessAddress,
+      "debug access key",
+    );
     assertEqual(
       debug.delegatedKey.chainStatus,
       "skipped",

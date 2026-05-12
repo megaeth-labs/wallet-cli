@@ -26,6 +26,22 @@ export type PermissionPeriod =
   | "month"
   | "year";
 
+export type CallPermission = {
+  to?: HexString;
+  signature?: string;
+};
+
+export type SpendPermission = {
+  limit: string;
+  period: PermissionPeriod;
+  token?: HexString;
+};
+
+export type PermissionScope = {
+  calls?: CallPermission[];
+  spend: SpendPermission[];
+};
+
 export type AuthorizedKey = {
   type: "secp256k1";
   role: "session";
@@ -35,34 +51,43 @@ export type AuthorizedKey = {
     limit: string;
     symbol?: string;
   };
-  permissions: {
-    calls: {
-      to: HexString;
-      signature: string;
-    }[];
-    spend: {
-      limit: string;
-      period: PermissionPeriod;
-      token?: HexString;
-    }[];
-  };
+  permissions: PermissionScope;
+};
+
+export type WalletKeyStatus = "active" | "revoked";
+
+export type WalletKeyRecord = {
+  id: HexString;
+  accessAddress: HexString;
+  privateKey?: HexString;
+  authorizedKey: AuthorizedKey;
+  label?: string;
+  status: WalletKeyStatus;
+  createdAt: string;
+  updatedAt: string;
+  lastUsedAt?: string;
+  grantTxHash?: HexString;
+  revokeTxHash?: HexString;
+  revokedAt?: string;
 };
 
 export type WalletProfile = {
   version: 1;
   network: Network;
   accountAddress: HexString;
-  accessAddress: HexString;
-  privateKey: HexString;
-  authorizedKey: AuthorizedKey;
-  grantTxHash?: HexString;
+  activeKeyId?: HexString;
+  keys: WalletKeyRecord[];
   walletUrl: string;
   relayUrl: string;
   createdAt: string;
   updatedAt: string;
 };
 
-export type ProfileSummary = Omit<WalletProfile, "privateKey">;
+export type WalletKeySummary = Omit<WalletKeyRecord, "privateKey">;
+
+export type ProfileSummary = Omit<WalletProfile, "keys"> & {
+  keys: WalletKeySummary[];
+};
 
 export function serializePermissions(
   permissions: AuthorizedKey["permissions"],
@@ -71,7 +96,10 @@ export function serializePermissions(
 }
 
 export function summarizeProfile(profile: WalletProfile): ProfileSummary {
-  const { privateKey: _privateKey, ...summary } = profile;
+  const summary = {
+    ...profile,
+    keys: profile.keys.map(({ privateKey: _privateKey, ...key }) => key),
+  };
 
   return redactSecrets(summary);
 }
@@ -176,6 +204,186 @@ export async function listWalletProfiles(
   return profiles;
 }
 
+export function findWalletKey(
+  profile: WalletProfile,
+  selector: string | undefined,
+): WalletKeyRecord | undefined {
+  if (selector === undefined) {
+    return getActiveWalletKey(profile);
+  }
+
+  const normalized = selector.toLowerCase();
+
+  return profile.keys.find(
+    (key) =>
+      key.id.toLowerCase() === normalized ||
+      key.accessAddress.toLowerCase() === normalized ||
+      key.authorizedKey.publicKey.toLowerCase() === normalized,
+  );
+}
+
+export function getActiveWalletKey(
+  profile: WalletProfile,
+): WalletKeyRecord | undefined {
+  if (profile.activeKeyId !== undefined) {
+    const active = findWalletKey(profile, profile.activeKeyId);
+    if (active !== undefined) {
+      return active;
+    }
+  }
+
+  return profile.keys.find((key) => key.status === "active");
+}
+
+export function isWalletKeyExpired(
+  key: WalletKeyRecord,
+  now = new Date(),
+): boolean {
+  return key.authorizedKey.expiry * 1000 <= now.getTime();
+}
+
+export function isWalletKeyUsable(
+  key: WalletKeyRecord,
+  now = new Date(),
+): boolean {
+  return (
+    key.status === "active" &&
+    !isWalletKeyExpired(key, now) &&
+    key.privateKey !== undefined
+  );
+}
+
+export function requireUsableWalletKey(
+  profile: WalletProfile,
+  selector: string | undefined,
+  now = new Date(),
+): WalletKeyRecord {
+  const key = findWalletKey(profile, selector);
+  if (key === undefined) {
+    throw new CliError(
+      selector === undefined
+        ? "wallet profile has no default delegated key; run mega wallet switch <key>"
+        : `delegated key not found: ${selector}`,
+    );
+  }
+
+  if (!isWalletKeyUsable(key, now)) {
+    const status =
+      key.status === "revoked"
+        ? "revoked"
+        : isWalletKeyExpired(key, now)
+          ? "expired"
+          : "missing private key material";
+    throw new CliError(`delegated key ${key.accessAddress} is ${status}`);
+  }
+
+  return key;
+}
+
+export function markWalletKeyUsed(
+  profile: WalletProfile,
+  keyId: HexString,
+  now = new Date(),
+): WalletProfile {
+  const timestamp = now.toISOString();
+
+  return parseWalletProfile({
+    ...profile,
+    keys: profile.keys.map((key) =>
+      sameHex(key.id, keyId)
+        ? { ...key, lastUsedAt: timestamp, updatedAt: timestamp }
+        : key,
+    ),
+    updatedAt: timestamp,
+  });
+}
+
+export function setActiveWalletKey(
+  profile: WalletProfile,
+  keyId: HexString,
+  now = new Date(),
+): WalletProfile {
+  const key = findWalletKey(profile, keyId);
+  if (key === undefined) {
+    throw new CliError(`delegated key not found: ${keyId}`);
+  }
+  if (!isWalletKeyUsable(key, now)) {
+    throw new CliError(`delegated key is not usable: ${keyId}`);
+  }
+
+  const timestamp = now.toISOString();
+  return parseWalletProfile({
+    ...profile,
+    activeKeyId: key.id,
+    keys: profile.keys.map((entry) =>
+      sameHex(entry.id, key.id)
+        ? { ...entry, lastUsedAt: timestamp, updatedAt: timestamp }
+        : entry,
+    ),
+    updatedAt: timestamp,
+  });
+}
+
+export function addWalletKey(
+  profile: WalletProfile,
+  key: WalletKeyRecord,
+  now = new Date(),
+): WalletProfile {
+  if (findWalletKey(profile, key.id) !== undefined) {
+    throw new CliError(`delegated key already exists: ${key.id}`);
+  }
+
+  const timestamp = now.toISOString();
+  return parseWalletProfile({
+    ...profile,
+    activeKeyId: key.id,
+    keys: [
+      ...profile.keys,
+      {
+        ...key,
+        lastUsedAt: timestamp,
+        updatedAt: timestamp,
+      },
+    ],
+    updatedAt: timestamp,
+  });
+}
+
+export function revokeWalletKeyLocal(
+  profile: WalletProfile,
+  keyId: HexString,
+  options: { revokeTxHash?: HexString; now?: Date } = {},
+): WalletProfile {
+  const key = findWalletKey(profile, keyId);
+  if (key === undefined) {
+    throw new CliError(`delegated key not found: ${keyId}`);
+  }
+
+  const timestamp = (options.now ?? new Date()).toISOString();
+  const revokedKey: WalletKeyRecord = {
+    ...key,
+    status: "revoked",
+    updatedAt: timestamp,
+    revokedAt: timestamp,
+    ...(options.revokeTxHash === undefined
+      ? {}
+      : { revokeTxHash: options.revokeTxHash }),
+  };
+  const { privateKey: _privateKey, ...auditOnlyKey } = revokedKey;
+  const activeKeyId = sameHex(profile.activeKeyId, key.id)
+    ? undefined
+    : profile.activeKeyId;
+
+  return parseWalletProfile({
+    ...profile,
+    activeKeyId,
+    keys: profile.keys.map((entry) =>
+      sameHex(entry.id, key.id) ? auditOnlyKey : entry,
+    ),
+    updatedAt: timestamp,
+  });
+}
+
 export async function getProfileMode(
   network: Network,
   env: NodeJS.ProcessEnv = process.env,
@@ -191,6 +399,15 @@ export function parseWalletProfile(value: unknown): WalletProfile {
 
   const profile = value as Record<string, unknown>;
   assertEqual(profile.version, 1, "wallet profile version must be 1");
+  if (
+    "accessAddress" in profile ||
+    "privateKey" in profile ||
+    "authorizedKey" in profile
+  ) {
+    throw new CliError(
+      "wallet profile format changed; run mega wallet login again",
+    );
+  }
   assertString(profile.network, "wallet profile network is required");
   if (!isNetwork(profile.network)) {
     throw new CliError(
@@ -202,13 +419,27 @@ export function parseWalletProfile(value: unknown): WalletProfile {
     profile.accountAddress,
     "wallet profile accountAddress is required",
   );
-  assertHex(profile.accessAddress, "wallet profile accessAddress is required");
-  assertPrivateKey(profile.privateKey);
-  assertAuthorizedKey(profile.authorizedKey);
   assertOptionalHex(
-    profile.grantTxHash,
-    "wallet profile grantTxHash must be a hex string",
+    profile.activeKeyId,
+    "wallet profile activeKeyId must be a hex string",
   );
+  if (!Array.isArray(profile.keys)) {
+    throw new CliError("wallet profile keys must be an array");
+  }
+  for (const key of profile.keys) {
+    assertWalletKeyRecord(key);
+  }
+  if (
+    profile.activeKeyId !== undefined &&
+    !profile.keys.some(
+      (key) =>
+        isObject(key) &&
+        typeof key.id === "string" &&
+        sameHex(key.id as HexString, profile.activeKeyId as HexString),
+    )
+  ) {
+    throw new CliError("wallet profile activeKeyId must reference a key");
+  }
   assertUrl(profile.walletUrl, "wallet profile walletUrl must be a URL");
   assertUrl(profile.relayUrl, "wallet profile relayUrl must be a URL");
   assertIsoDate(
@@ -221,6 +452,58 @@ export function parseWalletProfile(value: unknown): WalletProfile {
   );
 
   return profile as WalletProfile;
+}
+
+function assertWalletKeyRecord(
+  value: unknown,
+): asserts value is WalletKeyRecord {
+  if (!isObject(value)) {
+    throw new CliError("wallet profile key must be an object");
+  }
+
+  assertHex(value.id, "wallet profile key id is required");
+  assertHex(
+    value.accessAddress,
+    "wallet profile key accessAddress is required",
+  );
+  if (value.privateKey !== undefined) {
+    assertPrivateKey(value.privateKey);
+  }
+  assertAuthorizedKey(value.authorizedKey);
+  if (value.label !== undefined) {
+    assertString(value.label, "wallet profile key label must be a string");
+  }
+  if (value.status !== "active" && value.status !== "revoked") {
+    throw new CliError("wallet profile key status must be active or revoked");
+  }
+  assertIsoDate(
+    value.createdAt,
+    "wallet profile key createdAt must be an ISO timestamp",
+  );
+  assertIsoDate(
+    value.updatedAt,
+    "wallet profile key updatedAt must be an ISO timestamp",
+  );
+  if (value.lastUsedAt !== undefined) {
+    assertIsoDate(
+      value.lastUsedAt,
+      "wallet profile key lastUsedAt must be an ISO timestamp",
+    );
+  }
+  assertOptionalHex(
+    value.grantTxHash,
+    "wallet profile key grantTxHash must be a hex string",
+  );
+  assertOptionalHex(
+    value.revokeTxHash,
+    "wallet profile key revokeTxHash must be a hex string",
+  );
+  if (value.revokedAt !== undefined) {
+    assertIsoDate(
+      value.revokedAt,
+      "wallet profile key revokedAt must be an ISO timestamp",
+    );
+  }
 }
 
 function assertAuthorizedKey(value: unknown): asserts value is AuthorizedKey {
@@ -276,20 +559,35 @@ function assertAuthorizedKey(value: unknown): asserts value is AuthorizedKey {
     );
   }
 
-  if (!Array.isArray(value.permissions.calls)) {
+  if (
+    value.permissions.calls !== undefined &&
+    !Array.isArray(value.permissions.calls)
+  ) {
     throw new CliError(
       "wallet profile authorizedKey.permissions.calls must be an array",
     );
   }
-  for (const call of value.permissions.calls) {
+  for (const call of value.permissions.calls ?? []) {
     if (!isObject(call)) {
       throw new CliError("wallet profile call permission must be an object");
     }
-    assertHex(call.to, "wallet profile call permission target is required");
-    assertString(
-      call.signature,
-      "wallet profile call permission signature is required",
-    );
+    if (call.to === undefined && call.signature === undefined) {
+      throw new CliError(
+        "wallet profile call permission target or signature is required",
+      );
+    }
+    if (call.to !== undefined) {
+      assertAddress(
+        call.to,
+        "wallet profile call permission target must be a 20-byte hex address",
+      );
+    }
+    if (call.signature !== undefined) {
+      assertString(
+        call.signature,
+        "wallet profile call permission signature must be a string",
+      );
+    }
   }
 
   if (!Array.isArray(value.permissions.spend)) {
@@ -357,6 +655,16 @@ function assertOptionalHex(
   }
 }
 
+function assertAddress(
+  value: unknown,
+  message: string,
+): asserts value is HexString {
+  assertString(value, message);
+  if (!/^0x[0-9a-fA-F]{40}$/.test(value)) {
+    throw new CliError(message);
+  }
+}
+
 function assertPrivateKey(value: unknown): asserts value is HexString {
   assertHex(value, "wallet profile privateKey is required");
   if (value.length !== 66) {
@@ -387,6 +695,14 @@ function assertIsoDate(
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function sameHex(left: unknown, right: unknown): boolean {
+  return (
+    typeof left === "string" &&
+    typeof right === "string" &&
+    left.toLowerCase() === right.toLowerCase()
+  );
 }
 
 function isNodeError(

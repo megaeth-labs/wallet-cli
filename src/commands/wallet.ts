@@ -12,6 +12,16 @@ import {
   type TransferCommandDependencies,
 } from "./transfer.js";
 import {
+  authorizeLoopbackKey,
+  runLoopbackLogin,
+  runLoopbackRevoke,
+} from "../auth/loopback.js";
+import {
+  defaultLoginPermissions,
+  resolveLoginPermissions,
+  type CliPermissionRequest,
+} from "../auth/permissions.js";
+import {
   defaultNetwork,
   getChainConfig,
   isNetwork,
@@ -19,18 +29,27 @@ import {
   type Network,
   unsupportedNetworkMessage,
 } from "../config/chains.js";
+import { summarizeAuthorizedKey } from "../config/permissionSummary.js";
 import {
+  addWalletKey,
   deleteWalletProfile,
+  findWalletKey,
+  getActiveWalletKey,
+  isWalletKeyExpired,
+  profileExists,
   readWalletProfile,
+  revokeWalletKeyLocal,
+  setActiveWalletKey,
   summarizeProfile,
-  type AuthorizedKey,
+  writeWalletProfile,
+  type HexString,
   type ProfileSummary,
+  type WalletKeyRecord,
+  type WalletKeySummary,
   type WalletProfile,
 } from "../config/profile.js";
 import { CliError } from "../errors.js";
 import { compactAddress, toJson } from "../output.js";
-import { runLoopbackLogin } from "../auth/loopback.js";
-import { resolveLoginPermissions } from "../auth/permissions.js";
 
 type LoginCommandOptions = {
   network: string;
@@ -43,47 +62,92 @@ type LoginCommandOptions = {
   terse?: boolean;
 };
 
+type CreateKeyCommandOptions = LoginCommandOptions & {
+  from?: string;
+  label?: string;
+  spendLimit?: string;
+};
+
 type StatusCommandOptions = {
   network?: string;
   json?: boolean;
   terse?: boolean;
 };
 
+type ListCommandOptions = StatusCommandOptions & {
+  showInactive?: boolean;
+};
+
+type KeyCommandOptions = StatusCommandOptions & {
+  timeoutMs?: number;
+  walletUrl?: string;
+};
+
+type LabelCommandOptions = StatusCommandOptions;
+
 type OutputWriter = {
   write(chunk: string): unknown;
 };
 
 export type WalletCommandDependencies = {
+  authorizeKey?: typeof authorizeLoopbackKey;
   env?: NodeJS.ProcessEnv;
   debug?: DebugCommandDependencies;
   fund?: FundCommandDependencies;
   now?: () => Date;
+  revokeKey?: typeof runLoopbackRevoke;
   stdout?: OutputWriter;
   transfer?: TransferCommandDependencies;
 };
 
 export type WalletStatusResult = ProfileSummary & {
-  expired: boolean;
-  expiresAt: string;
+  activeKey?: RenderedWalletKey;
 };
 
-export type WalletKeysResult = {
+export type WalletListResult = {
+  accountAddress: HexString;
+  activeKeyId?: HexString;
+  keys: RenderedWalletKey[];
   network: Network;
-  keys: WalletKeySummary[];
 };
 
-export type WalletKeySummary = {
-  accessAddress: `0x${string}`;
-  authorizedKey: AuthorizedKey;
-  expired: boolean;
-  expiresAt: string;
+export type WalletPermissionsResult = {
+  accountAddress: HexString;
+  key: RenderedWalletKey;
+  network: Network;
+  permissionLines: string[];
+};
+
+export type WalletSwitchResult = {
+  accountAddress: HexString;
+  key: RenderedWalletKey;
+  network: Network;
+};
+
+export type WalletCreateKeyResult = {
+  accountAddress: HexString;
+  key: RenderedWalletKey;
+  network: Network;
+};
+
+export type WalletRevokeResult = {
+  accountAddress: HexString;
+  key: RenderedWalletKey;
+  network: Network;
+  revokeTxHash?: HexString;
 };
 
 export type WalletLogoutResult = {
   network: Network;
-  accountAddress: `0x${string}`;
-  accessAddress: `0x${string}`;
+  accountAddress: HexString;
   removed: boolean;
+};
+
+export type RenderedWalletKey = WalletKeySummary & {
+  active: boolean;
+  expired: boolean;
+  expiresAt: string;
+  effectiveStatus: "active" | "expired" | "revoked";
 };
 
 export function registerWalletCommands(
@@ -103,7 +167,7 @@ export function registerWalletSubcommands(
 ): void {
   wallet
     .command("login")
-    .description("Authorize a local delegated key with the MegaETH wallet")
+    .description("Connect a wallet profile")
     .option("--network <network>", "wallet network", defaultNetwork)
     .option("--wallet-url <url>", "wallet UI URL")
     .option("--relay-url <url>", "MegaETH relay URL")
@@ -126,13 +190,13 @@ export function registerWalletSubcommands(
     .option("--json", "render JSON output")
     .option("-t, --terse", "render compact text output")
     .action(async (options: LoginCommandOptions) => {
-      const profile = await login(options);
+      const profile = await login(options, dependencies);
       getStdout(dependencies).write(renderLogin(profile, options));
     });
 
   wallet
     .command("whoami")
-    .description("Show the active wallet account and delegated key")
+    .description("Show the wallet account and selected delegated key")
     .option("--network <network>", "wallet network", defaultNetwork)
     .option("--json", "render JSON output")
     .option("-t, --terse", "render compact text output")
@@ -141,18 +205,107 @@ export function registerWalletSubcommands(
     });
 
   wallet
-    .command("keys")
-    .description("List locally known delegated keys")
+    .command("list")
+    .description("List local delegated keys")
+    .option("--network <network>", "wallet network", defaultNetwork)
+    .option("--show-inactive", "include expired and revoked keys")
+    .option("--json", "render JSON output")
+    .option("-t, --terse", "render compact text output")
+    .action(async (options: ListCommandOptions) => {
+      await runWalletList(options, dependencies);
+    });
+
+  wallet
+    .command("permissions")
+    .description("Show a delegated key permission scope")
+    .argument("<key>", "delegated key id or access address")
     .option("--network <network>", "wallet network", defaultNetwork)
     .option("--json", "render JSON output")
     .option("-t, --terse", "render compact text output")
-    .action(async (options: StatusCommandOptions) => {
-      await runWalletKeys(options, dependencies);
+    .action(async (key: string, options: StatusCommandOptions) => {
+      await runWalletPermissions(key, options, dependencies);
+    });
+
+  wallet
+    .command("switch")
+    .description("Select the default delegated key for writes")
+    .argument("<key>", "delegated key id or access address")
+    .option("--network <network>", "wallet network", defaultNetwork)
+    .option("--json", "render JSON output")
+    .option("-t, --terse", "render compact text output")
+    .action(async (key: string, options: StatusCommandOptions) => {
+      await runWalletSwitch(key, options, dependencies);
+    });
+
+  wallet
+    .command("create-key")
+    .description("Authorize and store a new delegated key")
+    .option("--network <network>", "wallet network", defaultNetwork)
+    .option("--wallet-url <url>", "wallet UI URL")
+    .option("--relay-url <url>", "MegaETH relay URL")
+    .option("--from <key>", "copy permissions from an existing key")
+    .option("--label <label>", "human-readable key label")
+    .option(
+      "--spend-limit <amount>",
+      "USDM spend cap for the default permission request",
+    )
+    .option(
+      "--permissions <file>",
+      "JSON file containing requested permissions",
+    )
+    .option(
+      "--allow-call <target:signature>",
+      "allow a target function call",
+      collect,
+      [],
+    )
+    .option(
+      "--timeout-ms <ms>",
+      "loopback authorization timeout",
+      parsePositiveInteger,
+      120_000,
+    )
+    .option("--json", "render JSON output")
+    .option("-t, --terse", "render compact text output")
+    .action(async (options: CreateKeyCommandOptions) => {
+      await runWalletCreateKey(options, dependencies);
+    });
+
+  wallet
+    .command("label")
+    .description("Set or update a local delegated key label")
+    .argument("<key>", "delegated key id or access address")
+    .argument("<label>", "human-readable label")
+    .option("--network <network>", "wallet network", defaultNetwork)
+    .option("--json", "render JSON output")
+    .option("-t, --terse", "render compact text output")
+    .action(
+      async (key: string, label: string, options: LabelCommandOptions) => {
+        await runWalletLabel(key, label, options, dependencies);
+      },
+    );
+
+  wallet
+    .command("revoke")
+    .description("Revoke a delegated key on-chain and keep an audit record")
+    .argument("<key>", "delegated key id or access address")
+    .option("--network <network>", "wallet network", defaultNetwork)
+    .option("--wallet-url <url>", "wallet UI URL")
+    .option(
+      "--timeout-ms <ms>",
+      "loopback revocation timeout",
+      parsePositiveInteger,
+      120_000,
+    )
+    .option("--json", "render JSON output")
+    .option("-t, --terse", "render compact text output")
+    .action(async (key: string, options: KeyCommandOptions) => {
+      await runWalletRevoke(key, options, dependencies);
     });
 
   wallet
     .command("logout")
-    .description("Remove the local wallet profile")
+    .description("Delete the local wallet profile and key material")
     .option("--network <network>", "wallet network", defaultNetwork)
     .option("--json", "render JSON output")
     .option("-t, --terse", "render compact text output")
@@ -160,7 +313,9 @@ export function registerWalletSubcommands(
       await runWalletLogout(options, dependencies);
     });
 
-  registerCallCommand(wallet);
+  registerCallCommand(wallet, {
+    env: dependencies.env,
+  });
   registerExecuteCommand(wallet);
   registerFundCommand(wallet, {
     env: dependencies.env,
@@ -183,8 +338,16 @@ export function registerWalletSubcommands(
 
 export async function login(
   options: LoginCommandOptions,
+  dependencies: Pick<WalletCommandDependencies, "env"> = {},
 ): Promise<WalletProfile> {
   const network = parseNetwork(options.network);
+  if (await profileExists(network, dependencies.env)) {
+    const profile = await readWalletProfile(network, dependencies.env);
+    throw new CliError(
+      `Wallet already connected to ${compactAddress(profile.accountAddress)}. Either logout with \`mega wallet logout\` or add a key to the existing wallet profile with \`mega wallet create-key\`.`,
+    );
+  }
+
   const chainConfig = getChainConfig(network);
   const walletUrl = options.walletUrl ?? chainConfig.walletUrl;
   const relayUrl = options.relayUrl ?? chainConfig.relayUrl;
@@ -197,15 +360,16 @@ export async function login(
     allowCalls: options.allowCall,
   });
 
-  const { profile } = await runLoopbackLogin({
-    network,
-    permissionRequest,
-    walletUrl,
-    relayUrl,
-    timeoutMs: options.timeoutMs,
-  });
-
-  return profile;
+  return (
+    await runLoopbackLogin({
+      network,
+      permissionRequest,
+      walletUrl,
+      relayUrl,
+      timeoutMs: options.timeoutMs,
+      env: dependencies.env,
+    })
+  ).profile;
 }
 
 export async function runWalletWhoami(
@@ -221,26 +385,220 @@ export async function runWalletWhoami(
   return result;
 }
 
-export async function runWalletKeys(
-  options: StatusCommandOptions,
+export async function runWalletList(
+  options: ListCommandOptions,
   dependencies: WalletCommandDependencies = {},
-): Promise<WalletKeysResult> {
+): Promise<WalletListResult> {
   const network = parseNetwork(options.network);
   const profile = await readWalletProfile(network, dependencies.env);
-  const status = buildStatusResult(profile, getNow(dependencies));
-  const result: WalletKeysResult = {
+  const now = getNow(dependencies);
+  const keys = sortKeysByRecency(profile.keys)
+    .map((key) => renderableKey(profile, key, now))
+    .filter(
+      (key) =>
+        options.showInactive ||
+        (key.effectiveStatus === "active" && key.status === "active"),
+    );
+  const result: WalletListResult = {
+    accountAddress: profile.accountAddress,
+    ...(profile.activeKeyId === undefined
+      ? {}
+      : { activeKeyId: profile.activeKeyId }),
+    keys,
     network,
-    keys: [
-      {
-        accessAddress: status.accessAddress,
-        authorizedKey: status.authorizedKey,
-        expired: status.expired,
-        expiresAt: status.expiresAt,
-      },
-    ],
   };
 
-  getStdout(dependencies).write(renderKeys(result, options));
+  getStdout(dependencies).write(renderList(result, options));
+
+  return result;
+}
+
+export async function runWalletPermissions(
+  selector: string,
+  options: StatusCommandOptions,
+  dependencies: WalletCommandDependencies = {},
+): Promise<WalletPermissionsResult> {
+  const network = parseNetwork(options.network);
+  const profile = await readWalletProfile(network, dependencies.env);
+  const key = requireWalletKey(profile, selector);
+  const renderedKey = renderableKey(profile, key, getNow(dependencies));
+  const result: WalletPermissionsResult = {
+    accountAddress: profile.accountAddress,
+    key: renderedKey,
+    network,
+    permissionLines: summarizeAuthorizedKey(key.authorizedKey).lines,
+  };
+
+  getStdout(dependencies).write(renderPermissions(result, options));
+
+  return result;
+}
+
+export async function runWalletSwitch(
+  selector: string,
+  options: StatusCommandOptions,
+  dependencies: WalletCommandDependencies = {},
+): Promise<WalletSwitchResult> {
+  const network = parseNetwork(options.network);
+  const profile = await readWalletProfile(network, dependencies.env);
+  const key = requireWalletKey(profile, selector);
+  const updated = setActiveWalletKey(profile, key.id, getNow(dependencies));
+  await writeWalletProfile(updated, dependencies.env);
+  const active = requireWalletKey(updated, key.id);
+  const result: WalletSwitchResult = {
+    accountAddress: updated.accountAddress,
+    key: renderableKey(updated, active, getNow(dependencies)),
+    network,
+  };
+
+  getStdout(dependencies).write(renderSwitch(result, options));
+
+  return result;
+}
+
+export async function runWalletCreateKey(
+  options: CreateKeyCommandOptions,
+  dependencies: WalletCommandDependencies = {},
+): Promise<WalletCreateKeyResult> {
+  const network = parseNetwork(options.network);
+  const profile = await readWalletProfile(network, dependencies.env);
+  const walletUrl = options.walletUrl ?? profile.walletUrl;
+  const relayUrl = options.relayUrl ?? profile.relayUrl;
+  assertHttpUrl(walletUrl, "wallet-url must be an HTTP(S) URL");
+  assertHttpUrl(relayUrl, "relay-url must be an HTTP(S) URL");
+
+  const permissionRequest = await resolveCreateKeyPermissions(
+    profile,
+    options,
+    getNow(dependencies),
+  );
+  const authorization = await (
+    dependencies.authorizeKey ?? authorizeLoopbackKey
+  )({
+    network,
+    permissionRequest,
+    walletUrl,
+    relayUrl,
+    timeoutMs: options.timeoutMs,
+  });
+
+  if (
+    authorization.accountAddress.toLowerCase() !==
+    profile.accountAddress.toLowerCase()
+  ) {
+    throw new CliError(
+      "authorized wallet account does not match local profile",
+    );
+  }
+
+  const key: WalletKeyRecord = {
+    ...authorization.key,
+    ...(options.label === undefined ? {} : { label: options.label }),
+  };
+  const updated = addWalletKey(
+    {
+      ...profile,
+      walletUrl,
+      relayUrl,
+    },
+    key,
+    getNow(dependencies),
+  );
+  await writeWalletProfile(updated, dependencies.env);
+
+  const result: WalletCreateKeyResult = {
+    accountAddress: updated.accountAddress,
+    key: renderableKey(
+      updated,
+      requireWalletKey(updated, key.id),
+      getNow(dependencies),
+    ),
+    network,
+  };
+
+  getStdout(dependencies).write(renderCreateKey(result, options));
+
+  return result;
+}
+
+export async function runWalletLabel(
+  selector: string,
+  label: string,
+  options: LabelCommandOptions,
+  dependencies: WalletCommandDependencies = {},
+): Promise<WalletSwitchResult> {
+  const network = parseNetwork(options.network);
+  const profile = await readWalletProfile(network, dependencies.env);
+  const key = requireWalletKey(profile, selector);
+  if (label.trim().length === 0) {
+    throw new CliError("label must not be empty");
+  }
+
+  const timestamp = getNow(dependencies).toISOString();
+  const updated = {
+    ...profile,
+    keys: profile.keys.map((entry) =>
+      sameKey(entry, key)
+        ? { ...entry, label: label.trim(), updatedAt: timestamp }
+        : entry,
+    ),
+    updatedAt: timestamp,
+  };
+  await writeWalletProfile(updated, dependencies.env);
+  const result: WalletSwitchResult = {
+    accountAddress: updated.accountAddress,
+    key: renderableKey(
+      updated,
+      requireWalletKey(updated, key.id),
+      getNow(dependencies),
+    ),
+    network,
+  };
+
+  getStdout(dependencies).write(renderLabel(result, options));
+
+  return result;
+}
+
+export async function runWalletRevoke(
+  selector: string,
+  options: KeyCommandOptions,
+  dependencies: WalletCommandDependencies = {},
+): Promise<WalletRevokeResult> {
+  const network = parseNetwork(options.network);
+  const profile = await readWalletProfile(network, dependencies.env);
+  const key = requireWalletKey(profile, selector);
+  if (key.status === "revoked") {
+    throw new CliError("delegated key is already revoked");
+  }
+
+  const revocation = await (dependencies.revokeKey ?? runLoopbackRevoke)({
+    network,
+    accountAddress: profile.accountAddress,
+    accessAddress: key.accessAddress,
+    walletUrl: options.walletUrl ?? profile.walletUrl,
+    timeoutMs: options.timeoutMs,
+  });
+  const updated = revokeWalletKeyLocal(profile, key.id, {
+    revokeTxHash: revocation.revokeTxHash,
+    now: getNow(dependencies),
+  });
+  await writeWalletProfile(updated, dependencies.env);
+
+  const result: WalletRevokeResult = {
+    accountAddress: updated.accountAddress,
+    key: renderableKey(
+      updated,
+      requireWalletKey(updated, key.id),
+      getNow(dependencies),
+    ),
+    network,
+    ...(revocation.revokeTxHash === undefined
+      ? {}
+      : { revokeTxHash: revocation.revokeTxHash }),
+  };
+
+  getStdout(dependencies).write(renderRevoke(result, options));
 
   return result;
 }
@@ -256,7 +614,6 @@ export async function runWalletLogout(
   const result: WalletLogoutResult = {
     network,
     accountAddress: profile.accountAddress,
-    accessAddress: profile.accessAddress,
     removed: true,
   };
 
@@ -269,17 +626,22 @@ function renderLogin(
   profile: WalletProfile,
   options: LoginCommandOptions,
 ): string {
+  const activeKey = getActiveWalletKey(profile);
+  if (activeKey === undefined) {
+    throw new CliError("wallet login did not create an active delegated key");
+  }
+
   if (options.json) {
     return toJson(summarizeProfile(profile));
   }
 
-  const expiry = new Date(profile.authorizedKey.expiry * 1000).toISOString();
+  const expiry = new Date(activeKey.authorizedKey.expiry * 1000).toISOString();
   if (options.terse) {
     return [
       profile.network,
       profile.accountAddress,
-      profile.accessAddress,
-      profile.authorizedKey.expiry.toString(),
+      activeKey.accessAddress,
+      activeKey.authorizedKey.expiry.toString(),
     ]
       .join("\t")
       .concat("\n");
@@ -288,7 +650,7 @@ function renderLogin(
   return [
     `Logged in to ${profile.network}.`,
     `Account: ${compactAddress(profile.accountAddress)}`,
-    `Delegated key: ${compactAddress(profile.accessAddress)}`,
+    `Delegated key: ${compactAddress(activeKey.accessAddress)}`,
     `Expires: ${expiry}`,
   ]
     .join("\n")
@@ -303,14 +665,17 @@ function renderWhoami(
     return toJson(result);
   }
 
-  const status = result.expired ? "expired" : "active";
+  if (result.activeKey === undefined) {
+    return `No active delegated key for ${result.network}.\n`;
+  }
+
   if (options.terse) {
     return [
       result.network,
       result.accountAddress,
-      result.accessAddress,
-      status,
-      result.authorizedKey.expiry.toString(),
+      result.activeKey.accessAddress,
+      result.activeKey.effectiveStatus,
+      result.activeKey.authorizedKey.expiry.toString(),
     ]
       .join("\t")
       .concat("\n");
@@ -319,22 +684,24 @@ function renderWhoami(
   const lines = [
     `Network: ${result.network}`,
     `Account: ${compactAddress(result.accountAddress)}`,
-    `Delegated key: ${compactAddress(result.accessAddress)}`,
-    `Status: ${status}`,
-    `Expires: ${result.expiresAt}`,
-    ...renderPermissionLines(result.authorizedKey),
+    `Delegated key: ${formatKeyLabel(result.activeKey)}`,
+    `Status: ${result.activeKey.effectiveStatus}`,
+    `Expires: ${result.activeKey.expiresAt}`,
+    ...summarizeAuthorizedKey(result.activeKey.authorizedKey).lines,
   ];
 
-  if (result.expired) {
-    lines.unshift(`Warning: delegated key expired at ${result.expiresAt}`);
+  if (result.activeKey.expired) {
+    lines.unshift(
+      `Warning: delegated key expired at ${result.activeKey.expiresAt}`,
+    );
   }
 
   return lines.join("\n").concat("\n");
 }
 
-function renderKeys(
-  result: WalletKeysResult,
-  options: StatusCommandOptions,
+function renderList(
+  result: WalletListResult,
+  options: ListCommandOptions,
 ): string {
   if (options.json) {
     return toJson(result);
@@ -345,9 +712,12 @@ function renderKeys(
       .map((key) =>
         [
           result.network,
+          key.id,
           key.accessAddress,
-          key.expired ? "expired" : "active",
+          key.effectiveStatus,
+          key.active ? "default" : "",
           key.authorizedKey.expiry.toString(),
+          key.label ?? "",
         ].join("\t"),
       )
       .join("\n")
@@ -355,11 +725,121 @@ function renderKeys(
   }
 
   const lines = [`Delegated keys for ${result.network}:`];
-  for (const key of result.keys) {
+  if (result.keys.length === 0) {
     lines.push(
-      `- ${compactAddress(key.accessAddress)} (${key.expired ? "expired" : "active"}, expires ${key.expiresAt})`,
-      ...renderPermissionLines(key.authorizedKey).map((line) => `  ${line}`),
+      "No active delegated keys. Use --show-inactive to include expired or revoked keys.",
     );
+    return lines.join("\n").concat("\n");
+  }
+
+  for (const key of result.keys) {
+    const details = [
+      key.effectiveStatus,
+      key.active ? "default" : undefined,
+      `expires ${key.expiresAt}`,
+    ].filter(Boolean);
+    lines.push(`- ${formatKeyLabel(key)} (${details.join(", ")})`);
+  }
+
+  return lines.join("\n").concat("\n");
+}
+
+function renderPermissions(
+  result: WalletPermissionsResult,
+  options: StatusCommandOptions,
+): string {
+  if (options.json) {
+    return toJson(result);
+  }
+
+  if (options.terse) {
+    return [
+      result.network,
+      result.key.id,
+      result.key.effectiveStatus,
+      result.key.authorizedKey.expiry.toString(),
+    ]
+      .join("\t")
+      .concat("\n");
+  }
+
+  return [
+    `Permissions for ${formatKeyLabel(result.key)}:`,
+    `Status: ${result.key.effectiveStatus}`,
+    `Expires: ${result.key.expiresAt}`,
+    ...result.permissionLines,
+  ]
+    .join("\n")
+    .concat("\n");
+}
+
+function renderSwitch(
+  result: WalletSwitchResult,
+  options: StatusCommandOptions,
+): string {
+  if (options.json) {
+    return toJson(result);
+  }
+  if (options.terse) {
+    return [result.network, result.key.id].join("\t").concat("\n");
+  }
+
+  return `Default delegated key set to ${formatKeyLabel(result.key)}.\n`;
+}
+
+function renderCreateKey(
+  result: WalletCreateKeyResult,
+  options: CreateKeyCommandOptions,
+): string {
+  if (options.json) {
+    return toJson(result);
+  }
+  if (options.terse) {
+    return [result.network, result.key.id, result.key.accessAddress]
+      .join("\t")
+      .concat("\n");
+  }
+
+  return [
+    `Created delegated key ${formatKeyLabel(result.key)}.`,
+    "This key is now the default for write operations.",
+  ]
+    .join("\n")
+    .concat("\n");
+}
+
+function renderLabel(
+  result: WalletSwitchResult,
+  options: StatusCommandOptions,
+): string {
+  if (options.json) {
+    return toJson(result);
+  }
+  if (options.terse) {
+    return [result.network, result.key.id, result.key.label ?? ""]
+      .join("\t")
+      .concat("\n");
+  }
+
+  return `Updated label for ${formatKeyLabel(result.key)}.\n`;
+}
+
+function renderRevoke(
+  result: WalletRevokeResult,
+  options: KeyCommandOptions,
+): string {
+  if (options.json) {
+    return toJson(result);
+  }
+  if (options.terse) {
+    return [result.network, result.key.id, "revoked", result.revokeTxHash ?? ""]
+      .join("\t")
+      .concat("\n");
+  }
+
+  const lines = [`Revoked delegated key ${formatKeyLabel(result.key)}.`];
+  if (result.revokeTxHash !== undefined) {
+    lines.push(`Transaction: ${result.revokeTxHash}`);
   }
 
   return lines.join("\n").concat("\n");
@@ -374,57 +854,127 @@ function renderLogout(
   }
 
   if (options.terse) {
-    return [result.network, "removed", result.accessAddress]
-      .join("\t")
-      .concat("\n");
+    return [result.network, "removed"].join("\t").concat("\n");
   }
 
   return [
     `Removed ${result.network} wallet profile.`,
     `Account: ${compactAddress(result.accountAddress)}`,
-    `Delegated key: ${compactAddress(result.accessAddress)}`,
+    "Deleted local delegated key material.",
+    "Delegated keys were not revoked on-chain.",
   ]
     .join("\n")
     .concat("\n");
-}
-
-function renderPermissionLines(authorizedKey: AuthorizedKey): string[] {
-  const callLines =
-    authorizedKey.permissions.calls.length === 0
-      ? ["Calls: none"]
-      : authorizedKey.permissions.calls.map(
-          (call) => `Call: ${compactAddress(call.to)} ${call.signature}`,
-        );
-  const spendLines =
-    authorizedKey.permissions.spend.length === 0
-      ? ["Spend: none"]
-      : authorizedKey.permissions.spend.map((spend) => {
-          const token =
-            spend.token === undefined ? "native" : compactAddress(spend.token);
-          return `Spend: ${spend.limit}/${spend.period} ${token}`;
-        });
-  const feeToken =
-    authorizedKey.feeToken === undefined
-      ? []
-      : [
-          `Fee token: ${authorizedKey.feeToken.limit} ${authorizedKey.feeToken.symbol ?? "token"}`,
-        ];
-
-  return [...callLines, ...spendLines, ...feeToken];
 }
 
 function buildStatusResult(
   profile: WalletProfile,
   now: Date,
 ): WalletStatusResult {
+  const activeKey = getActiveWalletKey(profile);
   const summary = summarizeProfile(profile);
-  const expiresAt = new Date(profile.authorizedKey.expiry * 1000).toISOString();
 
   return {
     ...summary,
-    expired: profile.authorizedKey.expiry * 1000 <= now.getTime(),
-    expiresAt,
+    ...(activeKey === undefined
+      ? {}
+      : { activeKey: renderableKey(profile, activeKey, now) }),
   };
+}
+
+async function resolveCreateKeyPermissions(
+  profile: WalletProfile,
+  options: CreateKeyCommandOptions,
+  now: Date,
+): Promise<CliPermissionRequest> {
+  const usesExplicitPermissions =
+    options.permissions !== undefined ||
+    options.allowCall.length > 0 ||
+    options.spendLimit !== undefined;
+  if (options.from !== undefined && usesExplicitPermissions) {
+    throw new CliError(
+      "use either --from or explicit permission options, not both",
+    );
+  }
+  if (options.permissions !== undefined && options.spendLimit !== undefined) {
+    throw new CliError("use either --permissions or --spend-limit, not both");
+  }
+
+  if (options.from !== undefined) {
+    const source = requireWalletKey(profile, options.from);
+    const fallback = defaultLoginPermissions(now);
+
+    return {
+      expiry: fallback.expiry,
+      feeToken: source.authorizedKey.feeToken ?? fallback.feeToken,
+      permissions: source.authorizedKey.permissions,
+    };
+  }
+
+  return resolveLoginPermissions({
+    permissionsFile: options.permissions,
+    allowCalls: options.allowCall,
+    spendLimit: options.spendLimit,
+    now,
+  });
+}
+
+function requireWalletKey(
+  profile: WalletProfile,
+  selector: string,
+): WalletKeyRecord {
+  const key = findWalletKey(profile, selector);
+  if (key === undefined) {
+    throw new CliError(`delegated key not found: ${selector}`);
+  }
+
+  return key;
+}
+
+function renderableKey(
+  profile: WalletProfile,
+  key: WalletKeyRecord,
+  now: Date,
+): RenderedWalletKey {
+  const expired = isWalletKeyExpired(key, now);
+  const active =
+    profile.activeKeyId !== undefined &&
+    key.id.toLowerCase() === profile.activeKeyId.toLowerCase();
+  const summary = summarizeProfile({
+    ...profile,
+    keys: [key],
+  }).keys[0]!;
+
+  return {
+    ...summary,
+    active,
+    expired,
+    expiresAt: new Date(key.authorizedKey.expiry * 1000).toISOString(),
+    effectiveStatus:
+      key.status === "revoked" ? "revoked" : expired ? "expired" : "active",
+  };
+}
+
+function sortKeysByRecency(
+  keys: readonly WalletKeyRecord[],
+): WalletKeyRecord[] {
+  return [...keys].sort(
+    (left, right) => keyTimestamp(right) - keyTimestamp(left),
+  );
+}
+
+function keyTimestamp(key: WalletKeyRecord): number {
+  return Date.parse(key.lastUsedAt ?? key.updatedAt ?? key.createdAt);
+}
+
+function formatKeyLabel(key: RenderedWalletKey): string {
+  const label = key.label === undefined ? "" : ` "${key.label}"`;
+
+  return `${compactAddress(key.accessAddress)}${label}`;
+}
+
+function sameKey(left: WalletKeyRecord, right: WalletKeyRecord): boolean {
+  return left.id.toLowerCase() === right.id.toLowerCase();
 }
 
 function parseNetwork(value: string | undefined): Network {

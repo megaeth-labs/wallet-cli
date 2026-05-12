@@ -10,10 +10,14 @@ import { platform } from "node:os";
 
 import { getChainConfig, isNetwork, type Network } from "../config/chains.js";
 import {
+  addWalletKey,
   parseWalletProfile,
+  profileExists,
+  readWalletProfile,
   writeWalletProfile,
   type AuthorizedKey,
   type HexString,
+  type WalletKeyRecord,
   type WalletProfile,
 } from "../config/profile.js";
 import { CliError } from "../errors.js";
@@ -35,6 +39,15 @@ export type CliAuthUrlParams = {
   clientName: "mega-cli";
 };
 
+export type CliRevokeUrlParams = {
+  walletUrl: string;
+  accessAddress: HexString;
+  redirectUri: LoopbackRedirectUri;
+  state: string;
+  network: Network;
+  clientName: "mega-cli";
+};
+
 export type LoopbackCallback =
   | {
       state: string;
@@ -43,6 +56,20 @@ export type LoopbackCallback =
       accessAddress: HexString;
       authorizedKey: AuthorizedKey;
       grantTxHash?: HexString;
+    }
+  | {
+      state: string;
+      status: "cancelled" | "error";
+      error?: string;
+    };
+
+export type LoopbackRevokeCallback =
+  | {
+      state: string;
+      status: "approved";
+      accountAddress: HexString;
+      accessAddress: HexString;
+      revokeTxHash?: HexString;
     }
   | {
       state: string;
@@ -71,14 +98,43 @@ export type LoopbackLoginOptions = {
   openBrowser?: BrowserOpener;
 };
 
+export type LoopbackRevokeOptions = {
+  network: Network;
+  accountAddress: HexString;
+  accessAddress: HexString;
+  walletUrl?: string;
+  timeoutMs?: number;
+  state?: string;
+  openBrowser?: BrowserOpener;
+};
+
 export type LoopbackLoginResult = {
   profile: WalletProfile;
   authUrl: string;
 };
 
+export type LoopbackKeyAuthorizationResult = {
+  accountAddress: HexString;
+  authUrl: string;
+  key: WalletKeyRecord;
+  relayUrl: string;
+  walletUrl: string;
+};
+
+export type LoopbackRevokeResult = {
+  authUrl: string;
+  revokeTxHash?: HexString;
+};
+
 type CallbackServer = {
   redirectUri: LoopbackRedirectUri;
   waitForCallback: Promise<LoopbackCallback>;
+  close: () => Promise<void>;
+};
+
+type RevokeCallbackServer = {
+  redirectUri: LoopbackRedirectUri;
+  waitForCallback: Promise<LoopbackRevokeCallback>;
   close: () => Promise<void>;
 };
 
@@ -133,6 +189,59 @@ const keccakRhoOffsets = [
 export async function runLoopbackLogin(
   options: LoopbackLoginOptions,
 ): Promise<LoopbackLoginResult> {
+  const authorization = await authorizeLoopbackKey(options);
+  const now = (options.now ?? new Date()).toISOString();
+  const existingProfile = await readExistingWalletProfile(
+    options.network,
+    options.env,
+  );
+  const profile =
+    existingProfile !== undefined &&
+    existingProfile.accountAddress.toLowerCase() ===
+      authorization.accountAddress.toLowerCase()
+      ? addWalletKey(
+          {
+            ...existingProfile,
+            walletUrl: authorization.walletUrl,
+            relayUrl: authorization.relayUrl,
+          },
+          authorization.key,
+          options.now,
+        )
+      : parseWalletProfile({
+          version: 1,
+          network: options.network,
+          accountAddress: authorization.accountAddress,
+          activeKeyId: authorization.key.id,
+          keys: [authorization.key],
+          walletUrl: authorization.walletUrl,
+          relayUrl: authorization.relayUrl,
+          createdAt: now,
+          updatedAt: now,
+        });
+
+  await writeWalletProfile(profile, options.env);
+
+  return {
+    profile,
+    authUrl: authorization.authUrl,
+  };
+}
+
+async function readExistingWalletProfile(
+  network: Network,
+  env: NodeJS.ProcessEnv | undefined,
+): Promise<WalletProfile | undefined> {
+  if (!(await profileExists(network, env))) {
+    return undefined;
+  }
+
+  return readWalletProfile(network, env);
+}
+
+export async function authorizeLoopbackKey(
+  options: LoopbackLoginOptions,
+): Promise<LoopbackKeyAuthorizationResult> {
   const chainConfig = getChainConfig(options.network);
   const walletUrl = options.walletUrl ?? chainConfig.walletUrl;
   const relayUrl = options.relayUrl ?? chainConfig.relayUrl;
@@ -176,25 +285,24 @@ export async function runLoopbackLogin(
     }
 
     const now = (options.now ?? new Date()).toISOString();
-    const profile = parseWalletProfile({
-      version: 1,
-      network: options.network,
-      accountAddress: callback.accountAddress,
+    const key: WalletKeyRecord = {
+      id: keyPair.accessAddress,
       accessAddress: keyPair.accessAddress,
       privateKey: keyPair.privateKey,
       authorizedKey: callback.authorizedKey,
       grantTxHash: callback.grantTxHash,
-      walletUrl,
-      relayUrl,
+      status: "active",
       createdAt: now,
       updatedAt: now,
-    });
-
-    await writeWalletProfile(profile, options.env);
+      lastUsedAt: now,
+    };
 
     return {
-      profile,
+      accountAddress: callback.accountAddress,
       authUrl,
+      key,
+      relayUrl,
+      walletUrl,
     };
   } finally {
     await callbackServer.close();
@@ -220,6 +328,84 @@ export function buildCliAuthUrl(params: CliAuthUrlParams): string {
   const url = new URL("/cli-auth/loopback", params.walletUrl);
   url.searchParams.set("accessAddress", params.accessAddress);
   url.searchParams.set("permissions", params.permissions);
+  url.searchParams.set("redirectUri", params.redirectUri);
+  url.searchParams.set("state", params.state);
+  url.searchParams.set("network", params.network);
+  url.searchParams.set("clientName", params.clientName);
+
+  return url.toString();
+}
+
+export async function runLoopbackRevoke(
+  options: LoopbackRevokeOptions,
+): Promise<LoopbackRevokeResult> {
+  const chainConfig = getChainConfig(options.network);
+  const walletUrl = options.walletUrl ?? chainConfig.walletUrl;
+  const timeoutMs = options.timeoutMs ?? defaultTimeoutMs;
+  assertPositiveTimeout(timeoutMs);
+
+  const state = options.state ?? createState();
+  const callbackServer = await startLoopbackRevokeCallbackServer({
+    state,
+    accessAddress: options.accessAddress,
+    timeoutMs,
+  });
+
+  const authUrl = buildCliRevokeUrl({
+    walletUrl,
+    accessAddress: options.accessAddress,
+    redirectUri: callbackServer.redirectUri,
+    state,
+    network: options.network,
+    clientName: "mega-cli",
+  });
+
+  const waitForCallback = callbackServer.waitForCallback;
+  waitForCallback.catch(() => undefined);
+
+  try {
+    await (options.openBrowser ?? openSystemBrowser)(authUrl);
+    const callback = await waitForCallback;
+
+    if (callback.status !== "approved") {
+      throw new CliError(
+        callback.status === "cancelled"
+          ? "wallet key revocation was cancelled"
+          : `wallet key revocation failed${callback.error ? `: ${callback.error}` : ""}`,
+      );
+    }
+
+    if (
+      callback.accountAddress.toLowerCase() !==
+      options.accountAddress.toLowerCase()
+    ) {
+      throw new CliError("revocation callback account address mismatch");
+    }
+
+    return {
+      authUrl,
+      revokeTxHash: callback.revokeTxHash,
+    };
+  } finally {
+    await callbackServer.close();
+  }
+}
+
+export function buildCliRevokeUrl(params: CliRevokeUrlParams): string {
+  assertAddress(
+    params.accessAddress,
+    "accessAddress must be a 20-byte hex address",
+  );
+  assertLoopbackRedirectUri(params.redirectUri);
+  if (!isNetwork(params.network)) {
+    throw new CliError(`unsupported network: ${params.network}`);
+  }
+  if (params.state.length < 16) {
+    throw new CliError("state must be at least 16 characters");
+  }
+
+  const url = new URL("/cli-auth/revoke", params.walletUrl);
+  url.searchParams.set("accessAddress", params.accessAddress);
   url.searchParams.set("redirectUri", params.redirectUri);
   url.searchParams.set("state", params.state);
   url.searchParams.set("network", params.network);
@@ -304,6 +490,86 @@ export async function startLoopbackCallbackServer(
   };
 }
 
+export async function startLoopbackRevokeCallbackServer(
+  options: CallbackServerOptions,
+): Promise<RevokeCallbackServer> {
+  assertPositiveTimeout(options.timeoutMs);
+  assertAddress(
+    options.accessAddress,
+    "expected access address must be a 20-byte hex address",
+  );
+
+  let settled = false;
+  let settleCallback: (callback: LoopbackRevokeCallback) => void = () => {};
+  let rejectCallback: (error: Error) => void = () => {};
+  let timer: NodeJS.Timeout | undefined;
+
+  const waitForCallback = new Promise<LoopbackRevokeCallback>(
+    (resolve, reject) => {
+      settleCallback = resolve;
+      rejectCallback = reject;
+    },
+  );
+
+  const server = createServer((request, response) => {
+    handleRevokeCallbackRequest(request, response, options, (result) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timer) {
+        clearTimeout(timer);
+      }
+
+      if (result instanceof Error) {
+        rejectCallback(result);
+      } else {
+        settleCallback(result);
+      }
+    });
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+
+  timer = setTimeout(() => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    rejectCallback(
+      new CliError(
+        `wallet key revocation timed out after ${options.timeoutMs}ms`,
+      ),
+    );
+  }, options.timeoutMs);
+
+  const address = server.address();
+  if (!isAddressInfo(address)) {
+    throw new CliError("failed to start loopback callback server");
+  }
+
+  return {
+    redirectUri: `http://127.0.0.1:${address.port}${callbackPath}`,
+    waitForCallback,
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        if (timer) {
+          clearTimeout(timer);
+        }
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      }),
+  };
+}
+
 export function parseLoopbackCallback(
   params: URLSearchParams,
   expected: { state: string; accessAddress: HexString },
@@ -350,6 +616,56 @@ export function parseLoopbackCallback(
   };
   if (grantTxHash !== undefined) {
     callback.grantTxHash = grantTxHash as HexString;
+  }
+
+  return callback;
+}
+
+export function parseLoopbackRevokeCallback(
+  params: URLSearchParams,
+  expected: { state: string; accessAddress: HexString },
+): LoopbackRevokeCallback {
+  const state = requireParam(params, "state");
+  if (!constantTimeEqual(state, expected.state)) {
+    throw new CliError("callback state mismatch");
+  }
+
+  const status = requireParam(params, "status");
+  if (status === "cancelled" || status === "error") {
+    const callback: LoopbackRevokeCallback = {
+      state,
+      status,
+    };
+    const error = params.get("error");
+    if (error) {
+      callback.error = error;
+    }
+    return callback;
+  }
+
+  if (status !== "approved") {
+    throw new CliError("callback status is invalid");
+  }
+
+  const accountAddress = requireAddress(params, "accountAddress");
+  const accessAddress = requireAddress(params, "accessAddress");
+  if (accessAddress.toLowerCase() !== expected.accessAddress.toLowerCase()) {
+    throw new CliError("callback access address mismatch");
+  }
+
+  const revokeTxHash = params.get("revokeTxHash") ?? undefined;
+  if (revokeTxHash !== undefined) {
+    assertHex(revokeTxHash, "callback revokeTxHash must be hex");
+  }
+
+  const callback: LoopbackRevokeCallback = {
+    state,
+    status: "approved",
+    accountAddress,
+    accessAddress,
+  };
+  if (revokeTxHash !== undefined) {
+    callback.revokeTxHash = revokeTxHash as HexString;
   }
 
   return callback;
@@ -410,16 +726,24 @@ export function keccak256(input: Uint8Array): Buffer {
 export async function openSystemBrowser(url: string): Promise<void> {
   const { command, args } = browserCommand(url);
   const child = spawn(command, args, {
-    detached: true,
-    stdio: "ignore",
+    stdio: ["ignore", "ignore", "pipe"],
     windowsHide: true,
   });
 
-  await new Promise<void>((resolve, reject) => {
-    child.once("error", reject);
-    child.once("spawn", resolve);
+  let stderr = "";
+  child.stderr?.on("data", (chunk: Buffer) => {
+    stderr += chunk.toString("utf8");
   });
-  child.unref();
+
+  const code = await new Promise<number | null>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", resolve);
+  });
+
+  if (code !== 0) {
+    const message = stderr.trim() || `${command} exited with status ${code}`;
+    throw new CliError(`failed to open browser: ${message}`);
+  }
 }
 
 function handleCallbackRequest(
@@ -472,6 +796,60 @@ function handleCallbackRequest(
     settle(callback);
   } catch (error) {
     sendText(response, 400, "Invalid Mega CLI authorization callback.");
+    settle(error instanceof Error ? error : new CliError("invalid callback"));
+  }
+}
+
+function handleRevokeCallbackRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  options: CallbackServerOptions,
+  settle: (result: LoopbackRevokeCallback | Error) => void,
+): void {
+  if (request.method !== "GET") {
+    sendText(response, 405, "Method not allowed.");
+    return;
+  }
+
+  if (!isLoopbackRemoteAddress(request.socket.remoteAddress)) {
+    sendText(response, 403, "Only loopback callbacks are allowed.");
+    settle(new CliError("callback did not originate from loopback"));
+    return;
+  }
+
+  const url = new URL(request.url ?? "/", "http://127.0.0.1");
+  if (url.pathname !== callbackPath) {
+    sendText(response, 404, "Not found.");
+    return;
+  }
+
+  try {
+    const callback = parseLoopbackRevokeCallback(url.searchParams, {
+      state: options.state,
+      accessAddress: options.accessAddress,
+    });
+    if (callback.status === "approved") {
+      sendText(
+        response,
+        200,
+        "Mega CLI key revocation approved. You can close this tab.",
+      );
+    } else if (callback.status === "cancelled") {
+      sendText(
+        response,
+        200,
+        "Mega CLI key revocation cancelled. You can close this tab.",
+      );
+    } else {
+      sendText(
+        response,
+        400,
+        "Mega CLI key revocation failed. You can close this tab.",
+      );
+    }
+    settle(callback);
+  } catch (error) {
+    sendText(response, 400, "Invalid Mega CLI revocation callback.");
     settle(error instanceof Error ? error : new CliError("invalid callback"));
   }
 }

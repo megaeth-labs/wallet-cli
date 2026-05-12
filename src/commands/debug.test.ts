@@ -34,9 +34,9 @@ describe("wallet debug", () => {
     const relayClient = {};
     const getKeys = vi.fn(async () => [
       {
-        expiry: profile.authorizedKey.expiry,
-        id: profile.accessAddress,
-        publicKey: profile.accessAddress,
+        expiry: profile.keys[0]!.authorizedKey.expiry,
+        id: profile.keys[0]!.accessAddress,
+        publicKey: profile.keys[0]!.accessAddress,
         role: "session",
       },
     ]);
@@ -189,35 +189,44 @@ function makeProfile(): WalletProfile {
     version: 1,
     network: "mainnet",
     accountAddress,
-    accessAddress,
-    privateKey,
-    authorizedKey: {
-      type: "secp256k1",
-      role: "session",
-      publicKey: accessAddress,
-      expiry: 1_800_000_000,
-      feeToken: {
-        limit: "0.01",
-        symbol: "ETH",
-      },
-      permissions: {
-        calls: [
-          {
-            signature: "transfer(address,uint256)",
-            to: "0x2222222222222222222222222222222222222222",
+    activeKeyId: accessAddress,
+    keys: [
+      {
+        id: accessAddress,
+        accessAddress,
+        privateKey,
+        authorizedKey: {
+          type: "secp256k1",
+          role: "session",
+          publicKey: accessAddress,
+          expiry: 1_800_000_000,
+          feeToken: {
+            limit: "0.01",
+            symbol: "ETH",
           },
-        ],
-        spend: [
-          {
-            limit: "1000000",
-            period: "week",
-            token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
+          permissions: {
+            calls: [
+              {
+                signature: "transfer(address,uint256)",
+                to: "0x2222222222222222222222222222222222222222",
+              },
+            ],
+            spend: [
+              {
+                limit: "1000000",
+                period: "week",
+                token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
+              },
+            ],
           },
-        ],
+        },
+        grantTxHash:
+          "0x3333333333333333333333333333333333333333333333333333333333333333",
+        status: "active",
+        createdAt: "2026-05-07T00:00:00.000Z",
+        updatedAt: "2026-05-07T00:00:00.000Z",
       },
-    },
-    grantTxHash:
-      "0x3333333333333333333333333333333333333333333333333333333333333333",
+    ],
     walletUrl: "https://wallet.example",
     relayUrl: "https://relay.example",
     createdAt: "2026-05-07T00:00:00.000Z",

@@ -3,6 +3,7 @@ import { Key } from "porto";
 import type {
   AuthorizedKey,
   HexString,
+  WalletKeyRecord,
   WalletProfile,
 } from "../config/profile.js";
 import { CliError } from "../errors.js";
@@ -13,24 +14,47 @@ type PortoFeeLimit = `${number}` | `${number}.${number}`;
 type PortoPermissions = NonNullable<RelaySessionKey["permissions"]>;
 
 export function sessionKeyFromProfile(profile: WalletProfile): RelaySessionKey {
+  const activeKey =
+    profile.activeKeyId === undefined
+      ? profile.keys.find((keyRecord) => keyRecord.status === "active")
+      : profile.keys.find(
+          (keyRecord) =>
+            keyRecord.id.toLowerCase() === profile.activeKeyId?.toLowerCase(),
+        );
+
+  if (activeKey === undefined) {
+    throw new CliError("wallet profile has no active delegated key");
+  }
+
+  return sessionKeyFromWalletKey(activeKey);
+}
+
+export function sessionKeyFromWalletKey(
+  walletKey: WalletKeyRecord,
+): RelaySessionKey {
+  if (walletKey.privateKey === undefined) {
+    throw new CliError("delegated key private material is not available");
+  }
+
   const key = Key.fromSecp256k1({
-    expiry: profile.authorizedKey.expiry,
-    feeToken: toPortoFeeToken(profile.authorizedKey.feeToken),
-    permissions: toPortoPermissions(profile.authorizedKey.permissions),
-    privateKey: profile.privateKey,
+    expiry: walletKey.authorizedKey.expiry,
+    feeToken: toPortoFeeToken(walletKey.authorizedKey.feeToken),
+    permissions: toPortoPermissions(walletKey.authorizedKey.permissions),
+    privateKey: walletKey.privateKey,
     role: "session",
   });
 
-  if (key.publicKey.toLowerCase() !== profile.accessAddress.toLowerCase()) {
+  if (key.publicKey.toLowerCase() !== walletKey.accessAddress.toLowerCase()) {
     throw new CliError(
       "wallet profile delegated private key does not match access address",
     );
   }
 
   if (
-    profile.authorizedKey.publicKey.length === profile.accessAddress.length &&
+    walletKey.authorizedKey.publicKey.length ===
+      walletKey.accessAddress.length &&
     key.publicKey.toLowerCase() !==
-      profile.authorizedKey.publicKey.toLowerCase()
+      walletKey.authorizedKey.publicKey.toLowerCase()
   ) {
     throw new CliError(
       "wallet profile authorized key does not match delegated key",
@@ -56,11 +80,7 @@ function toPortoFeeToken(
 function toPortoPermissions(
   permissions: AuthorizedKey["permissions"],
 ): PortoPermissions {
-  return {
-    calls: permissions.calls.map((call) => ({
-      signature: call.signature,
-      to: call.to,
-    })),
+  const portoPermissions: PortoPermissions = {
     spend: permissions.spend.map((spend) => {
       const parsed = parseSpendLimit(spend.limit);
       return spend.token === undefined
@@ -75,6 +95,15 @@ function toPortoPermissions(
           };
     }),
   };
+
+  if (permissions.calls !== undefined) {
+    portoPermissions.calls = permissions.calls.map((call) => ({
+      ...(call.signature === undefined ? {} : { signature: call.signature }),
+      ...(call.to === undefined ? {} : { to: call.to }),
+    })) as NonNullable<PortoPermissions["calls"]>;
+  }
+
+  return portoPermissions;
 }
 
 function parsePortoFeeLimit(value: string): PortoFeeLimit {

@@ -18,6 +18,7 @@ export type EthAddress = `0x${string}`;
 export type EthCallRequest = {
   to: EthAddress;
   data: HexString;
+  from?: EthAddress;
 };
 
 export type EthCallClient = {
@@ -89,6 +90,9 @@ export function fromViemPublicClient(
   return {
     async call(request: EthCallRequest): Promise<HexString> {
       const result = await client.call({
+        ...(request.from === undefined
+          ? {}
+          : { account: request.from as Address }),
         data: request.data as Hex,
         to: request.to as Address,
       });

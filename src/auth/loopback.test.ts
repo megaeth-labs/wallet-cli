@@ -71,15 +71,14 @@ describe("loopback login", () => {
     ) as ReturnType<typeof defaultLoginPermissions>;
     expect(decodedPermissions.expiry).toBe(1_778_716_800);
     expect(decodedPermissions.feeToken).toEqual({
-      limit: "0.01",
-      symbol: "ETH",
+      limit: "1",
+      symbol: "USDM",
     });
     expect(decodedPermissions.permissions).toEqual({
-      calls: [],
       spend: [
         {
           limit: "100000000000000000000",
-          period: "week",
+          period: "year",
           token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
         },
       ],
@@ -137,9 +136,10 @@ describe("loopback login", () => {
 
     const stored = await readWalletProfile("testnet", env);
     expect(stored).toEqual(result.profile);
-    expect(stored.privateKey).toBe(testPrivateKey);
-    expect(stored.accessAddress).toBe(keyPair.accessAddress);
-    expect(stored.authorizedKey.publicKey).toBe(keyPair.publicKey);
+    expect(stored.activeKeyId).toBe(keyPair.accessAddress);
+    expect(stored.keys[0]!.privateKey).toBe(testPrivateKey);
+    expect(stored.keys[0]!.accessAddress).toBe(keyPair.accessAddress);
+    expect(stored.keys[0]!.authorizedKey.publicKey).toBe(keyPair.publicKey);
     await expect(profileExists("mainnet", env)).resolves.toBe(false);
 
     await expect(fetch(callbackUrl!)).rejects.toThrow();
@@ -325,6 +325,21 @@ describe("loopback login", () => {
         ),
       ),
     ).toEqual(permissions);
+  });
+
+  it("applies a create-key spend limit to the default USDM spend request", async () => {
+    const permissions = await resolveLoginPermissions({
+      now: new Date("2026-05-07T00:00:00.000Z"),
+      spendLimit: "12.5",
+    });
+
+    expect(permissions.permissions.spend).toEqual([
+      {
+        limit: "12500000000000000000",
+        period: "year",
+        token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
+      },
+    ]);
   });
 });
 

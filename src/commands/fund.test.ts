@@ -39,7 +39,7 @@ describe("wallet fund", () => {
     });
     expect(openBrowser).toHaveBeenCalledWith(result.fundingUrl);
     expect(stdout.text).toContain("Funding page opened.");
-    expect(stdout.text).not.toContain(profile.privateKey);
+    expect(stdout.text).not.toContain(profile.keys[0]!.privateKey);
   });
 
   it("can print the funding URL without opening a browser", async () => {
@@ -136,23 +136,32 @@ function makeProfile(): WalletProfile {
     version: 1,
     network: "mainnet",
     accountAddress: "0x1111111111111111111111111111111111111111",
-    accessAddress: "0x2222222222222222222222222222222222222222",
-    privateKey:
-      "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    authorizedKey: {
-      type: "secp256k1",
-      role: "session",
-      publicKey: "0x2222222222222222222222222222222222222222",
-      expiry: 1_800_000_000,
-      feeToken: {
-        limit: "0.01",
-        symbol: "ETH",
+    activeKeyId: "0x2222222222222222222222222222222222222222",
+    keys: [
+      {
+        id: "0x2222222222222222222222222222222222222222",
+        accessAddress: "0x2222222222222222222222222222222222222222",
+        privateKey:
+          "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        authorizedKey: {
+          type: "secp256k1",
+          role: "session",
+          publicKey: "0x2222222222222222222222222222222222222222",
+          expiry: 1_800_000_000,
+          feeToken: {
+            limit: "0.01",
+            symbol: "ETH",
+          },
+          permissions: {
+            calls: [],
+            spend: [],
+          },
+        },
+        status: "active",
+        createdAt: "2026-05-07T00:00:00.000Z",
+        updatedAt: "2026-05-07T00:00:00.000Z",
       },
-      permissions: {
-        calls: [],
-        spend: [],
-      },
-    },
+    ],
     walletUrl: "https://wallet.example",
     relayUrl: "https://relay.example",
     createdAt: "2026-05-07T00:00:00.000Z",

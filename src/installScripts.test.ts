@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -19,6 +19,7 @@ describe("installer scripts", () => {
   it("keeps shell installers syntactically valid", async () => {
     await execFileAsync("bash", ["-n", "scripts/install.sh"]);
     await execFileAsync("bash", ["-n", "scripts/install-skill.sh"]);
+    await execFileAsync("bash", ["-n", "scripts/uninstall.sh"]);
   });
 
   it("supports a dry-run binary install plan", async () => {
@@ -32,14 +33,66 @@ describe("installer scripts", () => {
       join(dir, "mega-wallet-cli"),
       "--bin-dir",
       join(dir, "bin"),
-      "--with-skill",
-      "--skill-agent",
-      "codex",
+      "--default-wallet-url",
+      "http://localhost:4000",
     ]);
 
     expect(stdout).toContain("would install release:");
     expect(stdout).toContain("would write wrapper:");
     expect(stdout).toContain("would install codex skill:");
+    expect(stdout).toContain("would install claude skill:");
+  });
+
+  it("can skip the default skill install", async () => {
+    const dir = await tempDir();
+
+    const { stdout } = await execFileAsync("bash", [
+      "scripts/install.sh",
+      "--dry-run",
+      "--skip-build",
+      "--install-root",
+      join(dir, "mega-wallet-cli"),
+      "--bin-dir",
+      join(dir, "bin"),
+      "--no-skill",
+    ]);
+
+    expect(stdout).toContain("would install release:");
+    expect(stdout).not.toContain("would install codex skill:");
+  });
+
+  it("offers to install missing prerequisites in dry-run mode", async () => {
+    const dir = await tempDir();
+    const fakeBin = join(dir, "bin");
+    await mkdir(fakeBin, { recursive: true });
+    await writeFile(join(fakeBin, "brew"), "#!/usr/bin/env sh\nexit 0\n");
+    await chmod(join(fakeBin, "brew"), 0o755);
+
+    const { stdout } = await execFileAsync(
+      "bash",
+      [
+        "scripts/install.sh",
+        "--dry-run",
+        "--skip-build",
+        "--install-root",
+        join(dir, "mega-wallet-cli"),
+        "--bin-dir",
+        join(dir, "wrappers"),
+      ],
+      {
+        env: {
+          ...process.env,
+          PATH: `${fakeBin}:/usr/bin:/bin`,
+        },
+      },
+    );
+
+    expect(stdout).toContain("would prompt: Node.js >= 22 is missing.");
+    expect(stdout).toContain("+ brew install node");
+    expect(stdout).toContain(
+      "would prompt: pnpm is not installed. Install pnpm with Homebrew now?",
+    );
+    expect(stdout).toContain("+ brew install pnpm");
   });
 
   it("installs the agent skill into isolated Codex and Claude homes", async () => {
@@ -69,6 +122,55 @@ describe("installer scripts", () => {
 
     expect(codexSkill).toContain("mega wallet");
     expect(claudeSkill).toBe(codexSkill);
+  });
+
+  it("treats an unchanged installed skill as up to date", async () => {
+    const dir = await tempDir();
+    const codexHome = join(dir, "codex");
+
+    await execFileAsync("bash", [
+      "scripts/install-skill.sh",
+      "--agent",
+      "codex",
+      "--codex-home",
+      codexHome,
+    ]);
+
+    const { stdout } = await execFileAsync("bash", [
+      "scripts/install-skill.sh",
+      "--agent",
+      "codex",
+      "--codex-home",
+      codexHome,
+    ]);
+
+    expect(stdout).toContain("codex skill already up to date:");
+  });
+
+  it("supports a dry-run uninstall plan", async () => {
+    const dir = await tempDir();
+
+    const { stdout } = await execFileAsync("bash", [
+      "scripts/uninstall.sh",
+      "--dry-run",
+      "--install-root",
+      join(dir, "mega-wallet-cli"),
+      "--bin-dir",
+      join(dir, "bin"),
+      "--codex-home",
+      join(dir, "codex"),
+      "--claude-home",
+      join(dir, "claude"),
+      "--config-dir",
+      join(dir, "config"),
+      "--config",
+    ]);
+
+    expect(stdout).toContain("skip missing wrapper:");
+    expect(stdout).toContain("skip missing install root:");
+    expect(stdout).toContain("skip missing codex skill:");
+    expect(stdout).toContain("skip missing claude skill:");
+    expect(stdout).toContain("skip missing config:");
   });
 });
 
