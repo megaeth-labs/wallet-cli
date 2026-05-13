@@ -2,9 +2,9 @@
 
 MegaETH Wallet CLI lets a local machine use delegated session keys for a
 MegaETH passkey wallet. The CLI generates delegated secp256k1 keys locally,
-opens MegaETH Wallet for passkey approval, receives public approval metadata on
-`127.0.0.1`, and stores the approved local profile with private key material on
-the same machine.
+opens MegaETH Wallet for passkey approval, receives public approval metadata,
+and stores the approved local profile with private key material on the same
+machine.
 
 Use `mega wallet <command>` as the canonical command shape. The standalone
 `wallet` binary is kept as a compatibility shortcut.
@@ -56,6 +56,24 @@ Login opens MegaETH Wallet at `https://account.megaeth.com`, asks the passkey
 wallet to approve a delegated session key, and stores the approved profile
 locally. The relay default is `https://wallet-relay.megaeth.com`.
 
+By default, browser authorization uses same-machine loopback. For headless,
+SSH, container, or remote environments, use the device-style flow:
+
+```bash
+mega wallet login --auth-flow device --no-browser
+```
+
+The CLI prints:
+
+```text
+Running headless? Go to https://account.megaeth.com/cli-auth and input this code - XXXX-XXXX
+```
+
+Open that URL on any browser-capable device, enter the code, approve with the
+wallet passkey, and leave the CLI running until approval completes. The
+delegated private key and PKCE verifier stay on the CLI machine; the browser
+and backend only receive public request/approval metadata.
+
 Default permissions are agent-oriented: one-week expiry, USDM fee token with a
 `1 USDM` fee allowance, `100 USDM` spend cap for the authorization window, and
 explicit broad contract call authority represented as `permissions.calls: [{}]`.
@@ -91,6 +109,7 @@ Create a new delegated key:
 ```bash
 mega wallet create-key --label "agent"
 mega wallet create-key --spend-limit 25 --label "agent"
+mega wallet create-key --auth-flow device --no-browser --label "agent"
 ```
 
 `--spend-limit` accepts a human USDM amount and preserves the default fee token,
@@ -110,6 +129,7 @@ Revoke a delegated key on-chain:
 
 ```bash
 mega wallet revoke 0xKEY_OR_ACCESS_ADDRESS
+mega wallet revoke 0xKEY_OR_ACCESS_ADDRESS --auth-flow device --no-browser
 ```
 
 `revoke` opens MegaETH Wallet for passkey confirmation. After success, the CLI

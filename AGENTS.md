@@ -13,9 +13,9 @@ agent-facing docs, and user-facing recovery messages should teach
 
 Core commands:
 
-- `mega wallet login`: connect the first local wallet profile through loopback authorization.
+- `mega wallet login`: connect the first local wallet profile through loopback or device authorization.
 - `mega wallet whoami`: show the active account, delegated key, expiry, and limits.
-- `mega wallet keys`: list locally known delegated/access keys and approved limits.
+- `mega wallet list`: list locally known delegated/access keys and approved limits.
 - `mega wallet call`: read-only `eth_call`; does not use the relay for writes.
 - `mega wallet execute`: submit state-changing calls through the MegaETH/Porto relay.
 - `mega wallet transfer`: convenience wrapper over `execute`.
@@ -54,7 +54,7 @@ profiles, private keys, or auth material.
 
 ## Architecture
 
-`mega wallet login` is a native-app loopback flow:
+`mega wallet login` defaults to a native-app loopback flow:
 
 1. The CLI generates a delegated secp256k1 private key locally.
 2. The CLI opens MegaETH Wallet at `/cli-auth/loopback` with the delegated
@@ -73,13 +73,19 @@ before browser auth and direct the user to either `mega wallet logout` or
 `mega wallet create-key`. Use `create-key` to add delegated keys to an existing
 wallet profile.
 
-The browser and CLI process must run on the same machine. This is not a
-server-friendly device-code flow. Do not add remote/server login behavior unless
-the wallet UI/backend protocol explicitly supports it.
+Loopback requires the browser and CLI process to run on the same machine.
+Device authorization is available with `--auth-flow device` for headless, SSH,
+container, and remote CLI environments. In device auth, the CLI prints a
+verification URL/code, wallet-backend brokers the short-lived pending request,
+and PKCE binds final redemption to the CLI process that started the request.
 
 The loopback callback must never carry the delegated private key, bearer tokens,
 API keys, passkey material, or other transferable secrets. It may carry public
 approval metadata required to reconstruct the authorized session key.
+
+Device auth callbacks/polling must follow the same secret boundary: never send
+delegated private keys, passkeys, bearer tokens, or PKCE verifiers to wallet UI.
+The browser may see the user code and public request/approval metadata only.
 
 ## Local Wallet UI
 
@@ -106,6 +112,18 @@ successful relay statuses without broadcasting a transaction. If the wallet UI
 says approved but the shim sees no `/rpc` traffic, check that the browser origin
 is `http://localhost:4000` and that the wallet UI is using the local `4002`
 backend rather than production.
+
+Run local auth E2E checks from this repo:
+
+```bash
+pnpm e2e:loopback -- --screen-only --mock-relay --reset
+pnpm e2e:loopback -- --auth-flow device --screen-only --mock-relay --reset
+pnpm e2e:loopback -- --auth-flow device --management --mock-relay --reset
+```
+
+The device management check covers device login, device create-key, local
+list/permissions/switch, and device revoke through the local wallet UI and
+shim.
 
 ## Permission Model
 

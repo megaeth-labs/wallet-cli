@@ -57,7 +57,7 @@ load the new instructions.
   for a state-changing operation.
 - Prefer `--json` for machine-readable output and `-t` only for compact text.
 
-## Login
+## Login And Browser Authorization
 
 Run loopback login on the same machine as the browser:
 
@@ -70,16 +70,33 @@ The CLI opens MegaETH Wallet in the system browser, listens on
 delegated-key profile locally. The callback must not contain private keys or
 transferable bearer credentials.
 
+For headless, SSH, container, or remote CLI environments, use device-style auth:
+
+```bash
+mega wallet login --auth-flow device --no-browser
+```
+
+The CLI prints an authorization URL and a verification code:
+
+```text
+Running headless? Go to https://account.megaeth.com/cli-auth and input this code - XXXX-XXXX
+```
+
+Open the URL in any browser-capable device, enter the code, approve with the
+wallet passkey, and leave the CLI running until approval completes. The
+delegated private key and PKCE verifier remain on the CLI machine; the browser
+and wallet backend only handle public request and approval metadata.
+
 Use login only to connect a wallet profile when none exists. If the CLI reports
 `Wallet already connected to ...`, do not rerun login. Use
 `mega wallet create-key` to add a delegated key to the existing profile, or
 `mega wallet logout` only when the user explicitly wants this CLI install to
 forget the local wallet profile.
 
-Login defaults to `https://account.megaeth.com` and
-`https://wallet-relay.megaeth.com`. Use `--wallet-url` only when deliberately
-targeting a different wallet UI, and use `--relay-url` only for an explicit
-non-canonical relay.
+Login defaults to `https://account.megaeth.com`,
+`https://wallet-api.megaeth.com`, and `https://wallet-relay.megaeth.com`. Use
+`--wallet-url`, `--wallet-api-url`, or `--relay-url` only when deliberately
+targeting non-canonical endpoints.
 
 Default login permissions expire after one week, prefer USDM as the fee token
 with a `1 USDM` allowance, and ask for a flat `100 USDM` spend cap over the
@@ -111,8 +128,10 @@ mega wallet permissions 0xKEY_OR_ACCESS_ADDRESS --json
 mega wallet switch 0xKEY_OR_ACCESS_ADDRESS
 mega wallet create-key --label "agent"
 mega wallet create-key --spend-limit 25 --label "agent"
+mega wallet create-key --auth-flow device --no-browser --label "agent"
 mega wallet label 0xKEY_OR_ACCESS_ADDRESS "agent"
 mega wallet revoke 0xKEY_OR_ACCESS_ADDRESS
+mega wallet revoke 0xKEY_OR_ACCESS_ADDRESS --auth-flow device --no-browser
 ```
 
 Use `list` to inspect local keys. Revoked and expired keys are hidden unless
@@ -120,8 +139,10 @@ Use `list` to inspect local keys. Revoked and expired keys are hidden unless
 scope in plain English before a write.
 
 Use `create-key` when no existing key has the requested scope; it opens the
-browser/passkey loopback flow. Use `revoke` to revoke a key on-chain; the CLI
-keeps an inactive audit record but removes local private key material.
+browser/passkey approval flow. Use `--auth-flow device --no-browser` for
+headless create-key or revoke authorization. Use `revoke` to revoke a key
+on-chain; the CLI keeps an inactive audit record but removes local private key
+material.
 
 ## Custom Permission Files
 
