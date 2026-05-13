@@ -78,6 +78,7 @@ export type WalletProfile = {
   activeKeyId?: HexString;
   keys: WalletKeyRecord[];
   walletUrl: string;
+  walletApiUrl?: string;
   relayUrl: string;
   createdAt: string;
   updatedAt: string;
@@ -447,6 +448,12 @@ export function parseWalletProfile(value: unknown): WalletProfile {
     throw new CliError("wallet profile activeKeyId must reference a key");
   }
   assertUrl(profile.walletUrl, "wallet profile walletUrl must be a URL");
+  if (profile.walletApiUrl !== undefined) {
+    assertUrl(
+      profile.walletApiUrl,
+      "wallet profile walletApiUrl must be a URL",
+    );
+  }
   assertUrl(profile.relayUrl, "wallet profile relayUrl must be a URL");
   assertIsoDate(
     profile.createdAt,

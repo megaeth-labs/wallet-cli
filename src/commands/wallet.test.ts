@@ -302,6 +302,138 @@ describe("wallet status commands", () => {
     );
   });
 
+  it("logs in with device auth while keeping JSON stdout parseable", async () => {
+    const env = await tempEnv();
+    const stdout = memoryOutput();
+    const stderr = memoryOutput();
+    const created = makeKey({
+      id: "0x8888888888888888888888888888888888888888",
+      accessAddress: "0x8888888888888888888888888888888888888888",
+      privateKey:
+        "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    });
+    const opened: string[] = [];
+    const program = new Command();
+    program.exitOverride();
+    registerWalletCommands(program, {
+      authorizeDeviceKey: async (options) => {
+        expect(options.walletUrl).toBe("https://wallet.example");
+        expect(options.walletApiUrl).toBe("https://wallet-api.example");
+        options.onPrompt?.({
+          verificationUri: "https://wallet.example/cli-auth",
+          verificationUriComplete:
+            "https://wallet.example/cli-auth?code=ABCD-1234",
+          userCode: "ABCD-1234",
+          expiresAt: "2026-05-07T00:10:00.000Z",
+        });
+        return {
+          accountAddress: "0x1111111111111111111111111111111111111111",
+          authUrl: "https://wallet.example/cli-auth?code=ABCD-1234",
+          key: created,
+          relayUrl: "https://relay.example",
+          walletUrl: "https://wallet.example",
+        };
+      },
+      env,
+      now: () => activeNow,
+      openBrowser: (url) => {
+        opened.push(url);
+      },
+      stderr,
+      stdout,
+    });
+
+    await program.parseAsync([
+      "node",
+      "mega",
+      "wallet",
+      "login",
+      "--auth-flow",
+      "device",
+      "--wallet-url",
+      "https://wallet.example",
+      "--wallet-api-url",
+      "https://wallet-api.example",
+      "--relay-url",
+      "https://relay.example",
+      "--no-browser",
+      "--json",
+    ]);
+
+    const rendered = JSON.parse(stdout.text) as WalletProfile;
+    expect(rendered.accountAddress).toBe(
+      "0x1111111111111111111111111111111111111111",
+    );
+    expect(stdout.text).not.toContain(created.privateKey);
+    expect(stderr.text).toContain(
+      "Running headless? Go to https://wallet.example/cli-auth and input this code - ABCD-1234",
+    );
+    expect(stderr.text).not.toContain("deviceCode");
+    expect(opened).toEqual([]);
+    await expect(readWalletProfile("mainnet", env)).resolves.toMatchObject({
+      walletApiUrl: "https://wallet-api.example",
+    });
+  });
+
+  it("creates a device key with profile wallet API URL and no browser", async () => {
+    const env = await tempEnv();
+    const profile = makeProfile();
+    const stdout = memoryOutput();
+    const stderr = memoryOutput();
+    const created = makeKey({
+      id: "0x8888888888888888888888888888888888888888",
+      accessAddress: "0x8888888888888888888888888888888888888888",
+      privateKey:
+        "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    });
+    const opened: string[] = [];
+    await writeWalletProfile(profile, env);
+
+    await runWalletCreateKey(
+      {
+        allowCall: [],
+        authFlow: "device",
+        browser: false,
+        network: "mainnet",
+        timeoutMs: 1_000,
+        terse: true,
+      },
+      {
+        authorizeDeviceKey: async (options) => {
+          expect(options.existingAccountAddress).toBe(profile.accountAddress);
+          expect(options.walletApiUrl).toBe(profile.walletApiUrl);
+          options.onPrompt?.({
+            verificationUri: "https://wallet.example/cli-auth",
+            verificationUriComplete:
+              "https://wallet.example/cli-auth?code=WXYZ-9876",
+            userCode: "WXYZ-9876",
+            expiresAt: "2026-05-07T00:10:00.000Z",
+          });
+          return {
+            accountAddress: profile.accountAddress,
+            authUrl: "https://wallet.example/cli-auth?code=WXYZ-9876",
+            key: created,
+            relayUrl: profile.relayUrl,
+            walletUrl: profile.walletUrl,
+          };
+        },
+        env,
+        now: () => activeNow,
+        openBrowser: (url) => {
+          opened.push(url);
+        },
+        stderr,
+        stdout,
+      },
+    );
+
+    expect(stdout.text).toBe(
+      `mainnet\t${created.id}\t${created.accessAddress}\n`,
+    );
+    expect(stderr.text).toContain("Verification code: WXYZ-9876");
+    expect(opened).toEqual([]);
+  });
+
   it("revokes a key on-chain and keeps an inactive audit record", async () => {
     const env = await tempEnv();
     const profile = makeProfile();
@@ -341,6 +473,47 @@ describe("wallet status commands", () => {
     expect(stored.keys[0]).not.toHaveProperty("privateKey");
   });
 
+  it("revokes a key through device auth", async () => {
+    const env = await tempEnv();
+    const profile = makeProfile();
+    const stdout = memoryOutput();
+    const stderr = memoryOutput();
+    await writeWalletProfile(profile, env);
+
+    await runWalletRevoke(
+      profile.keys[0]!.id,
+      { authFlow: "device", network: "mainnet", terse: true, timeoutMs: 1_000 },
+      {
+        env,
+        now: () => activeNow,
+        revokeDeviceKey: async (options) => {
+          expect(options.accountAddress).toBe(profile.accountAddress);
+          expect(options.accessAddress).toBe(profile.keys[0]!.accessAddress);
+          expect(options.walletApiUrl).toBe(profile.walletApiUrl);
+          options.onPrompt?.({
+            verificationUri: "https://wallet.example/cli-auth",
+            verificationUriComplete:
+              "https://wallet.example/cli-auth?code=REVK-0001",
+            userCode: "REVK-0001",
+            expiresAt: "2026-05-07T00:10:00.000Z",
+          });
+          return {
+            authUrl: "https://wallet.example/cli-auth?code=REVK-0001",
+            revokeTxHash:
+              "0x9999999999999999999999999999999999999999999999999999999999999999",
+          };
+        },
+        stderr,
+        stdout,
+      },
+    );
+
+    expect(stdout.text).toBe(
+      `mainnet\t${profile.keys[0]!.id}\trevoked\t0x9999999999999999999999999999999999999999999999999999999999999999\n`,
+    );
+    expect(stderr.text).toContain("Running headless?");
+  });
+
   it("removes the local profile on logout", async () => {
     const env = await tempEnv();
     const profile = makeProfile();
@@ -378,13 +551,7 @@ describe("wallet status commands", () => {
       stdout,
     });
 
-    await program.parseAsync([
-      "node",
-      "mega",
-      "wallet",
-      "whoami",
-      "-t",
-    ]);
+    await program.parseAsync(["node", "mega", "wallet", "whoami", "-t"]);
 
     expect(stdout.text).toBe(
       `mainnet\t${profile.accountAddress}\t${profile.keys[0]!.accessAddress}\tactive\t${profile.keys[0]!.authorizedKey.expiry}\n`,
@@ -411,6 +578,7 @@ function makeProfile(options: { expiry?: number } = {}): WalletProfile {
       }),
     ],
     walletUrl: "https://wallet.example",
+    walletApiUrl: "https://wallet-api.example",
     relayUrl: "https://relay.example",
     createdAt: "2026-05-07T00:00:00.000Z",
     updatedAt: "2026-05-07T00:00:00.000Z",

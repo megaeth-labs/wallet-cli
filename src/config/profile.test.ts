@@ -122,6 +122,17 @@ describe("wallet profile storage", () => {
     ]);
   });
 
+  it("accepts optional wallet API URLs without requiring old profiles to rewrite", () => {
+    expect(parseWalletProfile(makeProfile()).walletApiUrl).toBeUndefined();
+
+    expect(
+      parseWalletProfile({
+        ...makeProfile(),
+        walletApiUrl: "https://wallet-api.example",
+      }).walletApiUrl,
+    ).toBe("https://wallet-api.example");
+  });
+
   it("redacts private keys from summaries and json output", () => {
     const profile = makeProfile();
 
