@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -14,6 +14,7 @@ const nativeTokenAddress = "native";
 const defaultRelayUrl = "https://wallet-relay.megaeth.com";
 const anyCallTarget = "0x3232323232323232323232323232323232323232";
 const anyCallSelector = "0x32323232";
+const deviceUserCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 class ScreenOnlyComplete extends Error {
   constructor() {
@@ -33,6 +34,7 @@ const shim = await startShimBackend({
   port: options.shimPort,
   statePath: resolve(options.e2eDir, "shim-state.json"),
   relayUrl: options.relayUrl,
+  walletUrl: options.walletUrl,
 });
 
 if (options.shimOnly) {
@@ -66,11 +68,15 @@ try {
   const loginResult = await runCliLogin(page, options);
 
   if (loginResult.screenOnly) {
-    console.log("Loopback auth screen assertions passed.");
+    console.log(
+      `${options.authFlow === "device" ? "Device" : "Loopback"} auth screen assertions passed.`,
+    );
     console.log(`Wallet UI: ${options.walletUrl}`);
     console.log(`Playwright profile: ${options.profileDir}`);
   } else {
-    console.log("Loopback authorization completed.");
+    console.log(
+      `${options.authFlow === "device" ? "Device" : "Loopback"} authorization completed.`,
+    );
     console.log(`Account: ${loginResult.profile.accountAddress}`);
     console.log(`Access key: ${loginResult.profile.keys[0].accessAddress}`);
     console.log(
@@ -115,6 +121,7 @@ function parseArgs(args) {
     mockRelay: false,
     reset: false,
     screenOnly: false,
+    authFlow: "loopback",
     shimPort: 4002,
     shimOnly: false,
     timeoutMs: 120_000,
@@ -132,9 +139,19 @@ function parseArgs(args) {
       case "--allow-call":
         parsed.allowCalls.push(readValue(args, ++index, arg));
         break;
+      case "--":
+        break;
       case "--artifacts-dir":
         parsed.artifactsDir = resolve(readValue(args, ++index, arg));
         break;
+      case "--auth-flow": {
+        const authFlow = readValue(args, ++index, arg);
+        if (authFlow !== "loopback" && authFlow !== "device") {
+          throw new Error("--auth-flow must be loopback or device");
+        }
+        parsed.authFlow = authFlow;
+        break;
+      }
       case "--config-dir":
         configDir = resolve(readValue(args, ++index, arg));
         break;
@@ -237,6 +254,7 @@ function printHelp() {
   console.log(`Usage: npm run e2e:loopback -- [options]
 
 Options:
+  --auth-flow <flow>     Authorization flow: loopback or device (default: loopback)
   --screen-only          Stop after verifying the wallet permission screen
   --headed               Show the Playwright Chromium window
   --hold                 Keep the browser open after the check
@@ -368,7 +386,13 @@ function redactTelemetry(value) {
   );
 }
 
-async function startShimBackend({ mockRelay, port, statePath, relayUrl }) {
+async function startShimBackend({
+  mockRelay,
+  port,
+  statePath,
+  relayUrl,
+  walletUrl,
+}) {
   const state = await readShimState(statePath);
 
   const server = createServer(async (request, response) => {
@@ -376,6 +400,7 @@ async function startShimBackend({ mockRelay, port, statePath, relayUrl }) {
       await handleShimRequest(request, response, state, statePath, {
         mockRelay,
         relayUrl,
+        walletUrl,
       });
     } catch (error) {
       json(response, request, 500, {
@@ -443,7 +468,7 @@ async function handleShimRequest(
   response,
   state,
   statePath,
-  { mockRelay, relayUrl },
+  { mockRelay, relayUrl, walletUrl },
 ) {
   applyCors(request, response);
 
@@ -457,6 +482,147 @@ async function handleShimRequest(
 
   if (url.pathname === "/__mega_cli_e2e/health") {
     json(response, request, 200, { ok: true });
+    return;
+  }
+
+  if (
+    request.method === "POST" &&
+    url.pathname === "/v1/cli-auth/device/start"
+  ) {
+    const body = await readJson(request);
+    const record = createDeviceAuthRecord(body, walletUrl);
+    const { deviceCode, ...storedRecord } = record;
+    state.deviceAuth[record.userCode] = storedRecord;
+    await writeShimState(statePath, state);
+    json(response, request, 200, {
+      deviceCode,
+      userCode: record.userCode,
+      verificationUri: record.verificationUri,
+      verificationUriComplete: record.verificationUriComplete,
+      expiresIn: record.expiresIn,
+      interval: record.interval,
+    });
+    return;
+  }
+
+  if (
+    request.method === "POST" &&
+    url.pathname === "/v1/cli-auth/device/token"
+  ) {
+    const body = await readJson(request);
+    const record = findDeviceAuthByDeviceCode(state, body.deviceCode);
+    if (!record) {
+      json(response, request, 400, { error: "Invalid device authorization" });
+      return;
+    }
+    if (!isValidDevicePkce(record, body.codeVerifier)) {
+      json(response, request, 400, { error: "Invalid PKCE verifier" });
+      return;
+    }
+    if (isExpiredDeviceAuth(record)) {
+      record.status = "expired";
+      await writeShimState(statePath, state);
+      json(response, request, 200, { status: "expired_token" });
+      return;
+    }
+    if (record.status === "rejected") {
+      json(response, request, 200, {
+        status: "access_denied",
+        ...(record.rejectionError ? { error: record.rejectionError } : {}),
+      });
+      return;
+    }
+    if (record.status === "consumed") {
+      json(response, request, 410, {
+        error: "Device authorization already consumed",
+      });
+      return;
+    }
+    if (record.status === "approved") {
+      record.status = "consumed";
+      await writeShimState(statePath, state);
+      json(response, request, 200, record.approval);
+      return;
+    }
+    json(response, request, 200, {
+      status: "authorization_pending",
+      interval: record.interval,
+    });
+    return;
+  }
+
+  if (
+    request.method === "GET" &&
+    url.pathname.startsWith("/v1/cli-auth/device/")
+  ) {
+    const userCode = normalizeDeviceUserCode(
+      url.pathname.slice("/v1/cli-auth/device/".length),
+    );
+    const record = state.deviceAuth[userCode];
+    if (!record) {
+      json(response, request, 404, { error: "Device authorization not found" });
+      return;
+    }
+    if (isExpiredDeviceAuth(record)) {
+      record.status = "expired";
+      await writeShimState(statePath, state);
+      json(response, request, 410, { status: "expired_token" });
+      return;
+    }
+    if (record.status !== "pending") {
+      json(response, request, 400, {
+        error: "Device authorization is not pending",
+      });
+      return;
+    }
+    json(response, request, 200, sanitizeDeviceLookup(record));
+    return;
+  }
+
+  if (
+    request.method === "POST" &&
+    url.pathname.startsWith("/v1/cli-auth/device/") &&
+    url.pathname.endsWith("/approve")
+  ) {
+    const userCode = normalizeDeviceUserCode(
+      url.pathname
+        .slice("/v1/cli-auth/device/".length)
+        .slice(0, -"/approve".length),
+    );
+    const record = state.deviceAuth[userCode];
+    if (!record || record.status !== "pending") {
+      json(response, request, 404, { error: "Device authorization not found" });
+      return;
+    }
+    const body = await readJson(request);
+    record.status = "approved";
+    record.approval = buildDeviceApproval(record, body);
+    await writeShimState(statePath, state);
+    json(response, request, 200, record.approval);
+    return;
+  }
+
+  if (
+    request.method === "POST" &&
+    url.pathname.startsWith("/v1/cli-auth/device/") &&
+    url.pathname.endsWith("/reject")
+  ) {
+    const userCode = normalizeDeviceUserCode(
+      url.pathname
+        .slice("/v1/cli-auth/device/".length)
+        .slice(0, -"/reject".length),
+    );
+    const record = state.deviceAuth[userCode];
+    if (!record || record.status !== "pending") {
+      json(response, request, 404, { error: "Device authorization not found" });
+      return;
+    }
+    const body = await readJson(request);
+    record.status = "rejected";
+    record.rejectionError =
+      typeof body.error === "string" ? body.error : undefined;
+    await writeShimState(statePath, state);
+    json(response, request, 200, { status: "rejected" });
     return;
   }
 
@@ -896,12 +1062,14 @@ async function readShimState(path) {
   try {
     const parsed = JSON.parse(await readFile(path, "utf8"));
     return {
+      deviceAuth: parsed.deviceAuth ?? {},
       mockKeys: parsed.mockKeys ?? {},
       publicKeyLookup: parsed.publicKeyLookup ?? {},
       wallets: parsed.wallets ?? {},
     };
   } catch {
     return {
+      deviceAuth: {},
       mockKeys: {},
       publicKeyLookup: {},
       wallets: {},
@@ -914,6 +1082,164 @@ async function writeShimState(path, state) {
   await writeFile(path, `${JSON.stringify(state, null, 2)}\n`, {
     mode: 0o600,
   });
+}
+
+function createDeviceAuthRecord(request, walletUrl) {
+  assertDeviceStartRequest(request);
+  const deviceCode = randomBytes(32).toString("base64url");
+  const userCode = createDeviceUserCode();
+  const verificationUri = new URL("/cli-auth", walletUrl).toString();
+  const verificationUriComplete = new URL(verificationUri);
+  verificationUriComplete.searchParams.set("code", userCode);
+
+  return {
+    approval: undefined,
+    clientName: request.clientName,
+    codeChallenge: request.codeChallenge,
+    codeChallengeMethod: request.codeChallengeMethod,
+    createdAt: new Date().toISOString(),
+    deviceCode,
+    deviceCodeHash: hashDeviceCode(deviceCode),
+    expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    expiresIn: 600,
+    interval: 1,
+    network: request.network,
+    operation: request.operation,
+    request,
+    status: "pending",
+    userCode,
+    verificationUri,
+    verificationUriComplete: verificationUriComplete.toString(),
+  };
+}
+
+function assertDeviceStartRequest(request) {
+  if (!request || request.clientName !== "mega-cli") {
+    throw new Error("device start clientName must be mega-cli");
+  }
+  if (request.network !== "mainnet") {
+    throw new Error("device start network must be mainnet");
+  }
+  if (request.codeChallengeMethod !== "S256") {
+    throw new Error("device start codeChallengeMethod must be S256");
+  }
+  if (!/^0x[0-9a-fA-F]{40}$/.test(request.accessAddress ?? "")) {
+    throw new Error("device start accessAddress must be a 20-byte address");
+  }
+  if (!/^[A-Za-z0-9_-]{43,128}$/.test(request.codeChallenge ?? "")) {
+    throw new Error("device start codeChallenge must be base64url");
+  }
+  if (typeof request.state !== "string" || request.state.length < 16) {
+    throw new Error("device start state is required");
+  }
+  if (request.operation === "grant" && !request.permissions) {
+    throw new Error("device grant permissions are required");
+  }
+  if (
+    request.operation === "revoke" &&
+    !/^0x[0-9a-fA-F]{40}$/.test(request.accountAddress ?? "")
+  ) {
+    throw new Error("device revoke accountAddress must be a 20-byte address");
+  }
+}
+
+function createDeviceUserCode() {
+  const bytes = randomBytes(8);
+  const chars = [...bytes].map(
+    (byte) => deviceUserCodeAlphabet[byte % deviceUserCodeAlphabet.length],
+  );
+  return `${chars.slice(0, 4).join("")}-${chars.slice(4).join("")}`;
+}
+
+function normalizeDeviceUserCode(userCode) {
+  const compact = decodeURIComponent(userCode)
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+  return compact.length === 8
+    ? `${compact.slice(0, 4)}-${compact.slice(4)}`
+    : compact;
+}
+
+function findDeviceAuthByDeviceCode(state, deviceCode) {
+  const hash = hashDeviceCode(deviceCode);
+  return Object.values(state.deviceAuth).find(
+    (record) => record.deviceCodeHash === hash,
+  );
+}
+
+function hashDeviceCode(deviceCode) {
+  return createHash("sha256").update(String(deviceCode)).digest("base64url");
+}
+
+function isValidDevicePkce(record, codeVerifier) {
+  if (record.codeChallengeMethod !== "S256") {
+    return false;
+  }
+  if (typeof codeVerifier !== "string") {
+    return false;
+  }
+  return (
+    createHash("sha256").update(codeVerifier).digest("base64url") ===
+    record.codeChallenge
+  );
+}
+
+function isExpiredDeviceAuth(record) {
+  return new Date(record.expiresAt).getTime() <= Date.now();
+}
+
+function sanitizeDeviceLookup(record) {
+  const stored = record.request;
+  return {
+    clientName: record.clientName,
+    expiresAt: record.expiresAt,
+    interval: record.interval,
+    network: record.network,
+    operation: record.operation,
+    request:
+      record.operation === "grant"
+        ? {
+            accessAddress: stored.accessAddress,
+            clientName: stored.clientName,
+            existingAccountAddress: stored.existingAccountAddress,
+            network: stored.network,
+            operation: stored.operation,
+            permissions: stored.permissions,
+          }
+        : {
+            accessAddress: stored.accessAddress,
+            accountAddress: stored.accountAddress,
+            clientName: stored.clientName,
+            network: stored.network,
+            operation: stored.operation,
+          },
+    status: record.status,
+    userCode: record.userCode,
+  };
+}
+
+function buildDeviceApproval(record, body) {
+  if (record.operation === "grant") {
+    return {
+      status: "approved",
+      operation: "grant",
+      state: record.request.state,
+      accountAddress: normalizeAddress(body.accountAddress),
+      accessAddress: normalizeAddress(body.accessAddress),
+      authorizedKey: body.authorizedKey,
+      ...(body.grantTxHash ? { grantTxHash: body.grantTxHash } : {}),
+    };
+  }
+
+  return {
+    status: "approved",
+    operation: "revoke",
+    state: record.request.state,
+    accountAddress: normalizeAddress(body.accountAddress),
+    accessAddress: normalizeAddress(body.accessAddress),
+    ...(body.revokeTxHash ? { revokeTxHash: body.revokeTxHash } : {}),
+  };
 }
 
 function normalizeAddress(value) {
@@ -1079,11 +1405,7 @@ async function ensureWallet(page, walletUrl, timeoutMs, webauthn) {
     .getByRole("button", { name: /^(Create PassKey|Create Account)$/ })
     .click();
   const terms = page.getByText(/I have read, understood, and agree/);
-  if (
-    await terms
-      .isVisible({ timeout: 5_000 })
-      .catch(() => false)
-  ) {
+  if (await terms.isVisible({ timeout: 5_000 }).catch(() => false)) {
     await terms.click();
     await page.getByRole("button", { name: "Create Account" }).click();
   }
@@ -1136,6 +1458,10 @@ async function waitForStoredAccount(page, timeoutMs) {
 }
 
 async function runCliLogin(page, runOptions) {
+  if (runOptions.authFlow === "device") {
+    return runDeviceCliLogin(page, runOptions);
+  }
+
   const [{ runLoopbackLogin }, { resolveLoginPermissions }] = await Promise.all(
     [
       import(pathToFileURL(resolve(repoRoot, "dist/auth/loopback.js")).href),
@@ -1202,6 +1528,151 @@ async function runCliLogin(page, runOptions) {
   }
 }
 
+async function runDeviceCliLogin(page, runOptions) {
+  const walletCommands = await import(
+    pathToFileURL(resolve(repoRoot, "dist/commands/wallet.js")).href
+  );
+  const env = {
+    ...process.env,
+    MEGA_WALLET_CLI_CONFIG_DIR: runOptions.configDir,
+  };
+
+  try {
+    const profile = await walletCommands.login(
+      {
+        allowCall: runOptions.allowCalls,
+        authFlow: "device",
+        network: "mainnet",
+        permissions: runOptions.permissionsFile,
+        relayUrl: runOptions.relayUrl,
+        timeoutMs: runOptions.timeoutMs,
+        walletApiUrl: shimApiUrl(runOptions),
+        walletUrl: runOptions.walletUrl,
+      },
+      {
+        authorizeDeviceKey: createDeviceKeyAuthorizer(page, runOptions, {
+          formInputs: runOptions.formInputs,
+          screenOnly: runOptions.screenOnly,
+        }),
+        env,
+      },
+    );
+
+    if (!runOptions.permissionsFile && runOptions.allowCalls.length === 0) {
+      assertDefaultArbitraryCallPermission(profile.keys[0]?.authorizedKey);
+    }
+
+    return {
+      screenOnly: false,
+      profile,
+    };
+  } catch (error) {
+    if (runOptions.screenOnly && error instanceof ScreenOnlyComplete) {
+      return { screenOnly: true };
+    }
+    throw error;
+  }
+}
+
+function createDeviceKeyAuthorizer(
+  page,
+  runOptions,
+  { formInputs = false, screenOnly = false } = {},
+) {
+  return async (authorizationOptions) => {
+    const { authorizeDeviceKey } = await import(
+      pathToFileURL(resolve(repoRoot, "dist/auth/device.js")).href
+    );
+    let promptTask = Promise.resolve();
+
+    return authorizeDeviceKey({
+      ...authorizationOptions,
+      sleep: async (ms) => {
+        await promptTask;
+        await delay(Math.min(ms, 500));
+      },
+      onPrompt: (prompt) => {
+        promptTask = handleDeviceGrantPrompt(page, prompt, runOptions, {
+          formInputs,
+          screenOnly,
+        });
+      },
+    });
+  };
+}
+
+function createDeviceRevokeAuthorizer(page, runOptions) {
+  return async (authorizationOptions) => {
+    const { authorizeDeviceRevoke } = await import(
+      pathToFileURL(resolve(repoRoot, "dist/auth/device.js")).href
+    );
+    let promptTask = Promise.resolve();
+
+    return authorizeDeviceRevoke({
+      ...authorizationOptions,
+      sleep: async (ms) => {
+        await promptTask;
+        await delay(Math.min(ms, 500));
+      },
+      onPrompt: (prompt) => {
+        promptTask = handleDeviceRevokePrompt(page, prompt, runOptions);
+      },
+    });
+  };
+}
+
+async function handleDeviceGrantPrompt(
+  page,
+  prompt,
+  runOptions,
+  { formInputs, screenOnly },
+) {
+  await page.goto(prompt.verificationUriComplete, {
+    waitUntil: "domcontentloaded",
+  });
+  await assertDeviceRequestScreen(page, prompt.userCode, runOptions.timeoutMs);
+
+  if (screenOnly) {
+    throw new ScreenOnlyComplete();
+  }
+
+  await page.getByRole("button", { name: "Approve CLI Key" }).click();
+  await assertPermissionScreen(page, runOptions.timeoutMs);
+
+  if (formInputs) {
+    await exercisePermissionEditor(page, runOptions.timeoutMs);
+  }
+
+  await page.getByRole("button", { name: "Approve" }).click();
+}
+
+async function handleDeviceRevokePrompt(page, prompt, runOptions) {
+  await page.goto(prompt.verificationUriComplete, {
+    waitUntil: "domcontentloaded",
+  });
+  await assertDeviceRequestScreen(page, prompt.userCode, runOptions.timeoutMs);
+  await page.getByRole("button", { name: "Revoke CLI Key" }).click();
+  await waitForBodyText(
+    page,
+    (text) => text.includes("CLI request approved"),
+    "device revoke approval",
+    runOptions.timeoutMs,
+  );
+}
+
+async function assertDeviceRequestScreen(page, userCode, timeoutMs) {
+  await waitForBodyText(
+    page,
+    (text) => text.includes("Request details") && text.includes(userCode),
+    "device authorization request details",
+    timeoutMs,
+  );
+}
+
+function shimApiUrl(runOptions) {
+  return `http://127.0.0.1:${runOptions.shimPort}`;
+}
+
 async function runKeyManagementE2E(page, runOptions, initialProfile) {
   const [walletCommands, loopback, profileStore] = await Promise.all([
     import(pathToFileURL(resolve(repoRoot, "dist/commands/wallet.js")).href),
@@ -1223,21 +1694,31 @@ async function runKeyManagementE2E(page, runOptions, initialProfile) {
     walletCommands.runWalletCreateKey(
       {
         allowCall: [],
+        authFlow: runOptions.authFlow,
         label: "e2e-management",
         network: "mainnet",
+        relayUrl: runOptions.relayUrl,
         timeoutMs: runOptions.timeoutMs,
+        walletApiUrl: shimApiUrl(runOptions),
+        walletUrl: runOptions.walletUrl,
       },
       {
-        authorizeKey: (options) =>
-          loopback.authorizeLoopbackKey({
-            ...options,
-            env,
-            openBrowser: async (authUrl) => {
-              await page.goto(authUrl, { waitUntil: "domcontentloaded" });
-              await assertPermissionScreen(page, runOptions.timeoutMs);
-              await page.getByRole("button", { name: "Approve" }).click();
-            },
-          }),
+        ...(runOptions.authFlow === "device"
+          ? {
+              authorizeDeviceKey: createDeviceKeyAuthorizer(page, runOptions),
+            }
+          : {
+              authorizeKey: (options) =>
+                loopback.authorizeLoopbackKey({
+                  ...options,
+                  env,
+                  openBrowser: async (authUrl) => {
+                    await page.goto(authUrl, { waitUntil: "domcontentloaded" });
+                    await assertPermissionScreen(page, runOptions.timeoutMs);
+                    await page.getByRole("button", { name: "Approve" }).click();
+                  },
+                }),
+            }),
         env,
         stdout,
       },
@@ -1292,10 +1773,7 @@ async function runKeyManagementE2E(page, runOptions, initialProfile) {
       { env, stdout },
     ),
   );
-  assertIncludes(
-    permissions.stdout,
-    "Can spend up to 100 USDM until key expiry",
-  );
+  assertIncludes(permissions.stdout, "Can spend up to 100 USDM per week");
 
   await withOutput((stdout) =>
     walletCommands.runWalletLabel(
@@ -1327,20 +1805,32 @@ async function runKeyManagementE2E(page, runOptions, initialProfile) {
   const revoked = await withOutput((stdout) =>
     walletCommands.runWalletRevoke(
       secondKey.id,
-      { network: "mainnet", timeoutMs: runOptions.timeoutMs },
+      {
+        authFlow: runOptions.authFlow,
+        network: "mainnet",
+        timeoutMs: runOptions.timeoutMs,
+        walletApiUrl: shimApiUrl(runOptions),
+        walletUrl: runOptions.walletUrl,
+      },
       {
         env,
-        revokeKey: (options) =>
-          loopback.runLoopbackRevoke({
-            ...options,
-            openBrowser: async (authUrl) => {
-              await page.goto(authUrl, { waitUntil: "domcontentloaded" });
-              await page
-                .getByText(/Revok(e|ing) Mega CLI Key/)
-                .waitFor({ timeout: runOptions.timeoutMs / 2 })
-                .catch(() => undefined);
-            },
-          }),
+        ...(runOptions.authFlow === "device"
+          ? {
+              revokeDeviceKey: createDeviceRevokeAuthorizer(page, runOptions),
+            }
+          : {
+              revokeKey: (options) =>
+                loopback.runLoopbackRevoke({
+                  ...options,
+                  openBrowser: async (authUrl) => {
+                    await page.goto(authUrl, { waitUntil: "domcontentloaded" });
+                    await page
+                      .getByText(/Revok(e|ing) Mega CLI Key/)
+                      .waitFor({ timeout: runOptions.timeoutMs / 2 })
+                      .catch(() => undefined);
+                  },
+                }),
+            }),
         stdout,
       },
     ),
