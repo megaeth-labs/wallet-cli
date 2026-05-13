@@ -6,14 +6,14 @@
   "private": true,
   "type": "module",
   "bin": {
-    "mega": "./dist/index.js",
-    "wallet": "./dist/wallet.js"
+    "mega": "dist/index.js",
+    "wallet": "dist/wallet.js"
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && node -e \"const fs=require('fs'); for (const file of ['dist/index.js', 'dist/wallet.js']) fs.chmodSync(file, 0o755)\"",
+    "build": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.json && node -e \"const fs=require('fs'); for (const file of ['dist/index.js', 'dist/wallet.js']) fs.chmodSync(file, 0o755)\"",
     "e2e:functional": "npm run build && node scripts/wallet-functional-e2e.mjs",
     "e2e:functional:writes": "npm run e2e:functional -- --writes",
     "e2e:loopback": "npm run build && node scripts/loopback-e2e.mjs",

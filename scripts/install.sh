@@ -34,7 +34,7 @@ Options:
   --no-skill               Skip installing the agent skill from SKILL.md
   --skill-agent AGENT      Skill target: codex, claude, or all (default: all)
   --force-skill            Replace existing installed skill when it differs
-  --default-wallet-url URL Bake a default wallet URL into installed wrappers
+  --default-wallet-url URL Bake a wallet URL override into installed wrappers (default: none)
   -y, --yes                Install missing prerequisites without prompting
   --dry-run                Print actions without writing files or running builds
   -h, --help               Show this help
@@ -48,6 +48,9 @@ USAGE
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --)
+      shift
+      ;;
     --prefix)
       prefix="${2:?missing value for --prefix}"
       shift 2

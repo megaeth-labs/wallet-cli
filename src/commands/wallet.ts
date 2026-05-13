@@ -666,7 +666,11 @@ function renderWhoami(
   }
 
   if (result.activeKey === undefined) {
-    return `No active delegated key for ${result.network}.\n`;
+    if (result.keys.length === 0) {
+      return `No delegated keys for ${result.network}. Run mega wallet create-key to authorize one.\n`;
+    }
+
+    return `No usable default delegated key for ${result.network}. Run mega wallet list --show-inactive, then mega wallet switch <key> or mega wallet create-key.\n`;
   }
 
   if (options.terse) {

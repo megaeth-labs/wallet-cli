@@ -28,6 +28,9 @@ USAGE
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --)
+      shift
+      ;;
     --agent)
       agents="${2:?missing value for --agent}"
       shift 2
@@ -72,24 +75,58 @@ case "$skill_name" in
 esac
 
 source_skill="$repo_root/SKILL.md"
+source_references="$repo_root/references"
 if [ ! -f "$source_skill" ]; then
   echo "missing source skill: $source_skill" >&2
   exit 1
 fi
 
+skill_is_up_to_date() {
+  dest="$1"
+  dest_skill="$dest/SKILL.md"
+
+  if [ ! -f "$dest_skill" ] || ! cmp -s "$source_skill" "$dest_skill"; then
+    return 1
+  fi
+
+  if [ -d "$source_references" ]; then
+    [ -d "$dest/references" ] || return 1
+    diff -qr "$source_references" "$dest/references" >/dev/null
+    return $?
+  fi
+
+  [ ! -e "$dest/references" ]
+}
+
+copy_skill_files() {
+  dest="$1"
+  dest_skill="$dest/SKILL.md"
+
+  mkdir -p "$dest"
+  cp "$source_skill" "$dest_skill"
+  chmod 0644 "$dest_skill"
+
+  if [ -d "$source_references" ]; then
+    rm -rf "$dest/references"
+    mkdir -p "$dest/references"
+    cp -R "$source_references/." "$dest/references/"
+    find "$dest/references" -type d -exec chmod 0755 {} +
+    find "$dest/references" -type f -exec chmod 0644 {} +
+  fi
+}
+
 install_one() {
   agent="$1"
   home_dir="$2"
   dest="$home_dir/skills/$skill_name"
-  dest_skill="$dest/SKILL.md"
 
   if [ "$dry_run" -eq 1 ]; then
-    echo "would install $agent skill: $source_skill -> $dest_skill"
+    echo "would install $agent skill: $repo_root -> $dest"
     return
   fi
 
   if [ -e "$dest" ] && [ "$force" -ne 1 ]; then
-    if [ -f "$dest_skill" ] && cmp -s "$source_skill" "$dest_skill"; then
+    if skill_is_up_to_date "$dest"; then
       echo "$agent skill already up to date: $dest"
       return
     fi
@@ -101,9 +138,7 @@ install_one() {
     rm -rf "$dest"
   fi
 
-  mkdir -p "$dest"
-  cp "$source_skill" "$dest_skill"
-  chmod 0644 "$dest_skill"
+  copy_skill_files "$dest"
   echo "installed $agent skill: $dest"
 }
 

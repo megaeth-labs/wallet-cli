@@ -59,14 +59,16 @@ export async function resolveLoginPermissions(
     return request;
   }
 
+  const existingCalls =
+    options.permissionsFile === undefined
+      ? []
+      : (request.permissions.calls ?? []);
+
   return {
     ...request,
     permissions: {
       ...request.permissions,
-      calls: [
-        ...(request.permissions.calls ?? []),
-        ...allowCalls.map(parseAllowCall),
-      ],
+      calls: [...existingCalls, ...allowCalls.map(parseAllowCall)],
     },
   };
 }
@@ -82,6 +84,7 @@ export function defaultLoginPermissions(
       symbol: defaultFeeTokenSymbol,
     },
     permissions: {
+      calls: [{}],
       spend: [
         {
           limit: normalizeDefaultUsdmSpendLimit(options.spendLimit),
@@ -200,10 +203,6 @@ export function parsePermissionScope(
 function parseCallPermission(value: unknown): CallPermission {
   if (!isObject(value)) {
     throw new CliError("call permission must be an object");
-  }
-
-  if (value.to === undefined && value.signature === undefined) {
-    throw new CliError("call permission target or signature is required");
   }
 
   const call: CallPermission = {};

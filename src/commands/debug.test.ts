@@ -104,6 +104,30 @@ describe("wallet debug", () => {
     );
   });
 
+  it("explains how to recover when a profile has no delegated keys", async () => {
+    const env = await tempEnv();
+    await writeWalletProfile(
+      {
+        ...makeProfile(),
+        activeKeyId: undefined,
+        keys: [],
+      },
+      env,
+    );
+
+    await expect(
+      runWalletDebug(
+        { network: "mainnet", skipChain: true },
+        {
+          env,
+          stdout: memoryOutput(),
+        },
+      ),
+    ).rejects.toThrow(
+      "wallet profile has no delegated keys; run mega wallet create-key",
+    );
+  });
+
   it("registers debug into the wallet command registry", async () => {
     const env = await tempEnv();
     const profile = makeProfile();

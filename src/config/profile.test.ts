@@ -101,6 +101,25 @@ describe("wallet profile storage", () => {
         signature: "transfer(address,uint256)",
       },
     ]);
+
+    const explicitArbitrary = parseWalletProfile({
+      ...makeProfile(),
+      keys: [
+        {
+          ...makeProfile().keys[0]!,
+          authorizedKey: {
+            ...makeProfile().keys[0]!.authorizedKey,
+            permissions: {
+              calls: [{}],
+              spend: makeProfile().keys[0]!.authorizedKey.permissions.spend,
+            },
+          },
+        },
+      ],
+    });
+    expect(explicitArbitrary.keys[0]!.authorizedKey.permissions.calls).toEqual([
+      {},
+    ]);
   });
 
   it("redacts private keys from summaries and json output", () => {

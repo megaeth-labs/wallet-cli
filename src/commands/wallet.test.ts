@@ -42,6 +42,28 @@ describe("wallet status commands", () => {
     ).rejects.toThrow("no mainnet wallet profile found; run mega wallet login");
   });
 
+  it("shows the recovery command when a profile has no delegated keys", async () => {
+    const env = await tempEnv();
+    const stdout = memoryOutput();
+    await writeWalletProfile(
+      {
+        ...makeProfile(),
+        activeKeyId: undefined,
+        keys: [],
+      },
+      env,
+    );
+
+    await runWalletWhoami(
+      { network: "mainnet" },
+      { env, now: () => activeNow, stdout },
+    );
+
+    expect(stdout.text).toBe(
+      "No delegated keys for mainnet. Run mega wallet create-key to authorize one.\n",
+    );
+  });
+
   it("rejects testnet before reading wallet profiles", async () => {
     const env = await tempEnv();
 

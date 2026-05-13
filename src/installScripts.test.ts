@@ -1,5 +1,12 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -27,6 +34,7 @@ describe("installer scripts", () => {
 
     const { stdout } = await execFileAsync("bash", [
       "scripts/install.sh",
+      "--",
       "--dry-run",
       "--skip-build",
       "--install-root",
@@ -119,9 +127,31 @@ describe("installer scripts", () => {
       join(claudeHome, "skills", "mega-wallet-cli", "SKILL.md"),
       "utf8",
     );
+    const codexPermissionsReference = await readFile(
+      join(
+        codexHome,
+        "skills",
+        "mega-wallet-cli",
+        "references",
+        "permissions.md",
+      ),
+      "utf8",
+    );
+    const claudePermissionsReference = await readFile(
+      join(
+        claudeHome,
+        "skills",
+        "mega-wallet-cli",
+        "references",
+        "permissions.md",
+      ),
+      "utf8",
+    );
 
     expect(codexSkill).toContain("mega wallet");
     expect(claudeSkill).toBe(codexSkill);
+    expect(codexPermissionsReference).toContain("Permission Requests");
+    expect(claudePermissionsReference).toBe(codexPermissionsReference);
   });
 
   it("treats an unchanged installed skill as up to date", async () => {
@@ -152,6 +182,7 @@ describe("installer scripts", () => {
 
     const { stdout } = await execFileAsync("bash", [
       "scripts/uninstall.sh",
+      "--",
       "--dry-run",
       "--install-root",
       join(dir, "mega-wallet-cli"),
@@ -171,6 +202,22 @@ describe("installer scripts", () => {
     expect(stdout).toContain("skip missing codex skill:");
     expect(stdout).toContain("skip missing claude skill:");
     expect(stdout).toContain("skip missing config:");
+  });
+
+  it("supports pnpm-style argument separators for skill dry-runs", async () => {
+    const dir = await tempDir();
+
+    const { stdout } = await execFileAsync("bash", [
+      "scripts/install-skill.sh",
+      "--",
+      "--dry-run",
+      "--agent",
+      "codex",
+      "--codex-home",
+      join(dir, "codex"),
+    ]);
+
+    expect(stdout).toContain("would install codex skill:");
   });
 });
 

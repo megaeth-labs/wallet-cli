@@ -75,6 +75,7 @@ describe("loopback login", () => {
       symbol: "USDM",
     });
     expect(decodedPermissions.permissions).toEqual({
+      calls: [{}],
       spend: [
         {
           limit: "100000000000000000000",
@@ -145,7 +146,7 @@ describe("loopback login", () => {
     await expect(fetch(callbackUrl!)).rejects.toThrow();
   });
 
-  it("defaults mainnet login to the canonical wallet UI and relay", async () => {
+  it("defaults mainnet login to the production wallet UI and canonical relay", async () => {
     const env = await tempEnv();
     const keyPair = deriveDelegatedKeyPair(testPrivateKey);
     const chainConfig = getChainConfig("mainnet");
@@ -340,6 +341,7 @@ describe("loopback login", () => {
         token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
       },
     ]);
+    expect(permissions.permissions.calls).toEqual([{}]);
   });
 });
 

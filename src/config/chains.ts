@@ -16,12 +16,13 @@ export type ChainConfig = {
 
 const walletUrlOverride = readOptionalEnv("MEGA_WALLET_CLI_WALLET_URL");
 const relayUrlOverride = readOptionalEnv("MEGA_WALLET_CLI_RELAY_URL");
+const defaultWalletUrl = "https://account.megaeth.com";
 
 export const chainConfigs: Record<Network, ChainConfig> = {
   mainnet: {
     network: "mainnet",
     chainId: 4326,
-    walletUrl: walletUrlOverride ?? "https://account.megaeth.com",
+    walletUrl: walletUrlOverride ?? defaultWalletUrl,
     relayUrl: relayUrlOverride ?? "https://wallet-relay.megaeth.com",
   },
   testnet: {

@@ -262,7 +262,7 @@ export function requireUsableWalletKey(
   if (key === undefined) {
     throw new CliError(
       selector === undefined
-        ? "wallet profile has no default delegated key; run mega wallet switch <key>"
+        ? noDefaultWalletKeyMessage(profile)
         : `delegated key not found: ${selector}`,
     );
   }
@@ -274,10 +274,20 @@ export function requireUsableWalletKey(
         : isWalletKeyExpired(key, now)
           ? "expired"
           : "missing private key material";
-    throw new CliError(`delegated key ${key.accessAddress} is ${status}`);
+    throw new CliError(
+      `delegated key ${key.accessAddress} is ${status}; run mega wallet create-key or switch to another usable key`,
+    );
   }
 
   return key;
+}
+
+function noDefaultWalletKeyMessage(profile: WalletProfile): string {
+  if (profile.keys.length === 0) {
+    return "wallet profile has no delegated keys; run mega wallet create-key";
+  }
+
+  return "wallet profile has no usable default delegated key; run mega wallet list --show-inactive, then mega wallet switch <key> or mega wallet create-key";
 }
 
 export function markWalletKeyUsed(
@@ -570,11 +580,6 @@ function assertAuthorizedKey(value: unknown): asserts value is AuthorizedKey {
   for (const call of value.permissions.calls ?? []) {
     if (!isObject(call)) {
       throw new CliError("wallet profile call permission must be an object");
-    }
-    if (call.to === undefined && call.signature === undefined) {
-      throw new CliError(
-        "wallet profile call permission target or signature is required",
-      );
     }
     if (call.to !== undefined) {
       assertAddress(

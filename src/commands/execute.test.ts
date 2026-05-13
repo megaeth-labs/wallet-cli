@@ -206,6 +206,31 @@ describe("wallet execute", () => {
     expect(relayActions.prepareCalls).not.toHaveBeenCalled();
   });
 
+  it("explains how to recover when a profile has no delegated keys", async () => {
+    const relayActions = fakeRelayActions();
+
+    await expect(
+      executeWalletCalls(
+        {
+          calls: [{ data: "0x", to: target }],
+          network: "mainnet",
+        },
+        dependencies({
+          profile: {
+            ...makeProfile(),
+            activeKeyId: undefined,
+            keys: [],
+          },
+          relayActions,
+        }),
+      ),
+    ).rejects.toThrow(
+      "wallet profile has no delegated keys; run mega wallet create-key",
+    );
+
+    expect(relayActions.prepareCalls).not.toHaveBeenCalled();
+  });
+
   it("redacts relay failure messages without leaking private key material", async () => {
     const longCalldata = `0x${"aa".repeat(64)}`;
     const relayActions = fakeRelayActions({

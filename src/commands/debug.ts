@@ -120,7 +120,11 @@ export async function runWalletDebug(
   const profile = await readWalletProfile(network, env);
   const activeKey = getActiveWalletKey(profile);
   if (activeKey === undefined) {
-    throw new CliError("wallet profile has no active delegated key");
+    throw new CliError(
+      profile.keys.length === 0
+        ? "wallet profile has no delegated keys; run mega wallet create-key"
+        : "wallet profile has no usable default delegated key; run mega wallet list --show-inactive, then mega wallet switch <key> or mega wallet create-key",
+    );
   }
   const rpcUrl = normalizeRpcUrl(options.rpcUrl ?? getDefaultRpcUrl(network));
   const result: DebugCommandResult = {

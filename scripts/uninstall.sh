@@ -57,6 +57,9 @@ USAGE
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --)
+      shift
+      ;;
     --prefix)
       prefix="${2:?missing value for --prefix}"
       bin_dir="$prefix/bin"

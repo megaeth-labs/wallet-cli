@@ -24,9 +24,9 @@ wallet account.
   fee allowance, and contract call scopes.
 - The CLI signs with the delegated session key and submits writes through the
   MegaETH/Porto relay. It never has the user's passkey or root/admin key.
-- `mega wallet revoke <key>` revokes a delegated key on-chain. `mega wallet
-logout` only deletes this CLI's local profile and delegated private key
-  material.
+- `mega wallet revoke <key>` revokes a delegated key on-chain.
+- `mega wallet logout` only deletes this CLI's local profile and delegated
+  private key material.
 
 ## Setup
 
@@ -77,15 +77,33 @@ Use login only to connect a wallet profile when none exists. If the CLI reports
 forget the local wallet profile.
 
 Login defaults to `https://account.megaeth.com` and
-`https://wallet-relay.megaeth.com`. Use `--wallet-url` only when testing a local
-wallet UI, and use `--relay-url` only for an explicit non-canonical relay.
+`https://wallet-relay.megaeth.com`. Use `--wallet-url` only when deliberately
+targeting a different wallet UI, and use `--relay-url` only for an explicit
+non-canonical relay.
+
+For local wallet UI auth testing, run the sibling wallet app as
+`pnpm dev -- --host localhost --port 4000` from `../wallet`, and start this
+repo's shim on port `4002`:
+
+```bash
+node scripts/loopback-e2e.mjs --shim-only --shim-port 4002 \
+  --artifacts-dir .e2e/artifacts-local-debug \
+  --config-dir .e2e/config-local-shim
+```
+
+Use `--mock-relay` only for no-chain E2E harness checks. For real
+`grantPermissions` or revoke verification, omit `--mock-relay` so `/rpc`
+proxies to the real relayer; mock mode can make the wallet UI report approval
+without broadcasting an on-chain transaction. If approval succeeds but no relay
+traffic appears, check that the browser origin is `http://localhost:4000` and
+the wallet UI is using the local `4002` backend.
 
 Default login permissions expire after one week, prefer USDM as the fee token
 with a `1 USDM` allowance, and ask for a flat `100 USDM` spend cap over the
-one-week authorization window. The default intentionally omits
-`permissions.calls`, which allows arbitrary contract interactions bounded by the
-spend/fee/expiry limits. Use `--allow-call` or a custom permissions file when a
-more restrictive protocol-specific key is required. For additional keys, use
+one-week authorization window. Approved broad-call keys are represented as
+`permissions.calls: [{}]`, which allows arbitrary contract interactions bounded
+by spend/fee/expiry limits. Use `--allow-call` or a custom permissions file when
+a more restrictive protocol-specific key is required. For additional keys, use
 `mega wallet create-key --spend-limit <amount>` to override the default USDM
 spend cap. Use `--permissions ./permissions.json` to change fee token, call
 scope, expiry, spend token, or spend period.
@@ -128,47 +146,8 @@ keeps an inactive audit record but removes local private key material.
 ## Custom Permission Files
 
 Use `create-key --spend-limit <amount>` for a simple default USDM spend cap.
-Use `--permissions ./permissions.json` with `login` or `create-key` when the
-user needs custom expiry, fee token, spend token, spend period, or no spend. The
-file is the complete permission request, not only the inner `permissions`
-object:
-
-```json
-{
-  "expiry": 1800000000,
-  "feeToken": {
-    "limit": "1",
-    "symbol": "USDM"
-  },
-  "permissions": {
-    "calls": [
-      {
-        "to": "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
-        "signature": "approve(address,uint256)"
-      },
-      {
-        "to": "0x7e324AbC5De01d112AfC03a584966ff199741C28",
-        "signature": "supply(address,uint256,address,uint16)"
-      }
-    ],
-    "spend": [
-      {
-        "token": "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
-        "limit": "100000000000000000000",
-        "period": "year"
-      }
-    ]
-  }
-}
-```
-
-`--spend-limit` accepts a human USDM amount such as `25` or `0.5`. In custom
-permission files, `expiry` is a future Unix timestamp in seconds,
-`feeToken.limit` is a decimal string, and spend `limit` values are integer base
-units. `permissions.spend` is
-required and may be `[]` for no spend. Omit `permissions.calls` only when broad
-contract call authority is intended. Use `permissions.calls: []` to authorize no
-contract calls, or provide call entries for scoped authority.
+Read [references/permissions.md](references/permissions.md) only when building
+`--permissions ./permissions.json` files or debugging permission schema errors.
 
 ## Read State
 
@@ -202,6 +181,10 @@ cannot call `approve`, `transfer`, Aave `supply`, or other contract functions
 even when it has token spend allowance. If the relay returns
 `UnauthorizedCall`, inspect the target/function selector and create or switch to
 a key with matching `--allow-call` scopes.
+
+For custom permission files, use `permissions.calls: [{}]` for broad contract
+call authority and `permissions.calls: []` only for an intentionally no-call key.
+
 For Aave supply-style interactions, the key needs both spend permission for the
 token being supplied and call permission for the ERC20 `approve` plus the Aave
 pool `supply` call.

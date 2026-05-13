@@ -30,8 +30,9 @@ For a local developer install from this checkout:
 The installer builds the CLI, installs a versioned release under
 `~/.mega/wallet-cli/releases/`, points `~/.mega/wallet-cli/current` at that
 release, writes `mega` / `wallet` wrappers into `~/.local/bin` by default, and
-installs the Codex agent skill into `~/.codex/skills/mega-wallet-cli`. Add
-`~/.local/bin` to `PATH` if your shell does not already include it.
+installs the Codex agent skill bundle into
+`~/.codex/skills/mega-wallet-cli`. Add `~/.local/bin` to `PATH` if your shell
+does not already include it.
 
 The installer checks for Node.js `>=22` and pnpm before building. In an
 interactive shell it prompts before installing missing prerequisites it knows
@@ -140,23 +141,24 @@ mega wallet login \
   --allow-call 0x1234567890abcdef1234567890abcdef12345678:transfer(address,uint256)
 ```
 
-By default, login uses `https://account.megaeth.com` for the wallet UI and
-`https://wallet-relay.megaeth.com` for the relay. Use `--wallet-url` only when
-testing a local wallet UI. Use `--relay-url` only for an explicit non-canonical
-relay target.
+By default, the CLI uses `https://account.megaeth.com` for the wallet UI and
+`https://wallet-relay.megaeth.com` for the relay. Use `--wallet-url` or
+`MEGA_WALLET_CLI_WALLET_URL` only when deliberately targeting a different wallet
+UI. Use `--relay-url` only for an explicit non-canonical relay target.
 
 The default permission request expires after one week. It prefers USDM as the
 fee token with a `1 USDM` fee allowance, and asks for a flat `100 USDM` spend
-cap over the one-week authorization window. It intentionally omits
-`permissions.calls`, which allows arbitrary contract interactions bounded by the
-spend/fee/expiry limits. Add `--allow-call` entries or use
+cap over the one-week authorization window. It uses `permissions.calls: [{}]`
+for broad contract interactions bounded by the spend/fee/expiry limits. Add
+`--allow-call` entries or use
 `--permissions ./permissions.json` when a more restrictive custom permission
 object is needed. Login writes the first active delegated key for a network with
 file mode `0600`.
 
-If a profile already exists, login exits before opening the browser with:
-`Wallet already connected to 0x.... Either logout with \`mega wallet logout\` or
-add a key to the existing wallet profile with \`mega wallet create-key\`.`Use`create-key` to add delegated keys to an existing wallet profile.
+If a profile already exists, login exits before opening the browser and tells
+the user to run `mega wallet logout` or add a key with
+`mega wallet create-key`. Use `create-key` to add delegated keys to an existing
+wallet profile.
 
 ### Whoami
 

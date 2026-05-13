@@ -611,6 +611,8 @@ async function handleShimRequest(
 
 async function proxyRelayRpc(request, response, relayUrl, bodyOverride) {
   const body = bodyOverride ?? (await readRawBody(request));
+  const requestText = body.toString("utf8");
+  const requestSummary = summarizeRpcPayload(requestText);
   const relayResponse = await fetch(relayUrl, {
     method: "POST",
     headers: {
@@ -618,6 +620,12 @@ async function proxyRelayRpc(request, response, relayUrl, bodyOverride) {
     },
     body,
   });
+  const responseBuffer = Buffer.from(await relayResponse.arrayBuffer());
+  const responseText = responseBuffer.toString("utf8");
+  const responseSummary = summarizeRpcPayload(responseText);
+  console.log(
+    `[shim rpc] ${requestSummary} -> ${relayResponse.status} ${responseSummary}`,
+  );
 
   response.writeHead(relayResponse.status, {
     "access-control-allow-origin": request.headers.origin ?? "*",
@@ -625,7 +633,25 @@ async function proxyRelayRpc(request, response, relayUrl, bodyOverride) {
     "content-type":
       relayResponse.headers.get("content-type") ?? "application/json",
   });
-  response.end(Buffer.from(await relayResponse.arrayBuffer()));
+  response.end(responseBuffer);
+}
+
+function summarizeRpcPayload(text) {
+  try {
+    const body = JSON.parse(text);
+    const entries = Array.isArray(body) ? body : [body];
+    return entries
+      .map((entry) => {
+        const method = entry?.method ?? "unknown";
+        const error = entry?.error;
+        if (!error) return method;
+        const message = String(error.message ?? error.details ?? "error");
+        return `${method}:${message.slice(0, 180)}`;
+      })
+      .join(",");
+  } catch {
+    return text.slice(0, 180);
+  }
 }
 
 async function handleMockRelayRpc(request, response, state, relayUrl) {
@@ -1049,7 +1075,18 @@ async function ensureWallet(page, walletUrl, timeoutMs, webauthn) {
   }
 
   console.log("Creating Playwright passkey wallet");
-  await page.getByText("Create PassKey", { exact: true }).click();
+  await page
+    .getByRole("button", { name: /^(Create PassKey|Create Account)$/ })
+    .click();
+  const terms = page.getByText(/I have read, understood, and agree/);
+  if (
+    await terms
+      .isVisible({ timeout: 5_000 })
+      .catch(() => false)
+  ) {
+    await terms.click();
+    await page.getByRole("button", { name: "Create Account" }).click();
+  }
   const stored = await waitForStoredAccount(page, timeoutMs);
   await webauthn.saveCredentials();
   console.log(`Created Playwright wallet ${stored.address}`);
@@ -1144,6 +1181,13 @@ async function runCliLogin(page, runOptions) {
       assertEditedPermissions(
         result.profile.keys[0]?.authorizedKey,
         editedPermissionExpectation,
+      );
+    } else if (
+      !runOptions.permissionsFile &&
+      runOptions.allowCalls.length === 0
+    ) {
+      assertDefaultArbitraryCallPermission(
+        result.profile.keys[0]?.authorizedKey,
       );
     }
     return {
@@ -1372,9 +1416,27 @@ async function exercisePermissionEditor(page, timeoutMs) {
     timeoutMs,
   );
 
+  const firstLimitReload = page.getByLabel("Limit reload").first();
+  assertEqual(
+    await firstLimitReload.inputValue(),
+    "week",
+    "initial spend reload cadence was not derived from expiry",
+  );
+  const firstLimitReloadOptions = await firstLimitReload
+    .locator("option")
+    .allTextContents();
+  assert(
+    !firstLimitReloadOptions.some((text) => /expiry/i.test(text)),
+    "limit reload select still contains expiry copy",
+  );
+
   await page.getByLabel("Expiry date").fill(expiryValue);
   await page.getByLabel("Amount").first().fill("75");
-  await page.getByLabel("Limit reload").first().selectOption("none");
+  assertEqual(
+    await firstLimitReload.inputValue(),
+    "week",
+    "edited spend reload cadence was not derived from expiry",
+  );
 
   await page.getByRole("button", { name: "Add token limit" }).click();
   await page.getByLabel("Token address").nth(1).fill(secondToken);
@@ -1385,7 +1447,16 @@ async function exercisePermissionEditor(page, timeoutMs) {
   await page.getByLabel("Token address").nth(2).fill(removedToken);
   await page.getByRole("button", { name: "Remove token limit" }).last().click();
 
-  await page.getByLabel("Contract interactions").selectOption("all");
+  const contractInteractions = page.getByLabel("Contract interactions");
+  const contractInteractionOptions = await contractInteractions
+    .locator("option")
+    .allTextContents();
+  assert(
+    !contractInteractionOptions.includes("No contract interactions"),
+    "no-call option should not be available while token spend limits exist",
+  );
+
+  await contractInteractions.selectOption("all");
   await waitForBodyText(
     page,
     (text) => text.includes("This key can call any contract"),
@@ -1393,16 +1464,10 @@ async function exercisePermissionEditor(page, timeoutMs) {
     timeoutMs,
   );
 
-  await page.getByLabel("Contract interactions").selectOption("none");
-  await waitForBodyText(
-    page,
-    (text) => text.includes("No contract interactions"),
-    "no-call mode",
-    timeoutMs,
-  );
-
-  await page.getByLabel("Contract interactions").selectOption("scoped");
-  await page.getByRole("button", { name: "Add allowed call" }).click();
+  await contractInteractions.selectOption("scoped");
+  await page.getByLabel("Contract address").nth(0).waitFor({
+    timeout: timeoutMs,
+  });
   await page.getByLabel("Contract address").nth(0).fill(exactTarget);
   await page.getByLabel("Function signature").nth(0).fill(exactSignature);
 
@@ -1411,6 +1476,13 @@ async function exercisePermissionEditor(page, timeoutMs) {
 
   await page.getByRole("button", { name: "Add allowed call" }).click();
   await page.getByLabel("Function signature").nth(2).fill(signatureOnly);
+
+  await waitForBodyText(
+    page,
+    (text) => text.includes("Up to 3 allowed calls can be added."),
+    "allowed-call row cap",
+    timeoutMs,
+  );
 
   return {
     calls: [
@@ -1428,7 +1500,7 @@ async function exercisePermissionEditor(page, timeoutMs) {
     spend: [
       {
         limit: "75000000000000000000",
-        period: "year",
+        period: "week",
         token: usdmAddress,
       },
       {
@@ -1458,6 +1530,15 @@ function assertEditedPermissions(authorizedKey, expected) {
     authorizedKey.expiry,
     expected.expiry,
     "edited expiry was not serialized correctly",
+  );
+}
+
+function assertDefaultArbitraryCallPermission(authorizedKey) {
+  assert(authorizedKey, "default login did not return an authorized key");
+  assertEqual(
+    JSON.stringify(authorizedKey.permissions.calls),
+    JSON.stringify([{}]),
+    "default arbitrary call permission was not serialized explicitly",
   );
 }
 

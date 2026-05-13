@@ -57,6 +57,9 @@ function summarizeCalls(
   }
 
   return callPermissions.map((call) => {
+    if (!call.signature && !call.to) {
+      return "Can call any contract/function";
+    }
     if (call.signature && call.to) {
       return `Can call ${call.signature} on ${tokenLabel(call.to)}`;
     }

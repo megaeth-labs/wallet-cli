@@ -36,11 +36,12 @@ The local install path is repo-owned and deterministic:
   It must check Node.js `>=22` and pnpm before building. Interactive runs may
   prompt to install missing prerequisites; non-interactive runs must fail with
   instructions instead of changing system tooling silently.
-  `--default-wallet-url` may bake a local wallet UI URL into wrappers for dev
-  testing; production installs should omit it.
-- `scripts/install-skill.sh` installs the in-repo `SKILL.md` into Codex and/or
-  Claude skill directories. The main installer installs the Codex skill by
-  default; use `--no-skill` for binary-only installs.
+  Production wrappers should not bake a wallet URL override; pass
+  `--default-wallet-url http://localhost:4000` only for local wallet UI testing.
+- `scripts/install-skill.sh` installs the in-repo skill bundle (`SKILL.md` plus
+  bundled resources such as `references/`) into Codex and/or Claude skill
+  directories. The main installer installs the Codex skill by default; use
+  `--no-skill` for binary-only installs.
 - `scripts/uninstall.sh` removes local install artifacts for agent-readiness
   testing; wallet profiles are removed only when `--config` is passed.
 - `pnpm install:local -- --dry-run` and `pnpm install:skill -- --dry-run`
@@ -80,6 +81,32 @@ The loopback callback must never carry the delegated private key, bearer tokens,
 API keys, passkey material, or other transferable secrets. It may carry public
 approval metadata required to reconstruct the authorized session key.
 
+## Local Wallet UI
+
+For development auth testing, start the wallet UI from the sibling `wallet`
+checkout with a localhost origin:
+
+```bash
+cd ../wallet
+pnpm dev -- --host localhost --port 4000
+```
+
+The wallet UI expects its local API/relay shim on port `4002`. Start the shim
+from this repo before login:
+
+```bash
+node scripts/loopback-e2e.mjs --shim-only --shim-port 4002 \
+  --artifacts-dir .e2e/artifacts-local-debug \
+  --config-dir .e2e/config-local-shim
+```
+
+Use `--mock-relay` only for no-chain E2E harness checks. Do not use it when
+verifying that `grantPermissions` or revoke submits on-chain: mock mode returns
+successful relay statuses without broadcasting a transaction. If the wallet UI
+says approved but the shim sees no `/rpc` traffic, check that the browser origin
+is `http://localhost:4000` and that the wallet UI is using the local `4002`
+backend rather than production.
+
 ## Permission Model
 
 The delegated key is a Porto/MegaETH session key, not a passkey/root/admin key.
@@ -89,12 +116,17 @@ enforcement.
 
 Be precise about empty fields versus omitted fields:
 
-- `permissions.calls: []` means no app-level call scopes were requested.
+- `permissions.calls: [{}]` means broad contract execution authority: any
+  target and any function, still bounded by spend, fee, expiry, relay, and
+  account enforcement.
+- `permissions.calls: []` means no app-level call scopes were requested. A key
+  with spend allowance but `calls: []` cannot perform useful ERC20, swap, Aave,
+  or other contract-write actions because those all require contract calls.
 - `permissions.spend: []` means no explicit asset spend scopes were requested.
-- Omitted `calls` / `spend` can have different Porto defaults. In particular,
-  omitted call scope may be interpreted as broad `canExecute` for a session key.
-  Do not rely on accidental omission semantics. If a broad agent default is
-  desired, encode it intentionally, document it, and cover it with tests.
+- Omitted `calls` / `spend` can have different Porto defaults. Do not rely on
+  accidental omission semantics in hand-authored permission files. If broad call
+  authority is desired, encode it intentionally as `permissions.calls: [{}]`,
+  document it, and cover it with tests.
 
 `permissions.calls` scopes which target/function selectors the key may execute.
 For example, a transfer-only USDC scope should include the USDC token address
@@ -119,13 +151,13 @@ layer. Be careful when changing defaults or copy around this.
 
 The agent-oriented default keeps the visible approval simple: one-week expiry,
 USDM as the fee token with a `1 USDM` allowance, and a flat `100 USDM` spend
-cap for the authorization window. It intentionally omits `permissions.calls`,
-which Porto treats as broad contract execution authority for a session key. Use
-`permissions.calls: []` only when the key should have no app-level call scopes,
-or provide explicit call scopes when a more restrictive key is required. Keep
-those caps and call-scope requirements explicit in prompt/UI copy, avoid
-ambiguous empty or omitted permissions, and update `README.md`, `SKILL.md`,
-tests, and this file together when changing the default.
+cap for the authorization window. Approved broad-call keys must be represented
+as `permissions.calls: [{}]`. Use `permissions.calls: []` only when the key
+should have no app-level call scopes, or provide explicit call scopes when a
+more restrictive key is required. Keep those caps and call-scope requirements
+explicit in prompt/UI copy, avoid ambiguous empty or omitted permissions, and
+update `README.md`, `SKILL.md`, tests, and this file together when changing the
+default.
 
 `mega wallet create-key --spend-limit <amount>` is a shorthand for overriding
 the default mainnet USDM spend cap on the new key request. It accepts a human
