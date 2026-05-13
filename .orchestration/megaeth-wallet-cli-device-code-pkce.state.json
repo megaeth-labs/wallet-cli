@@ -1,0 +1,76 @@
+{
+  "plan": "megaeth-wallet-cli-device-code-pkce",
+  "started_at": "2026-05-13T17:08:33.625Z",
+  "cached_dag": {
+    "tasks": [
+      "task-1",
+      "task-2",
+      "task-3",
+      "task-4",
+      "task-5",
+      "task-6",
+      "task-7",
+      "task-8"
+    ],
+    "critical_path": [
+      "task-1",
+      "task-3",
+      "task-4",
+      "task-5",
+      "task-6",
+      "task-7",
+      "task-8"
+    ]
+  },
+  "cached_tasks": {},
+  "running_agents": [],
+  "completed_count": 8,
+  "pre_existing_changes": [
+    ".orchestration/megaeth-wallet-cli-loopback-oauth.md",
+    ".codex/plans/megaeth-wallet-cli-device-code-pkce.md",
+    "../wallet-backend/package.json",
+    "../wallet-backend/pnpm-lock.yaml"
+  ],
+  "completed_tasks": [
+    {
+      "task_id": "task-1",
+      "commit": "9cc1b86c7d9f3192716a0a6df36a125d02d13b3d",
+      "merged_at": "2026-05-13T17:15:14.053Z"
+    },
+    {
+      "task_id": "task-2",
+      "commit": "b16fc839390279d1da4d3ca65a8bbf801547bcca",
+      "merged_at": "2026-05-13T17:22:37.049Z"
+    },
+    {
+      "task_id": "task-3",
+      "commit": "47c9857d259226949c260ca62bff9c5f9c0a74f0",
+      "merged_at": "2026-05-13T17:30:56Z"
+    },
+    {
+      "task_id": "task-4",
+      "commit": "fa4d543f3bd55cf9c37beef0be15c4edf6dc7775",
+      "merged_at": "2026-05-13T17:42:34Z"
+    },
+    {
+      "task_id": "task-5",
+      "commit": "ad793cc24047628ff294289213cdef32a4a2bd98",
+      "merged_at": "2026-05-13T17:52:42Z"
+    },
+    {
+      "task_id": "task-6",
+      "commit": "83c2aa48cc56be2fe9a5aee3060461ef893ddaa9",
+      "merged_at": "2026-05-13T18:08:57Z"
+    },
+    {
+      "task_id": "task-7",
+      "commit": "0ec0cd694d6f8c411798b05ba76cf5ed801fb25b",
+      "merged_at": "2026-05-13T18:17:18Z"
+    },
+    {
+      "task_id": "task-8",
+      "commit": "e64887935b7cfe84d80b021cc25b883c65393245",
+      "merged_at": "2026-05-13T18:19:03Z"
+    }
+  ]
+}

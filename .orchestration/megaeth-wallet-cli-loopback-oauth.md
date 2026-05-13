@@ -13,6 +13,11 @@ Build a TypeScript/Node CLI in `wallet-cli` that exposes the core MegaETH wallet
 
 Use loopback OAuth-style native app guidance: system browser, random local port, high-entropy `state`, localhost-only callback, no private key or secrets in URLs. PKCE is not required for v1 because the browser is not returning a bearer token or transferable authorization code; the CLI-generated private key remains local.
 
+Follow-up: device-code-style authorization with PKCE is specified separately in
+`.codex/plans/megaeth-wallet-cli-device-code-pkce.md`. That addition is meant
+for headless or remote CLI environments where the browser and CLI cannot share a
+loopback callback.
+
 ## Scope
 
 **Core intent**: create the first local-machine MegaETH wallet CLI that can authorize a delegated key through wallet-ui and use it for read and write wallet workflows.
