@@ -130,23 +130,32 @@ async function main() {
   });
 
   await test("login validates URL, timeout, and call scope arguments", async () => {
+    const tempConfig = await mkdtempSafe("mega-wallet-functional-login-");
+    const env = configEnv(tempConfig);
     assertIncludes(
       (
         await wallet(["login", "--wallet-url", "ftp://bad"], {
+          env,
           expectCode: 1,
         })
       ).stderr,
       "wallet-url must be an HTTP(S) URL",
     );
     assertIncludes(
-      (await wallet(["login", "--timeout-ms", "0"], { expectCode: 1 })).stderr,
+      (await wallet(["login", "--timeout-ms", "0"], { env, expectCode: 1 }))
+        .stderr,
       "timeout-ms must be a positive integer",
     );
     assertIncludes(
-      (await wallet(["login", "--allow-call", "bad"], { expectCode: 1 }))
-        .stderr,
+      (
+        await wallet(["login", "--allow-call", "bad"], {
+          env,
+          expectCode: 1,
+        })
+      ).stderr,
       "allow-call must use 0xTarget:signature",
     );
+    await rm(tempConfig, { recursive: true, force: true });
   });
 
   await test("call raw calldata reads Aave pool address", async () => {
