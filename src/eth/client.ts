@@ -36,7 +36,6 @@ export type ViemPublicReadClient = Pick<PublicClient, "call" | "getBalance">;
 
 const defaultRpcUrls: Record<Network, string> = {
   mainnet: "https://mainnet.megaeth.com/rpc",
-  testnet: "https://carrot.megaeth.com/rpc",
 };
 
 export function getDefaultRpcUrl(network: Network): string {
@@ -65,7 +64,7 @@ function createViemPublicClient(
   const config = getChainConfig(network);
   const chain = defineChain({
     id: config.chainId,
-    name: network === "mainnet" ? "MegaETH Mainnet" : "MegaETH Testnet",
+    name: "MegaETH Mainnet",
     nativeCurrency: {
       decimals: 18,
       name: "MegaETH Ether",

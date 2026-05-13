@@ -33,8 +33,8 @@ describe("wallet profile storage", () => {
 
     await writeWalletProfile(profile, env);
 
-    await expect(profileExists("testnet", env)).resolves.toBe(true);
-    await expect(readWalletProfile("testnet", env)).resolves.toEqual(profile);
+    await expect(profileExists("mainnet", env)).resolves.toBe(true);
+    await expect(readWalletProfile("mainnet", env)).resolves.toEqual(profile);
     await expect(listWalletProfiles(env)).resolves.toEqual([profile]);
   });
 
@@ -43,7 +43,7 @@ describe("wallet profile storage", () => {
 
     await writeWalletProfile(makeProfile(), env);
 
-    expect(await getProfileMode("testnet", env)).toBe(0o600);
+    expect(await getProfileMode("mainnet", env)).toBe(0o600);
   });
 
   it("serializes approved permissions without deriving them from private key material", () => {
@@ -168,9 +168,9 @@ describe("wallet profile storage", () => {
 
     await writeWalletProfile(makeProfile(), env);
 
-    await expect(deleteWalletProfile("testnet", env)).resolves.toBe(true);
-    await expect(deleteWalletProfile("testnet", env)).resolves.toBe(false);
-    await expect(readWalletProfile("testnet", env)).rejects.toThrow(
+    await expect(deleteWalletProfile("mainnet", env)).resolves.toBe(true);
+    await expect(deleteWalletProfile("mainnet", env)).resolves.toBe(false);
+    await expect(readWalletProfile("mainnet", env)).rejects.toThrow(
       "run mega wallet login",
     );
   });
@@ -186,7 +186,7 @@ async function tempEnv(): Promise<NodeJS.ProcessEnv> {
 function makeProfile(): WalletProfile {
   return {
     version: 1,
-    network: "testnet",
+    network: "mainnet",
     accountAddress: "0x1111111111111111111111111111111111111111",
     activeKeyId: "0x2222222222222222222222222222222222222222",
     keys: [

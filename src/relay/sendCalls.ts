@@ -85,7 +85,7 @@ export function createPortoRelayClient(
   const config = getChainConfig(network);
   const chain = defineChain({
     id: config.chainId,
-    name: network === "mainnet" ? "MegaETH Mainnet" : "MegaETH Testnet",
+    name: "MegaETH Mainnet",
     nativeCurrency: {
       decimals: 18,
       name: "MegaETH Ether",

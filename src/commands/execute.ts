@@ -2,13 +2,7 @@ import { readFile } from "node:fs/promises";
 
 import { Command } from "commander";
 
-import {
-  defaultNetwork,
-  isNetwork,
-  isSupportedNetwork,
-  type Network,
-  unsupportedNetworkMessage,
-} from "../config/chains.js";
+import { defaultNetwork, isNetwork, type Network } from "../config/chains.js";
 import {
   markWalletKeyUsed,
   readWalletProfile,
@@ -106,7 +100,6 @@ export function registerExecuteCommand(
     .option("--value <wei>", "native value in wei")
     .option("--calls <path>", "JSON file containing calls to execute")
     .option("--key <key>", "delegated key id or access address to use")
-    .option("--network <network>", "MegaETH network", defaultNetwork)
     .option(
       "--poll-interval-ms <ms>",
       "relay status polling interval",
@@ -339,9 +332,6 @@ function normalizeNetwork(value: string | undefined): Network {
   const network = value ?? defaultNetwork;
   if (!isNetwork(network)) {
     throw new CliError(`unsupported network: ${network}`);
-  }
-  if (!isSupportedNetwork(network)) {
-    throw new CliError(unsupportedNetworkMessage(network));
   }
 
   return network;

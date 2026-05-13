@@ -25,9 +25,7 @@ import {
   defaultNetwork,
   getChainConfig,
   isNetwork,
-  isSupportedNetwork,
   type Network,
-  unsupportedNetworkMessage,
 } from "../config/chains.js";
 import { summarizeAuthorizedKey } from "../config/permissionSummary.js";
 import {
@@ -52,7 +50,7 @@ import { CliError } from "../errors.js";
 import { compactAddress, toJson } from "../output.js";
 
 type LoginCommandOptions = {
-  network: string;
+  network?: string;
   walletUrl?: string;
   relayUrl?: string;
   permissions?: string;
@@ -168,7 +166,6 @@ export function registerWalletSubcommands(
   wallet
     .command("login")
     .description("Connect a wallet profile")
-    .option("--network <network>", "wallet network", defaultNetwork)
     .option("--wallet-url <url>", "wallet UI URL")
     .option("--relay-url <url>", "MegaETH relay URL")
     .option(
@@ -197,7 +194,6 @@ export function registerWalletSubcommands(
   wallet
     .command("whoami")
     .description("Show the wallet account and selected delegated key")
-    .option("--network <network>", "wallet network", defaultNetwork)
     .option("--json", "render JSON output")
     .option("-t, --terse", "render compact text output")
     .action(async (options: StatusCommandOptions) => {
@@ -207,7 +203,6 @@ export function registerWalletSubcommands(
   wallet
     .command("list")
     .description("List local delegated keys")
-    .option("--network <network>", "wallet network", defaultNetwork)
     .option("--show-inactive", "include expired and revoked keys")
     .option("--json", "render JSON output")
     .option("-t, --terse", "render compact text output")
@@ -219,7 +214,6 @@ export function registerWalletSubcommands(
     .command("permissions")
     .description("Show a delegated key permission scope")
     .argument("<key>", "delegated key id or access address")
-    .option("--network <network>", "wallet network", defaultNetwork)
     .option("--json", "render JSON output")
     .option("-t, --terse", "render compact text output")
     .action(async (key: string, options: StatusCommandOptions) => {
@@ -230,7 +224,6 @@ export function registerWalletSubcommands(
     .command("switch")
     .description("Select the default delegated key for writes")
     .argument("<key>", "delegated key id or access address")
-    .option("--network <network>", "wallet network", defaultNetwork)
     .option("--json", "render JSON output")
     .option("-t, --terse", "render compact text output")
     .action(async (key: string, options: StatusCommandOptions) => {
@@ -240,7 +233,6 @@ export function registerWalletSubcommands(
   wallet
     .command("create-key")
     .description("Authorize and store a new delegated key")
-    .option("--network <network>", "wallet network", defaultNetwork)
     .option("--wallet-url <url>", "wallet UI URL")
     .option("--relay-url <url>", "MegaETH relay URL")
     .option("--from <key>", "copy permissions from an existing key")
@@ -276,7 +268,6 @@ export function registerWalletSubcommands(
     .description("Set or update a local delegated key label")
     .argument("<key>", "delegated key id or access address")
     .argument("<label>", "human-readable label")
-    .option("--network <network>", "wallet network", defaultNetwork)
     .option("--json", "render JSON output")
     .option("-t, --terse", "render compact text output")
     .action(
@@ -289,7 +280,6 @@ export function registerWalletSubcommands(
     .command("revoke")
     .description("Revoke a delegated key on-chain and keep an audit record")
     .argument("<key>", "delegated key id or access address")
-    .option("--network <network>", "wallet network", defaultNetwork)
     .option("--wallet-url <url>", "wallet UI URL")
     .option(
       "--timeout-ms <ms>",
@@ -306,7 +296,6 @@ export function registerWalletSubcommands(
   wallet
     .command("logout")
     .description("Delete the local wallet profile and key material")
-    .option("--network <network>", "wallet network", defaultNetwork)
     .option("--json", "render JSON output")
     .option("-t, --terse", "render compact text output")
     .action(async (options: StatusCommandOptions) => {
@@ -985,9 +974,6 @@ function parseNetwork(value: string | undefined): Network {
   const network = value ?? defaultNetwork;
   if (!isNetwork(network)) {
     throw new CliError(`unsupported network: ${network}`);
-  }
-  if (!isSupportedNetwork(network)) {
-    throw new CliError(unsupportedNetworkMessage(network));
   }
 
   return network;

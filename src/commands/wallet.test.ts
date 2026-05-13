@@ -64,16 +64,6 @@ describe("wallet status commands", () => {
     );
   });
 
-  it("rejects testnet before reading wallet profiles", async () => {
-    const env = await tempEnv();
-
-    await expect(
-      runWalletWhoami({ network: "testnet" }, { env, stdout: memoryOutput() }),
-    ).rejects.toThrow(
-      "testnet is not supported yet. Omit --network to use mainnet until the wallet path is available.",
-    );
-  });
-
   it("refuses login when a wallet profile already exists", async () => {
     const env = await tempEnv();
     const profile = makeProfile();
@@ -393,8 +383,6 @@ describe("wallet status commands", () => {
       "mega",
       "wallet",
       "whoami",
-      "--network",
-      "mainnet",
       "-t",
     ]);
 

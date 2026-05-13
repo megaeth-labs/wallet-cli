@@ -4,9 +4,7 @@ import {
   defaultNetwork,
   getChainConfig,
   isNetwork,
-  isSupportedNetwork,
   type Network,
-  unsupportedNetworkMessage,
 } from "../config/chains.js";
 import { getProfilePath } from "../config/paths.js";
 import {
@@ -101,7 +99,6 @@ export function registerDebugCommand(
   wallet
     .command("debug")
     .description("Show local wallet diagnostics without private key material")
-    .option("--network <network>", "wallet network", defaultNetwork)
     .option("--rpc-url <url>", "Ethereum JSON-RPC URL for balance checks")
     .option("--skip-chain", "skip balance and relay key checks")
     .option("--json", "print JSON output")
@@ -383,9 +380,6 @@ function normalizeNetwork(value: string | undefined): Network {
   const network = value ?? defaultNetwork;
   if (!isNetwork(network)) {
     throw new CliError(`unsupported network: ${network}`);
-  }
-  if (!isSupportedNetwork(network)) {
-    throw new CliError(unsupportedNetworkMessage(network));
   }
 
   return network;

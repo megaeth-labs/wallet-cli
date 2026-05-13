@@ -1,12 +1,6 @@
 import { Command } from "commander";
 
-import {
-  defaultNetwork,
-  isNetwork,
-  isSupportedNetwork,
-  type Network,
-  unsupportedNetworkMessage,
-} from "../config/chains.js";
+import { defaultNetwork, isNetwork, type Network } from "../config/chains.js";
 import { readWalletProfile, type HexString } from "../config/profile.js";
 import { CliError } from "../errors.js";
 import { openSystemBrowser, type BrowserOpener } from "../auth/loopback.js";
@@ -44,7 +38,6 @@ export function registerFundCommand(
   wallet
     .command("fund")
     .description("Open the MegaETH wallet deposit flow for the active account")
-    .option("--network <network>", "wallet network", defaultNetwork)
     .option("--wallet-url <url>", "wallet UI URL")
     .option("--no-open", "print the funding URL without opening a browser")
     .option("--json", "print JSON output")
@@ -137,9 +130,6 @@ function normalizeNetwork(value: string | undefined): Network {
   const network = value ?? defaultNetwork;
   if (!isNetwork(network)) {
     throw new CliError(`unsupported network: ${network}`);
-  }
-  if (!isSupportedNetwork(network)) {
-    throw new CliError(unsupportedNetworkMessage(network));
   }
 
   return network;

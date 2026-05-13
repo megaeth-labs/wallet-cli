@@ -127,12 +127,8 @@ export async function readWalletProfile(
     return parseWalletProfile(JSON.parse(raw));
   } catch (error) {
     if (isNodeError(error, "ENOENT")) {
-      const loginInstruction =
-        network === defaultNetwork
-          ? "mega wallet login"
-          : `mega wallet login --network ${network}`;
       throw new CliError(
-        `no ${network} wallet profile found; run ${loginInstruction}`,
+        `no ${network} wallet profile found; run mega wallet login`,
       );
     }
 
@@ -189,7 +185,7 @@ export async function listWalletProfiles(
 ): Promise<WalletProfile[]> {
   const profiles: WalletProfile[] = [];
 
-  for (const network of ["mainnet", "testnet"] as const) {
+  for (const network of [defaultNetwork] as const) {
     const path = getProfilePath(network, env);
     try {
       const raw = await readFile(path, "utf8");

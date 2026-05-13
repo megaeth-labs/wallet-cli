@@ -162,30 +162,6 @@ describe("wallet execute", () => {
     ).rejects.toThrow("permission not granted for delegated key");
   });
 
-  it("rejects testnet before reading a profile or contacting the relay", async () => {
-    const relayActions = fakeRelayActions();
-    const readProfile = vi.fn(async () => makeProfile());
-
-    await expect(
-      executeWalletCalls(
-        {
-          calls: [{ data: "0x", to: target }],
-          network: "testnet",
-        },
-        {
-          createRelayClient: () => ({}),
-          readProfile,
-          relayActions,
-        },
-      ),
-    ).rejects.toThrow(
-      "testnet is not supported yet. Omit --network to use mainnet until the wallet path is available.",
-    );
-
-    expect(readProfile).not.toHaveBeenCalled();
-    expect(relayActions.prepareCalls).not.toHaveBeenCalled();
-  });
-
   it("rejects expired profiles before reconstructing relay actions", async () => {
     const relayActions = fakeRelayActions();
 

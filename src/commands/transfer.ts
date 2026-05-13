@@ -6,13 +6,7 @@ import {
   type ExecuteCommandResult,
   type ExecuteWalletCallsOptions,
 } from "./execute.js";
-import {
-  defaultNetwork,
-  isNetwork,
-  isSupportedNetwork,
-  type Network,
-  unsupportedNetworkMessage,
-} from "../config/chains.js";
+import { defaultNetwork, isNetwork, type Network } from "../config/chains.js";
 import { CliError } from "../errors.js";
 import {
   createEthCallClient,
@@ -101,7 +95,6 @@ export function registerTransferCommand(
       "ERC20 token decimals override",
       parseDecimals,
     )
-    .option("--network <network>", "MegaETH network", defaultNetwork)
     .option("--rpc-url <url>", "Ethereum JSON-RPC URL for token metadata")
     .option(
       "--poll-interval-ms <ms>",
@@ -322,9 +315,6 @@ function normalizeNetwork(value: string | undefined): Network {
   const network = value ?? defaultNetwork;
   if (!isNetwork(network)) {
     throw new CliError(`unsupported network: ${network}`);
-  }
-  if (!isSupportedNetwork(network)) {
-    throw new CliError(unsupportedNetworkMessage(network));
   }
 
   return network;

@@ -1,12 +1,6 @@
 import { Command } from "commander";
 
-import {
-  defaultNetwork,
-  isNetwork,
-  isSupportedNetwork,
-  type Network,
-  unsupportedNetworkMessage,
-} from "../config/chains.js";
+import { defaultNetwork, isNetwork, type Network } from "../config/chains.js";
 import { readWalletProfile, type WalletProfile } from "../config/profile.js";
 import { CliError } from "../errors.js";
 import { encodeAbiCall, loadAbiFile, parseAbiArgs } from "../eth/abi.js";
@@ -69,7 +63,6 @@ export function registerCallCommand(
     .option("--abi <path>", "contract ABI JSON file")
     .option("--function <name>", "ABI function name")
     .option("--args <json>", "ABI function args as a JSON array")
-    .option("--network <network>", "MegaETH network", defaultNetwork)
     .option("--rpc-url <url>", "Ethereum JSON-RPC URL")
     .option("--json", "print JSON output")
     .option("-t, --terse", "print compact output")
@@ -150,12 +143,6 @@ async function resolveFrom(
     ) {
       return undefined;
     }
-    if (
-      error instanceof CliError &&
-      error.message.includes("no testnet wallet profile found")
-    ) {
-      return undefined;
-    }
     throw error;
   }
 }
@@ -193,9 +180,6 @@ function normalizeNetwork(value: string | undefined): Network {
   const network = value ?? defaultNetwork;
   if (!isNetwork(network)) {
     throw new CliError(`unsupported network: ${network}`);
-  }
-  if (!isSupportedNetwork(network)) {
-    throw new CliError(unsupportedNetworkMessage(network));
   }
 
   return network;

@@ -81,23 +81,6 @@ Login defaults to `https://account.megaeth.com` and
 targeting a different wallet UI, and use `--relay-url` only for an explicit
 non-canonical relay.
 
-For local wallet UI auth testing, run the sibling wallet app as
-`pnpm dev -- --host localhost --port 4000` from `../wallet`, and start this
-repo's shim on port `4002`:
-
-```bash
-node scripts/loopback-e2e.mjs --shim-only --shim-port 4002 \
-  --artifacts-dir .e2e/artifacts-local-debug \
-  --config-dir .e2e/config-local-shim
-```
-
-Use `--mock-relay` only for no-chain E2E harness checks. For real
-`grantPermissions` or revoke verification, omit `--mock-relay` so `/rpc`
-proxies to the real relayer; mock mode can make the wallet UI report approval
-without broadcasting an on-chain transaction. If approval succeeds but no relay
-traffic appears, check that the browser origin is `http://localhost:4000` and
-the wallet UI is using the local `4002` backend.
-
 Default login permissions expire after one week, prefer USDM as the fee token
 with a `1 USDM` allowance, and ask for a flat `100 USDM` spend cap over the
 one-week authorization window. Approved broad-call keys are represented as
@@ -108,9 +91,6 @@ a more restrictive protocol-specific key is required. For additional keys, use
 spend cap. Use `--permissions ./permissions.json` to change fee token, call
 scope, expiry, spend token, or spend period.
 
-Only `mainnet` is enabled for now. Do not use `--network testnet`; the CLI
-rejects it until the testnet wallet path is available.
-
 ## Inspect The Active Wallet
 
 ```bash
@@ -120,7 +100,7 @@ mega wallet permissions 0xKEY_OR_ACCESS_ADDRESS --json
 ```
 
 Use these before writes to verify the account, delegated access address, expiry,
-network, and approved permission limits.
+and approved permission limits.
 
 ## Manage Delegated Keys
 
@@ -247,8 +227,8 @@ balance, and relay key status. Do not print or copy profile files.
 mega wallet logout
 ```
 
-Logout deletes the local wallet profile for the selected network, including
-locally stored delegated private key material and key-selection metadata. It
-does not revoke delegated keys on-chain. Use `mega wallet revoke <key>` when
-the user wants on-chain revocation; use `logout` only when the user explicitly
-wants this CLI install to forget the wallet locally.
+Logout deletes the local wallet profile, including locally stored delegated
+private key material and key-selection metadata. It does not revoke delegated
+keys on-chain. Use `mega wallet revoke <key>` when the user wants on-chain
+revocation; use `logout` only when the user explicitly wants this CLI install to
+forget the wallet locally.

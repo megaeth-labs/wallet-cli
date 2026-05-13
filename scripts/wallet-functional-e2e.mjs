@@ -129,13 +129,6 @@ async function main() {
     await exerciseLogoutWithoutTouchingActiveProfile(options.configDir);
   });
 
-  await test("login rejects unsupported network before browser launch", async () => {
-    const result = await wallet(["login", "--network", "testnet"], {
-      expectCode: 1,
-    });
-    assertIncludes(result.stderr, "testnet is not supported yet");
-  });
-
   await test("login validates URL, timeout, and call scope arguments", async () => {
     assertIncludes(
       (

@@ -23,8 +23,8 @@ Core commands:
 - `mega wallet debug`: inspect local profile, balance, and relay key status without private key output.
 - `mega wallet logout`: delete the local profile and delegated private key material; it does not revoke on-chain.
 
-Only mainnet is supported for now. Keep `--network testnet` fenced off until the
-wallet UI and relay path are known.
+Only mainnet is supported for now. Do not add alternate-network behavior until
+the wallet UI and relay path are known.
 
 ## Distribution
 

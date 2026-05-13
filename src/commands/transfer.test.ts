@@ -180,29 +180,6 @@ describe("wallet transfer", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
-  it("rejects testnet before executing transfer calls", async () => {
-    const execute = vi.fn(async () => executionResult());
-
-    await expect(
-      runWalletTransfer(
-        {
-          amount: "0.1",
-          network: "testnet",
-          pollIntervalMs: 1,
-          timeoutMs: 1_000,
-          to: recipient,
-        },
-        dependencies({
-          executeWalletCalls: execute,
-          stdout: memoryOutput(),
-        }),
-      ),
-    ).rejects.toThrow(
-      "testnet is not supported yet. Omit --network to use mainnet until the wallet path is available.",
-    );
-    expect(execute).not.toHaveBeenCalled();
-  });
-
   it("registers the reachable wallet transfer command", async () => {
     let captured: ExecuteWalletCallsOptions | undefined;
     const stdout = memoryOutput();

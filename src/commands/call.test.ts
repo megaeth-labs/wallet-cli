@@ -57,30 +57,6 @@ describe("wallet call", () => {
     });
   });
 
-  it("rejects testnet until a supported wallet path exists", async () => {
-    const client = {
-      call: vi.fn().mockResolvedValue("0x1234"),
-    };
-
-    await expect(
-      runWalletCall(
-        {
-          data: "0x",
-          network: "testnet",
-          rpcUrl,
-          to: target,
-        },
-        {
-          createClient: () => client,
-          stdout: memoryOutput(),
-        },
-      ),
-    ).rejects.toThrow(
-      "testnet is not supported yet. Omit --network to use mainnet until the wallet path is available.",
-    );
-    expect(client.call).not.toHaveBeenCalled();
-  });
-
   it("encodes ABI function calls before eth_call", async () => {
     const abiPath = await writeTempAbi([
       {

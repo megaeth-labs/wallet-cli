@@ -46,7 +46,7 @@ describe("loopback login", () => {
         permissions,
         redirectUri: "http://127.0.0.1:49152/callback",
         state: testState,
-        network: "testnet",
+        network: "mainnet",
         clientName: "mega-cli",
       }),
     );
@@ -60,7 +60,7 @@ describe("loopback login", () => {
       "http://127.0.0.1:49152/callback",
     );
     expect(url.searchParams.get("state")).toBe(testState);
-    expect(url.searchParams.get("network")).toBe("testnet");
+    expect(url.searchParams.get("network")).toBe("mainnet");
     expect(url.searchParams.get("clientName")).toBe("mega-cli");
     expect(url.toString()).not.toContain(testPrivateKey);
 
@@ -101,7 +101,7 @@ describe("loopback login", () => {
     let callbackUrl: URL | undefined;
 
     const result = await runLoopbackLogin({
-      network: "testnet",
+      network: "mainnet",
       privateKey: testPrivateKey,
       state: testState,
       permissionRequest: defaultLoginPermissions(
@@ -135,14 +135,12 @@ describe("loopback login", () => {
       },
     });
 
-    const stored = await readWalletProfile("testnet", env);
+    const stored = await readWalletProfile("mainnet", env);
     expect(stored).toEqual(result.profile);
     expect(stored.activeKeyId).toBe(keyPair.accessAddress);
     expect(stored.keys[0]!.privateKey).toBe(testPrivateKey);
     expect(stored.keys[0]!.accessAddress).toBe(keyPair.accessAddress);
     expect(stored.keys[0]!.authorizedKey.publicKey).toBe(keyPair.publicKey);
-    await expect(profileExists("mainnet", env)).resolves.toBe(false);
-
     await expect(fetch(callbackUrl!)).rejects.toThrow();
   });
 
@@ -195,7 +193,7 @@ describe("loopback login", () => {
 
     await expect(
       runLoopbackLogin({
-        network: "testnet",
+        network: "mainnet",
         privateKey: testPrivateKey,
         state: testState,
         permissionRequest: defaultLoginPermissions(),
@@ -220,7 +218,7 @@ describe("loopback login", () => {
       }),
     ).rejects.toThrow("callback state mismatch");
 
-    await expect(profileExists("testnet", env)).resolves.toBe(false);
+    await expect(profileExists("mainnet", env)).resolves.toBe(false);
   });
 
   it("rejects access address mismatch without writing a profile", async () => {
@@ -229,7 +227,7 @@ describe("loopback login", () => {
 
     await expect(
       runLoopbackLogin({
-        network: "testnet",
+        network: "mainnet",
         privateKey: testPrivateKey,
         state: testState,
         permissionRequest: defaultLoginPermissions(),
@@ -254,7 +252,7 @@ describe("loopback login", () => {
       }),
     ).rejects.toThrow("callback access address mismatch");
 
-    await expect(profileExists("testnet", env)).resolves.toBe(false);
+    await expect(profileExists("mainnet", env)).resolves.toBe(false);
   });
 
   it("maps cancellation to a clear login failure", async () => {
@@ -262,7 +260,7 @@ describe("loopback login", () => {
 
     await expect(
       runLoopbackLogin({
-        network: "testnet",
+        network: "mainnet",
         privateKey: testPrivateKey,
         state: testState,
         permissionRequest: defaultLoginPermissions(),
@@ -284,7 +282,7 @@ describe("loopback login", () => {
       }),
     ).rejects.toThrow("wallet authorization was cancelled");
 
-    await expect(profileExists("testnet", env)).resolves.toBe(false);
+    await expect(profileExists("mainnet", env)).resolves.toBe(false);
   });
 
   it("times out clearly when no callback arrives", async () => {
@@ -292,7 +290,7 @@ describe("loopback login", () => {
 
     await expect(
       runLoopbackLogin({
-        network: "testnet",
+        network: "mainnet",
         privateKey: testPrivateKey,
         state: testState,
         permissionRequest: defaultLoginPermissions(),
@@ -302,7 +300,7 @@ describe("loopback login", () => {
       }),
     ).rejects.toThrow("wallet login timed out after 20ms");
 
-    await expect(profileExists("testnet", env)).resolves.toBe(false);
+    await expect(profileExists("mainnet", env)).resolves.toBe(false);
   });
 
   it("parses allow-call entries into the encoded permission request", async () => {
