@@ -1,5 +1,6 @@
 plugins/*
-.agents/*
+.agents/
+.orchestration/
 dist/
 node_modules/
 .e2e/
