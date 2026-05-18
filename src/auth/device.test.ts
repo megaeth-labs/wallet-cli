@@ -210,6 +210,53 @@ describe("device auth helpers", () => {
     ]);
   });
 
+  it("passes testnet through device grant and revoke requests", async () => {
+    const keyPair = deriveDelegatedKeyPair(testPrivateKey);
+    const startRequests: DeviceStartRequest[] = [];
+    const client = makeClient({
+      start: async (request) => {
+        startRequests.push(request);
+        return makeStartResponse();
+      },
+      token: async () =>
+        startRequests.at(-1)?.operation === "revoke"
+          ? {
+              status: "approved",
+              operation: "revoke",
+              state: testState,
+              accountAddress: "0x1111111111111111111111111111111111111111",
+              accessAddress: keyPair.accessAddress,
+            }
+          : makeGrantApproval({ accessAddress: keyPair.accessAddress }),
+    });
+
+    await authorizeDeviceKey({
+      network: "testnet",
+      walletUrl: "https://account.example",
+      walletApiUrl: "https://wallet-api.example",
+      relayUrl: "https://relay.example",
+      permissionRequest: testPermissions,
+      privateKey: testPrivateKey,
+      state: testState,
+      client,
+      sleep: async () => undefined,
+    });
+    await authorizeDeviceRevoke({
+      network: "testnet",
+      walletApiUrl: "https://wallet-api.example",
+      accountAddress: "0x1111111111111111111111111111111111111111",
+      accessAddress: keyPair.accessAddress,
+      state: testState,
+      client,
+      sleep: async () => undefined,
+    });
+
+    expect(startRequests.map((request) => request.network)).toEqual([
+      "testnet",
+      "testnet",
+    ]);
+  });
+
   it("rejects grant state, access, and account mismatches", async () => {
     const keyPair = deriveDelegatedKeyPair(testPrivateKey);
     await expect(

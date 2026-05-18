@@ -56,6 +56,14 @@ Login opens MegaETH Wallet at `https://account.megaeth.com`, asks the passkey
 wallet to approve a delegated session key, and stores the approved profile
 locally. The relay default is `https://wallet-relay.megaeth.com`.
 
+Mainnet is the default network. Pass `--network testnet` to use the separate
+testnet profile and chain config:
+
+```bash
+mega wallet login --network testnet
+mega wallet whoami --network testnet
+```
+
 By default, browser authorization uses same-machine loopback. For headless,
 SSH, container, or remote environments, use the device-style flow:
 
@@ -74,9 +82,10 @@ wallet passkey, and leave the CLI running until approval completes. The
 delegated private key and PKCE verifier stay on the CLI machine; the browser
 and backend only receive public request/approval metadata.
 
-Default permissions are agent-oriented: one-week expiry, USDM fee token with a
-`1 USDM` fee allowance, `100 USDM` spend cap for the authorization window, and
-explicit broad contract call authority represented as `permissions.calls: [{}]`.
+Default permissions are agent-oriented: one-week expiry, network-specific USDM
+fee token with a `1 USDM` fee allowance, `100 USDM` spend cap for the
+authorization window, and explicit broad contract call authority represented as
+`permissions.calls: [{}]`.
 
 If a profile already exists, `login` exits before opening the browser. Use
 `mega wallet create-key` to add another delegated key, or `mega wallet logout`
@@ -112,8 +121,8 @@ mega wallet create-key --spend-limit 25 --label "agent"
 mega wallet create-key --auth-flow device --no-browser --label "agent"
 ```
 
-`--spend-limit` accepts a human USDM amount and preserves the default fee token,
-expiry, spend period, and broad call authority. Use
+`--spend-limit` accepts a human USDM amount and preserves the network-specific
+default fee token, expiry, spend period, and broad call authority. Use
 `--permissions ./permissions.json` only for custom expiry, fee token, spend
 token, spend period, no-spend, or custom call scope. See
 [references/permissions.md](references/permissions.md) for that file schema.
@@ -182,9 +191,9 @@ mega wallet execute --key 0xKEY_OR_ACCESS_ADDRESS --calls ./calls.json
 ```
 
 Spend permission is not call permission. A key with token spend allowance but
-`permissions.calls: []` cannot execute ERC20 transfers, approvals, Aave calls,
-swaps, or other contract writes. Inspect permissions before writes and create a
-new key with the needed call scopes when the relay reports `UnauthorizedCall`.
+`permissions.calls: []` cannot execute ERC20 transfers, approvals, swaps, or
+other contract writes. Inspect permissions before writes and create a new key
+with the needed call scopes when the relay reports `UnauthorizedCall`.
 
 ## Transfers
 

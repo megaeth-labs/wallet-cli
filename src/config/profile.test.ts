@@ -38,6 +38,32 @@ describe("wallet profile storage", () => {
     await expect(listWalletProfiles(env)).resolves.toEqual([profile]);
   });
 
+  it("lists profiles across supported networks", async () => {
+    const env = await tempEnv();
+    const mainnet = makeProfile();
+    const testnet: WalletProfile = {
+      ...makeProfile(),
+      network: "testnet",
+      activeKeyId: "0x7777777777777777777777777777777777777777",
+      keys: [
+        {
+          ...makeProfile().keys[0]!,
+          id: "0x7777777777777777777777777777777777777777",
+          accessAddress: "0x7777777777777777777777777777777777777777",
+          authorizedKey: {
+            ...makeProfile().keys[0]!.authorizedKey,
+            publicKey: "0x7777777777777777777777777777777777777777",
+          },
+        },
+      ],
+    };
+
+    await writeWalletProfile(mainnet, env);
+    await writeWalletProfile(testnet, env);
+
+    await expect(listWalletProfiles(env)).resolves.toEqual([mainnet, testnet]);
+  });
+
   it("writes profile files with 0600 mode", async () => {
     const env = await tempEnv();
 

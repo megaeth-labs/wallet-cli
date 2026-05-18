@@ -85,12 +85,8 @@ export function createPortoRelayClient(
   const config = getChainConfig(network);
   const chain = defineChain({
     id: config.chainId,
-    name: "MegaETH Mainnet",
-    nativeCurrency: {
-      decimals: 18,
-      name: "MegaETH Ether",
-      symbol: "ETH",
-    },
+    name: config.name,
+    nativeCurrency: config.nativeCurrency,
     rpcUrls: {
       default: {
         http: [url],

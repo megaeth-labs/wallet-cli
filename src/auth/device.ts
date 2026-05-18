@@ -23,7 +23,7 @@ export type DeviceStartRequest =
   | {
       operation: "grant";
       clientName: "mega-cli";
-      network: "mainnet";
+      network: Network;
       accessAddress: HexString;
       permissions: CliPermissionRequest;
       codeChallenge: string;
@@ -34,7 +34,7 @@ export type DeviceStartRequest =
   | {
       operation: "revoke";
       clientName: "mega-cli";
-      network: "mainnet";
+      network: Network;
       accountAddress: HexString;
       accessAddress: HexString;
       codeChallenge: string;
@@ -169,7 +169,6 @@ export class HttpDeviceAuthClient implements DeviceAuthClient {
 export async function authorizeDeviceKey(
   options: DeviceGrantAuthorizationOptions,
 ): Promise<LoopbackKeyAuthorizationResult> {
-  assertMainnet(options.network);
   const timeoutMs = options.timeoutMs ?? defaultTimeoutMs;
   assertPositiveTimeout(timeoutMs);
   assertUrl(options.walletApiUrl, "walletApiUrl must be a valid URL");
@@ -187,7 +186,7 @@ export async function authorizeDeviceKey(
   const start = await client.start({
     operation: "grant",
     clientName: "mega-cli",
-    network: "mainnet",
+    network: options.network,
     accessAddress: keyPair.accessAddress,
     permissions: options.permissionRequest,
     codeChallenge: pkce.codeChallenge,
@@ -247,7 +246,6 @@ export async function authorizeDeviceKey(
 export async function authorizeDeviceRevoke(
   options: DeviceRevokeAuthorizationOptions,
 ): Promise<LoopbackRevokeResult> {
-  assertMainnet(options.network);
   const timeoutMs = options.timeoutMs ?? defaultTimeoutMs;
   assertPositiveTimeout(timeoutMs);
   assertUrl(options.walletApiUrl, "walletApiUrl must be a valid URL");
@@ -269,7 +267,7 @@ export async function authorizeDeviceRevoke(
   const start = await client.start({
     operation: "revoke",
     clientName: "mega-cli",
-    network: "mainnet",
+    network: options.network,
     accountAddress: options.accountAddress,
     accessAddress: options.accessAddress,
     codeChallenge: pkce.codeChallenge,
@@ -506,12 +504,6 @@ function validateApprovalCommon(
     expected.accessAddress.toLowerCase()
   ) {
     throw new CliError("device authorization access address mismatch");
-  }
-}
-
-function assertMainnet(network: Network): void {
-  if (network !== "mainnet") {
-    throw new CliError(`unsupported network: ${network}`);
   }
 }
 

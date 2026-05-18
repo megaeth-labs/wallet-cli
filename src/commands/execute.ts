@@ -100,6 +100,7 @@ export function registerExecuteCommand(
     .option("--value <wei>", "native value in wei")
     .option("--calls <path>", "JSON file containing calls to execute")
     .option("--key <key>", "delegated key id or access address to use")
+    .option("--network <network>", "wallet network: mainnet or testnet")
     .option(
       "--poll-interval-ms <ms>",
       "relay status polling interval",

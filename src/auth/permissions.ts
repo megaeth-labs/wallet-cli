@@ -6,6 +6,11 @@ import type {
   CallPermission,
   HexString,
 } from "../config/profile.js";
+import {
+  defaultNetwork,
+  getChainConfig,
+  type Network,
+} from "../config/chains.js";
 
 export type CliPermissionRequest = {
   expiry: number;
@@ -20,16 +25,15 @@ export type CliPermissionRequest = {
 export type ResolvePermissionsOptions = {
   permissionsFile?: string;
   allowCalls?: string[];
+  network?: Network;
   now?: Date;
   spendLimit?: string;
 };
 
 const defaultPermissionTtlSeconds = 7 * 24 * 60 * 60;
 const defaultFeeTokenLimit = "1";
-const defaultFeeTokenSymbol = "USDM";
 const defaultUsdmSpendLimit = "100000000000000000000";
 const usdmDecimals = 18;
-const mainnetUsdmAddress = "0xfafddbb3fc7688494971a79cc65dca3ef82079e7";
 const selectorPattern = /^0x[0-9a-fA-F]{8}$/;
 const periods = new Set(["minute", "hour", "day", "week", "month", "year"]);
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
@@ -48,6 +52,7 @@ export async function resolveLoginPermissions(
   const request =
     options.permissionsFile === undefined
       ? defaultLoginPermissions(options.now, {
+          network: options.network,
           spendLimit: options.spendLimit,
         })
       : parsePermissionRequest(
@@ -75,13 +80,15 @@ export async function resolveLoginPermissions(
 
 export function defaultLoginPermissions(
   now = new Date(),
-  options: Pick<ResolvePermissionsOptions, "spendLimit"> = {},
+  options: Pick<ResolvePermissionsOptions, "network" | "spendLimit"> = {},
 ): CliPermissionRequest {
+  const chainConfig = getChainConfig(options.network ?? defaultNetwork);
+
   return {
     expiry: Math.floor(now.getTime() / 1000) + defaultPermissionTtlSeconds,
     feeToken: {
       limit: defaultFeeTokenLimit,
-      symbol: defaultFeeTokenSymbol,
+      symbol: chainConfig.defaultFeeToken.symbol,
     },
     permissions: {
       calls: [{}],
@@ -89,7 +96,7 @@ export function defaultLoginPermissions(
         {
           limit: normalizeDefaultUsdmSpendLimit(options.spendLimit),
           period: "year",
-          token: mainnetUsdmAddress,
+          token: chainConfig.defaultFeeToken.address,
         },
       ],
     },

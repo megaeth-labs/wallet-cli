@@ -9,7 +9,16 @@ import { chromium } from "playwright";
 
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const defaultE2eDir = resolve(repoRoot, ".e2e");
-const usdmAddress = "0xfafddbb3fc7688494971a79cc65dca3ef82079e7";
+const chainConfigs = {
+  mainnet: {
+    chainIdHex: "0x10e6",
+    usdmAddress: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
+  },
+  testnet: {
+    chainIdHex: "0x18c7",
+    usdmAddress: "0x15e9f2b0a747ac05c7446559306687085d161e5c",
+  },
+};
 const nativeTokenAddress = "native";
 const defaultRelayUrl = "https://wallet-relay.megaeth.com";
 const anyCallTarget = "0x3232323232323232323232323232323232323232";
@@ -31,6 +40,7 @@ await mkdir(options.e2eDir, { recursive: true });
 
 const shim = await startShimBackend({
   mockRelay: options.mockRelay,
+  network: options.network,
   port: options.shimPort,
   statePath: resolve(options.e2eDir, "shim-state.json"),
   relayUrl: options.relayUrl,
@@ -119,6 +129,7 @@ function parseArgs(args) {
     formInputs: false,
     management: false,
     mockRelay: false,
+    network: "mainnet",
     reset: false,
     screenOnly: false,
     authFlow: "loopback",
@@ -176,6 +187,14 @@ function parseArgs(args) {
       case "--mock-relay":
         parsed.mockRelay = true;
         break;
+      case "--network": {
+        const network = readValue(args, ++index, arg);
+        if (!chainConfigs[network]) {
+          throw new Error("--network must be mainnet or testnet");
+        }
+        parsed.network = network;
+        break;
+      }
       case "--profile-dir":
         profileDir = resolve(readValue(args, ++index, arg));
         break;
@@ -250,6 +269,14 @@ function stripTrailingSlash(value) {
   return value.endsWith("/") ? value.slice(0, -1) : value;
 }
 
+function e2eChainConfig(network) {
+  const config = chainConfigs[network];
+  if (!config) {
+    throw new Error(`Unsupported E2E network: ${network}`);
+  }
+  return config;
+}
+
 function printHelp() {
   console.log(`Usage: npm run e2e:loopback -- [options]
 
@@ -261,6 +288,7 @@ Options:
   --form-inputs          Exercise permission edit-form inputs before approving
   --management           Run live delegated-key management checks after login
   --mock-relay           Mock relay send/status/key RPCs in the local shim
+  --network <network>    CLI wallet network: mainnet or testnet (default: mainnet)
   --reset                Delete .e2e state before starting
   --wallet-url <url>     Wallet UI URL (default: http://localhost:4000)
   --permissions <path>   Permission request JSON file
@@ -388,6 +416,7 @@ function redactTelemetry(value) {
 
 async function startShimBackend({
   mockRelay,
+  network,
   port,
   statePath,
   relayUrl,
@@ -399,6 +428,7 @@ async function startShimBackend({
     try {
       await handleShimRequest(request, response, state, statePath, {
         mockRelay,
+        network,
         relayUrl,
         walletUrl,
       });
@@ -468,8 +498,9 @@ async function handleShimRequest(
   response,
   state,
   statePath,
-  { mockRelay, relayUrl, walletUrl },
+  { mockRelay, network, relayUrl, walletUrl },
 ) {
+  const chainConfig = e2eChainConfig(network);
   applyCors(request, response);
 
   if (request.method === "OPTIONS") {
@@ -628,7 +659,7 @@ async function handleShimRequest(
 
   if (url.pathname === "/rpc") {
     if (mockRelay) {
-      await handleMockRelayRpc(request, response, state, relayUrl);
+      await handleMockRelayRpc(request, response, state, relayUrl, chainConfig);
     } else {
       await proxyRelayRpc(request, response, relayUrl);
     }
@@ -639,7 +670,7 @@ async function handleShimRequest(
     const body = await readJson(request);
     const id = normalizeAddress(body.id ?? body.accessAddress);
     state.mockKeys[id] = {
-      chainId: "0x10e6",
+      chainId: chainConfig.chainIdHex,
       hash: body.hash ?? mockKeyHash(id),
       key: toRelayMockKey({
         expiry: body.expiry ?? 0,
@@ -682,7 +713,7 @@ async function handleShimRequest(
         usdBalance: "0",
       },
       {
-        address: usdmAddress,
+        address: chainConfig.usdmAddress,
         name: "MegaUSD",
         symbol: "USDM",
         decimals: 18,
@@ -826,7 +857,13 @@ function summarizeRpcPayload(text) {
   }
 }
 
-async function handleMockRelayRpc(request, response, state, relayUrl) {
+async function handleMockRelayRpc(
+  request,
+  response,
+  state,
+  relayUrl,
+  chainConfig,
+) {
   const body = await readJson(request);
   const requests = Array.isArray(body) ? body : [body];
   if (requests.some((entry) => !isMockRelayMethod(entry?.method))) {
@@ -839,7 +876,9 @@ async function handleMockRelayRpc(request, response, state, relayUrl) {
     return;
   }
 
-  const results = requests.map((entry) => mockRelayResult(entry, state));
+  const results = requests.map((entry) =>
+    mockRelayResult(entry, state, chainConfig),
+  );
   json(response, request, 200, Array.isArray(body) ? results : results[0]);
 }
 
@@ -853,7 +892,7 @@ function isMockRelayMethod(method) {
   ].includes(method);
 }
 
-function mockRelayResult(entry, state) {
+function mockRelayResult(entry, state, chainConfig) {
   const id = entry?.id ?? null;
   const method = entry?.method;
 
@@ -880,7 +919,7 @@ function mockRelayResult(entry, state) {
             {
               blockHash: `0x${"22".repeat(32)}`,
               blockNumber: "0x1",
-              chainId: "0x10e6",
+              chainId: chainConfig.chainIdHex,
               gasUsed: "0x5208",
               logs: [],
               status: "0x1",
@@ -1123,8 +1162,8 @@ function assertDeviceStartRequest(request) {
   if (!request || request.clientName !== "mega-cli") {
     throw new Error("device start clientName must be mega-cli");
   }
-  if (request.network !== "mainnet") {
-    throw new Error("device start network must be mainnet");
+  if (!chainConfigs[request.network]) {
+    throw new Error("device start network must be mainnet or testnet");
   }
   if (request.codeChallengeMethod !== "S256") {
     throw new Error("device start codeChallengeMethod must be S256");
@@ -1476,13 +1515,14 @@ async function runCliLogin(page, runOptions) {
   );
   const permissionRequest = await resolveLoginPermissions({
     allowCalls: runOptions.allowCalls,
+    network: runOptions.network,
     permissionsFile: runOptions.permissionsFile,
   });
   let editedPermissionExpectation;
 
   try {
     const result = await runLoopbackLogin({
-      network: "mainnet",
+      network: runOptions.network,
       permissionRequest,
       relayUrl: runOptions.relayUrl,
       walletUrl: runOptions.walletUrl,
@@ -1498,7 +1538,7 @@ async function runCliLogin(page, runOptions) {
         if (runOptions.formInputs) {
           editedPermissionExpectation = await exercisePermissionEditor(
             page,
-            runOptions.timeoutMs,
+            runOptions,
           );
         }
 
@@ -1548,7 +1588,7 @@ async function runDeviceCliLogin(page, runOptions) {
       {
         allowCall: runOptions.allowCalls,
         authFlow: "device",
-        network: "mainnet",
+        network: runOptions.network,
         permissions: runOptions.permissionsFile,
         relayUrl: runOptions.relayUrl,
         timeoutMs: runOptions.timeoutMs,
@@ -1646,7 +1686,7 @@ async function handleDeviceGrantPrompt(
   await assertPermissionScreen(page, runOptions.timeoutMs);
 
   if (formInputs) {
-    await exercisePermissionEditor(page, runOptions.timeoutMs);
+    await exercisePermissionEditor(page, runOptions);
   }
 
   await page.getByRole("button", { name: "Approve" }).click();
@@ -1702,7 +1742,7 @@ async function runKeyManagementE2E(page, runOptions, initialProfile) {
         allowCall: [],
         authFlow: runOptions.authFlow,
         label: "e2e-management",
-        network: "mainnet",
+        network: runOptions.network,
         relayUrl: runOptions.relayUrl,
         timeoutMs: runOptions.timeoutMs,
         walletApiUrl: shimApiUrl(runOptions),
@@ -1757,7 +1797,7 @@ async function runKeyManagementE2E(page, runOptions, initialProfile) {
 
   const listAfterCreate = await withOutput((stdout) =>
     walletCommands.runWalletList(
-      { network: "mainnet", showInactive: true, json: true },
+      { network: runOptions.network, showInactive: true, json: true },
       { env, stdout },
     ),
   );
@@ -1775,7 +1815,7 @@ async function runKeyManagementE2E(page, runOptions, initialProfile) {
   const permissions = await withOutput((stdout) =>
     walletCommands.runWalletPermissions(
       secondKey.id,
-      { network: "mainnet" },
+      { network: runOptions.network },
       { env, stdout },
     ),
   );
@@ -1785,7 +1825,7 @@ async function runKeyManagementE2E(page, runOptions, initialProfile) {
     walletCommands.runWalletLabel(
       secondKey.id,
       "e2e-renamed",
-      { network: "mainnet", terse: true },
+      { network: runOptions.network, terse: true },
       { env, stdout },
     ),
   );
@@ -1793,7 +1833,7 @@ async function runKeyManagementE2E(page, runOptions, initialProfile) {
   const switchFirst = await withOutput((stdout) =>
     walletCommands.runWalletSwitch(
       firstKey.id,
-      { network: "mainnet", terse: true },
+      { network: runOptions.network, terse: true },
       { env, stdout },
     ),
   );
@@ -1802,7 +1842,7 @@ async function runKeyManagementE2E(page, runOptions, initialProfile) {
   const switchSecond = await withOutput((stdout) =>
     walletCommands.runWalletSwitch(
       secondKey.id,
-      { network: "mainnet", terse: true },
+      { network: runOptions.network, terse: true },
       { env, stdout },
     ),
   );
@@ -1813,7 +1853,7 @@ async function runKeyManagementE2E(page, runOptions, initialProfile) {
       secondKey.id,
       {
         authFlow: runOptions.authFlow,
-        network: "mainnet",
+        network: runOptions.network,
         timeoutMs: runOptions.timeoutMs,
         walletApiUrl: shimApiUrl(runOptions),
         walletUrl: runOptions.walletUrl,
@@ -1847,7 +1887,7 @@ async function runKeyManagementE2E(page, runOptions, initialProfile) {
     "revoked key should be inactive locally",
   );
 
-  const stored = await profileStore.readWalletProfile("mainnet", env);
+  const stored = await profileStore.readWalletProfile(runOptions.network, env);
   const storedRevoked = stored.keys.find(
     (key) => key.id.toLowerCase() === secondKey.id.toLowerCase(),
   );
@@ -1861,7 +1901,7 @@ async function runKeyManagementE2E(page, runOptions, initialProfile) {
   await withOutput((stdout) =>
     walletCommands.runWalletSwitch(
       firstKey.id,
-      { network: "mainnet", terse: true },
+      { network: runOptions.network, terse: true },
       { env, stdout },
     ),
   );
@@ -1893,7 +1933,9 @@ function memoryOutput() {
   };
 }
 
-async function exercisePermissionEditor(page, timeoutMs) {
+async function exercisePermissionEditor(page, runOptions) {
+  const { timeoutMs } = runOptions;
+  const { usdmAddress } = e2eChainConfig(runOptions.network);
   const secondToken = "0x2222222222222222222222222222222222222222";
   const removedToken = "0x9999999999999999999999999999999999999999";
   const exactTarget = "0x3333333333333333333333333333333333333333";

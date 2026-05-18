@@ -24,6 +24,7 @@ afterEach(async () => {
 
 describe("wallet call", () => {
   it("runs raw calldata without reading a wallet profile", async () => {
+    const env = await tempEnv();
     const client = {
       call: vi.fn().mockResolvedValue("0x1234"),
     };
@@ -39,6 +40,7 @@ describe("wallet call", () => {
       },
       {
         createClient: () => client,
+        env,
         stdout,
       },
     );
@@ -57,7 +59,38 @@ describe("wallet call", () => {
     });
   });
 
+  it("runs testnet raw calldata when no testnet profile exists", async () => {
+    const env = await tempEnv();
+    const client = {
+      call: vi.fn().mockResolvedValue("0x1234"),
+    };
+    const stdout = memoryOutput();
+
+    const result = await runWalletCall(
+      {
+        data: "0x70a08231",
+        network: "testnet",
+        rpcUrl,
+        terse: true,
+        to: target,
+      },
+      {
+        createClient: () => client,
+        env,
+        stdout,
+      },
+    );
+
+    expect(client.call).toHaveBeenCalledWith({
+      data: "0x70a08231",
+      to: target,
+    });
+    expect(result.network).toBe("testnet");
+    expect(stdout.text).toBe("0x1234\n");
+  });
+
   it("encodes ABI function calls before eth_call", async () => {
+    const env = await tempEnv();
     const abiPath = await writeTempAbi([
       {
         inputs: [{ name: "account", type: "address" }],
@@ -84,6 +117,7 @@ describe("wallet call", () => {
       },
       {
         createClient: () => client,
+        env,
         stdout,
       },
     );
@@ -206,6 +240,13 @@ async function writeTempAbi(abi: unknown): Promise<string> {
   await writeFile(path, `${JSON.stringify(abi)}\n`, "utf8");
 
   return path;
+}
+
+async function tempEnv(): Promise<NodeJS.ProcessEnv> {
+  const dir = await mkdtemp(join(tmpdir(), "mega-wallet-call-"));
+  tempDirs.push(dir);
+
+  return { MEGA_WALLET_CLI_CONFIG_DIR: dir };
 }
 
 function memoryOutput(): { text: string; write(chunk: string): void } {

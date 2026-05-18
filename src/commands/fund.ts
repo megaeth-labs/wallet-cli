@@ -38,6 +38,7 @@ export function registerFundCommand(
   wallet
     .command("fund")
     .description("Open the MegaETH wallet deposit flow for the active account")
+    .option("--network <network>", "wallet network: mainnet or testnet")
     .option("--wallet-url <url>", "wallet UI URL")
     .option("--no-open", "print the funding URL without opening a browser")
     .option("--json", "print JSON output")

@@ -341,6 +341,23 @@ describe("loopback login", () => {
     ]);
     expect(permissions.permissions.calls).toEqual([{}]);
   });
+
+  it("uses the testnet USDM token for testnet default permissions", async () => {
+    const permissions = await resolveLoginPermissions({
+      network: "testnet",
+      now: new Date("2026-05-07T00:00:00.000Z"),
+      spendLimit: "12.5",
+    });
+
+    expect(permissions.permissions.spend).toEqual([
+      {
+        limit: "12500000000000000000",
+        period: "year",
+        token: "0x15e9f2b0a747ac05c7446559306687085d161e5c",
+      },
+    ]);
+    expect(permissions.permissions.calls).toEqual([{}]);
+  });
 });
 
 async function tempEnv(): Promise<NodeJS.ProcessEnv> {

@@ -99,6 +99,7 @@ export function registerDebugCommand(
   wallet
     .command("debug")
     .description("Show local wallet diagnostics without private key material")
+    .option("--network <network>", "wallet network: mainnet or testnet")
     .option("--rpc-url <url>", "Ethereum JSON-RPC URL for balance checks")
     .option("--skip-chain", "skip balance and relay key checks")
     .option("--json", "print JSON output")

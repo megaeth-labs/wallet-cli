@@ -34,12 +34,8 @@ export type EthReadClient = EthCallClient & EthBalanceClient;
 export type ViemPublicCallClient = Pick<PublicClient, "call">;
 export type ViemPublicReadClient = Pick<PublicClient, "call" | "getBalance">;
 
-const defaultRpcUrls: Record<Network, string> = {
-  mainnet: "https://mainnet.megaeth.com/rpc",
-};
-
 export function getDefaultRpcUrl(network: Network): string {
-  return defaultRpcUrls[network];
+  return getChainConfig(network).rpcUrl;
 }
 
 export function createEthCallClient(
@@ -64,15 +60,11 @@ function createViemPublicClient(
   const config = getChainConfig(network);
   const chain = defineChain({
     id: config.chainId,
-    name: "MegaETH Mainnet",
-    nativeCurrency: {
-      decimals: 18,
-      name: "MegaETH Ether",
-      symbol: "ETH",
-    },
+    name: config.name,
+    nativeCurrency: config.nativeCurrency,
     rpcUrls: {
       default: {
-        http: [rpcUrl],
+        http: [url],
       },
     },
   });

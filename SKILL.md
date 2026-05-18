@@ -16,6 +16,8 @@ wallet account.
 
 - The wallet account is an EVM address on MegaETH controlled by the user's
   passkey wallet at `account.megaeth.com`.
+- Commands default to mainnet. Add `--network testnet` when the user explicitly
+  asks for testnet; local profiles are separate per network.
 - `mega wallet login` connects this CLI install to that wallet account and
   stores the first approved delegated session key locally.
 - `mega wallet create-key` asks the passkey wallet to approve another scoped
@@ -87,25 +89,27 @@ Use login only to connect a wallet profile when none exists. If the CLI reports
 `mega wallet logout` only when the user explicitly wants this CLI install to
 forget the local wallet profile.
 
-Login defaults to `https://account.megaeth.com`,
+Login defaults to mainnet, `https://account.megaeth.com`,
 `https://wallet-api.megaeth.com`, and `https://wallet-relay.megaeth.com`. Use
 `--wallet-url`, `--wallet-api-url`, or `--relay-url` only when deliberately
-targeting non-canonical endpoints.
+targeting non-canonical endpoints. Use `--network testnet` for the wallet
+testnet profile and chain config.
 
-Default login permissions expire after one week, prefer USDM as the fee token
-with a `1 USDM` allowance, and ask for a flat `100 USDM` spend cap over the
-one-week authorization window. Approved broad-call keys are represented as
-`permissions.calls: [{}]`, which allows arbitrary contract interactions bounded
-by spend/fee/expiry limits. Use `--allow-call` or a custom permissions file when
-a more restrictive protocol-specific key is required. For additional keys, use
-`mega wallet create-key --spend-limit <amount>` to override the default USDM
-spend cap. Use `--permissions ./permissions.json` to change fee token, call
-scope, expiry, spend token, or spend period.
+Default login permissions expire after one week, prefer network-specific USDM
+as the fee token with a `1 USDM` allowance, and ask for a flat `100 USDM` spend
+cap over the one-week authorization window. Approved broad-call keys are
+represented as `permissions.calls: [{}]`, which allows arbitrary contract
+interactions bounded by spend/fee/expiry limits. Use `--allow-call` or a custom
+permissions file when a more restrictive protocol-specific key is required. For
+additional keys, use `mega wallet create-key --spend-limit <amount>` to
+override the default USDM spend cap. Use `--permissions ./permissions.json` to
+change fee token, call scope, expiry, spend token, or spend period.
 
 ## Inspect The Active Wallet
 
 ```bash
 mega wallet whoami --json
+mega wallet whoami --network testnet --json
 mega wallet list --json
 mega wallet permissions 0xKEY_OR_ACCESS_ADDRESS --json
 ```
@@ -130,7 +134,9 @@ mega wallet revoke 0xKEY_OR_ACCESS_ADDRESS --auth-flow device --no-browser
 
 Use `list` to inspect local keys. Revoked and expired keys are hidden unless
 `--show-inactive` is present. Use `permissions` to inspect the exact approved
-scope in plain English before a write.
+scope in plain English before a write. When operating on testnet, pass
+`--network testnet` consistently on login, create-key, inspection, writes,
+revoke, fund, and logout commands.
 
 Use `create-key` when no existing key has the requested scope; it opens the
 browser/passkey approval flow. Use `--auth-flow device --no-browser` for

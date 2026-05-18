@@ -190,6 +190,7 @@ export function registerWalletSubcommands(
   wallet
     .command("login")
     .description("Connect a wallet profile")
+    .option("--network <network>", "wallet network: mainnet or testnet")
     .option("--auth-flow <flow>", "authorization flow: loopback or device")
     .option(
       "--no-browser",
@@ -224,6 +225,7 @@ export function registerWalletSubcommands(
   wallet
     .command("whoami")
     .description("Show the wallet account and selected delegated key")
+    .option("--network <network>", "wallet network: mainnet or testnet")
     .option("--json", "render JSON output")
     .option("-t, --terse", "render compact text output")
     .action(async (options: StatusCommandOptions) => {
@@ -233,6 +235,7 @@ export function registerWalletSubcommands(
   wallet
     .command("list")
     .description("List local delegated keys")
+    .option("--network <network>", "wallet network: mainnet or testnet")
     .option("--show-inactive", "include expired and revoked keys")
     .option("--json", "render JSON output")
     .option("-t, --terse", "render compact text output")
@@ -244,6 +247,7 @@ export function registerWalletSubcommands(
     .command("permissions")
     .description("Show a delegated key permission scope")
     .argument("<key>", "delegated key id or access address")
+    .option("--network <network>", "wallet network: mainnet or testnet")
     .option("--json", "render JSON output")
     .option("-t, --terse", "render compact text output")
     .action(async (key: string, options: StatusCommandOptions) => {
@@ -254,6 +258,7 @@ export function registerWalletSubcommands(
     .command("switch")
     .description("Select the default delegated key for writes")
     .argument("<key>", "delegated key id or access address")
+    .option("--network <network>", "wallet network: mainnet or testnet")
     .option("--json", "render JSON output")
     .option("-t, --terse", "render compact text output")
     .action(async (key: string, options: StatusCommandOptions) => {
@@ -263,6 +268,7 @@ export function registerWalletSubcommands(
   wallet
     .command("create-key")
     .description("Authorize and store a new delegated key")
+    .option("--network <network>", "wallet network: mainnet or testnet")
     .option("--auth-flow <flow>", "authorization flow: loopback or device")
     .option(
       "--no-browser",
@@ -304,6 +310,7 @@ export function registerWalletSubcommands(
     .description("Set or update a local delegated key label")
     .argument("<key>", "delegated key id or access address")
     .argument("<label>", "human-readable label")
+    .option("--network <network>", "wallet network: mainnet or testnet")
     .option("--json", "render JSON output")
     .option("-t, --terse", "render compact text output")
     .action(
@@ -316,6 +323,7 @@ export function registerWalletSubcommands(
     .command("revoke")
     .description("Revoke a delegated key on-chain and keep an audit record")
     .argument("<key>", "delegated key id or access address")
+    .option("--network <network>", "wallet network: mainnet or testnet")
     .option("--auth-flow <flow>", "authorization flow: loopback or device")
     .option(
       "--no-browser",
@@ -338,6 +346,7 @@ export function registerWalletSubcommands(
   wallet
     .command("logout")
     .description("Delete the local wallet profile and key material")
+    .option("--network <network>", "wallet network: mainnet or testnet")
     .option("--json", "render JSON output")
     .option("-t, --terse", "render compact text output")
     .action(async (options: StatusCommandOptions) => {
@@ -392,6 +401,7 @@ export async function login(
   const permissionRequest = await resolveLoginPermissions({
     permissionsFile: options.permissions,
     allowCalls: options.allowCall,
+    network,
   });
 
   if (authFlow === "loopback") {
@@ -545,6 +555,7 @@ export async function runWalletCreateKey(
   const permissionRequest = await resolveCreateKeyPermissions(
     profile,
     options,
+    network,
     getNow(dependencies),
   );
   const authorization =
@@ -997,6 +1008,7 @@ function buildStatusResult(
 async function resolveCreateKeyPermissions(
   profile: WalletProfile,
   options: CreateKeyCommandOptions,
+  network: Network,
   now: Date,
 ): Promise<CliPermissionRequest> {
   const usesExplicitPermissions =
@@ -1014,7 +1026,7 @@ async function resolveCreateKeyPermissions(
 
   if (options.from !== undefined) {
     const source = requireWalletKey(profile, options.from);
-    const fallback = defaultLoginPermissions(now);
+    const fallback = defaultLoginPermissions(now, { network });
 
     return {
       expiry: fallback.expiry,
@@ -1026,6 +1038,7 @@ async function resolveCreateKeyPermissions(
   return resolveLoginPermissions({
     permissionsFile: options.permissions,
     allowCalls: options.allowCall,
+    network,
     spendLimit: options.spendLimit,
     now,
   });

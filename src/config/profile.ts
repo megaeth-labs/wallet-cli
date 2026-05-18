@@ -13,7 +13,7 @@ import { dirname } from "node:path";
 
 import { CliError } from "../errors.js";
 import { redactSecrets } from "../output.js";
-import { defaultNetwork, isNetwork, type Network } from "./chains.js";
+import { isNetwork, networks, type Network } from "./chains.js";
 import { getProfilePath } from "./paths.js";
 
 export type HexString = `0x${string}`;
@@ -186,7 +186,7 @@ export async function listWalletProfiles(
 ): Promise<WalletProfile[]> {
   const profiles: WalletProfile[] = [];
 
-  for (const network of [defaultNetwork] as const) {
+  for (const network of networks) {
     const path = getProfilePath(network, env);
     try {
       const raw = await readFile(path, "utf8");

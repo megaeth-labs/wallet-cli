@@ -90,6 +90,7 @@ export function registerTransferCommand(
     .requiredOption("--amount <amount>", "amount in ETH or token units")
     .option("--token <address>", "ERC20 token contract address")
     .option("--key <key>", "delegated key id or access address to use")
+    .option("--network <network>", "wallet network: mainnet or testnet")
     .option(
       "--decimals <decimals>",
       "ERC20 token decimals override",

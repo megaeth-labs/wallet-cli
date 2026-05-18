@@ -9,6 +9,13 @@ For a simple default USDM spend cap on a new key, prefer:
 mega wallet create-key --spend-limit 25
 ```
 
+Add `--network testnet` when creating a testnet key. The default USDM token
+address is network-specific; custom permission files must use token and target
+addresses for the selected network. The built-in defaults use:
+
+- mainnet USDM: `0xfafddbb3fc7688494971a79cc65dca3ef82079e7`
+- testnet USDM: `0x15e9f2b0a747ac05c7446559306687085d161e5c`
+
 Use a full permission file when the user needs custom expiry, fee token, spend
 token, spend period, call scope, or no spend.
 
@@ -68,8 +75,12 @@ the inner `permissions` object:
 - Omitted `permissions.calls` is legacy/default shorthand that the wallet may
   present as broad call authority. Do not rely on omission in hand-authored
   permission files; use `calls: [{}]` for broad authority.
-- A call entry may specify `to`, `signature`, or both. `signature` may be a
-  function signature like `transfer(address,uint256)` or a 4-byte selector.
+- A call entry may specify `to`, `signature`, or both. Prefer human-readable
+  function signatures, such as `transfer(address,uint256)` or
+  `supply(address,uint256,address,uint16)`, over 4-byte hex selectors.
+- Use a 4-byte selector only when the full function signature is unavailable.
+  For example, prefer `supply(address,uint256,address,uint16)` instead of
+  `0x617ba037`.
 
 ## Multi-Contract Writes
 

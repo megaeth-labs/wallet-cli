@@ -302,6 +302,64 @@ describe("wallet status commands", () => {
     );
   });
 
+  it("creates keys against a testnet profile with testnet default spend token", async () => {
+    const env = await tempEnv();
+    const profile = makeProfile({ network: "testnet" });
+    const stdout = memoryOutput();
+    const created = makeKey({
+      id: "0x8888888888888888888888888888888888888888",
+      accessAddress: "0x8888888888888888888888888888888888888888",
+      privateKey:
+        "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    });
+    await writeWalletProfile(profile, env);
+
+    const program = new Command();
+    program.exitOverride();
+    registerWalletCommands(program, {
+      authorizeKey: async (options) => {
+        expect(options.network).toBe("testnet");
+        expect(options.permissionRequest.permissions.spend).toEqual([
+          {
+            limit: "25000000000000000000",
+            period: "year",
+            token: "0x15e9f2b0a747ac05c7446559306687085d161e5c",
+          },
+        ]);
+        return {
+          accountAddress: profile.accountAddress,
+          authUrl: "https://wallet.example/cli-auth/loopback",
+          key: created,
+          relayUrl: profile.relayUrl,
+          walletUrl: profile.walletUrl,
+        };
+      },
+      env,
+      now: () => activeNow,
+      stdout,
+    });
+
+    await program.parseAsync([
+      "node",
+      "mega",
+      "wallet",
+      "create-key",
+      "--network",
+      "testnet",
+      "--spend-limit",
+      "25",
+      "-t",
+    ]);
+
+    expect(stdout.text).toBe(
+      `testnet\t${created.id}\t${created.accessAddress}\n`,
+    );
+    await expect(readWalletProfile("testnet", env)).resolves.toMatchObject({
+      activeKeyId: created.id,
+      keys: [{ id: profile.keys[0]!.id }, { id: created.id }],
+    });
+  });
+
   it("logs in with device auth while keeping JSON stdout parseable", async () => {
     const env = await tempEnv();
     const stdout = memoryOutput();
@@ -566,10 +624,12 @@ async function tempEnv(): Promise<NodeJS.ProcessEnv> {
   return { MEGA_WALLET_CLI_CONFIG_DIR: dir };
 }
 
-function makeProfile(options: { expiry?: number } = {}): WalletProfile {
+function makeProfile(
+  options: { expiry?: number; network?: WalletProfile["network"] } = {},
+): WalletProfile {
   return {
     version: 1,
-    network: "mainnet",
+    network: options.network ?? "mainnet",
     accountAddress: "0x1111111111111111111111111111111111111111",
     activeKeyId: "0x2222222222222222222222222222222222222222",
     keys: [

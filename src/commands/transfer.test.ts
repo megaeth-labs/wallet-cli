@@ -154,6 +154,51 @@ describe("wallet transfer", () => {
     });
   });
 
+  it("uses the testnet default RPC URL for testnet token metadata", async () => {
+    let captured: ExecuteWalletCallsOptions | undefined;
+
+    await runWalletTransfer(
+      {
+        amount: "1.5",
+        network: "testnet",
+        pollIntervalMs: 1,
+        timeoutMs: 1_000,
+        to: recipient,
+        token,
+      },
+      dependencies({
+        executeWalletCalls: async (options) => {
+          captured = options;
+          return {
+            ...executionResult(),
+            network: "testnet",
+            receipts: [
+              {
+                ...executionResult().receipts![0]!,
+                chainId: 6343,
+              },
+            ],
+          };
+        },
+        readTokenMetadata: async (options) => {
+          expect(options).toEqual({
+            network: "testnet",
+            rpcUrl: "https://carrot.megaeth.com/rpc",
+            token,
+          });
+          return { decimals: 6, symbol: "USDM" };
+        },
+        stdout: memoryOutput(),
+      }),
+    );
+
+    expect(captured).toMatchObject({
+      network: "testnet",
+      pollIntervalMs: 1,
+      timeoutMs: 1_000,
+    });
+  });
+
   it("surfaces token metadata failures before executing", async () => {
     const execute = vi.fn(async () => executionResult());
 
@@ -203,6 +248,8 @@ describe("wallet transfer", () => {
       "mega",
       "wallet",
       "transfer",
+      "--network",
+      "testnet",
       "--to",
       recipient,
       "--amount",
@@ -217,6 +264,7 @@ describe("wallet transfer", () => {
       to: recipient,
       value: 100000000000000000n,
     });
+    expect(captured?.network).toBe("testnet");
     expect(stdout.text).toBe(`${bundleId}\t200\t${txHash}\n`);
   });
 

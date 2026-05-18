@@ -23,8 +23,8 @@ Core commands:
 - `mega wallet debug`: inspect local profile, balance, and relay key status without private key output.
 - `mega wallet logout`: delete the local profile and delegated private key material; it does not revoke on-chain.
 
-Only mainnet is supported for now. Do not add alternate-network behavior until
-the wallet UI and relay path are known.
+Mainnet is the default network. Testnet is supported with `--network testnet`
+and uses a separate local profile path plus testnet chain/token defaults.
 
 ## Distribution
 
@@ -138,8 +138,9 @@ Be precise about empty fields versus omitted fields:
   target and any function, still bounded by spend, fee, expiry, relay, and
   account enforcement.
 - `permissions.calls: []` means no app-level call scopes were requested. A key
-  with spend allowance but `calls: []` cannot perform useful ERC20, swap, Aave,
-  or other contract-write actions because those all require contract calls.
+  with spend allowance but `calls: []` cannot perform useful ERC20, swap,
+  protocol, or other contract-write actions because those all require contract
+  calls.
 - `permissions.spend: []` means no explicit asset spend scopes were requested.
 - Omitted `calls` / `spend` can have different Porto defaults. Do not rely on
   accidental omission semantics in hand-authored permission files. If broad call
@@ -168,19 +169,19 @@ is not a separate magical gas-only permission at the final relay permission
 layer. Be careful when changing defaults or copy around this.
 
 The agent-oriented default keeps the visible approval simple: one-week expiry,
-USDM as the fee token with a `1 USDM` allowance, and a flat `100 USDM` spend
-cap for the authorization window. Approved broad-call keys must be represented
-as `permissions.calls: [{}]`. Use `permissions.calls: []` only when the key
-should have no app-level call scopes, or provide explicit call scopes when a
-more restrictive key is required. Keep those caps and call-scope requirements
-explicit in prompt/UI copy, avoid ambiguous empty or omitted permissions, and
-update `README.md`, `SKILL.md`, tests, and this file together when changing the
-default.
+network-specific USDM as the fee token with a `1 USDM` allowance, and a flat
+`100 USDM` spend cap for the authorization window. Approved broad-call keys must
+be represented as `permissions.calls: [{}]`. Use `permissions.calls: []` only
+when the key should have no app-level call scopes, or provide explicit call
+scopes when a more restrictive key is required. Keep those caps and call-scope
+requirements explicit in prompt/UI copy, avoid ambiguous empty or omitted
+permissions, and update `README.md`, `SKILL.md`, tests, and this file together
+when changing the default.
 
 `mega wallet create-key --spend-limit <amount>` is a shorthand for overriding
-the default mainnet USDM spend cap on the new key request. It accepts a human
-USDM amount and preserves the default fee token, expiry, spend token, and spend
-period. Use a full `--permissions` file for anything outside that narrow
+the default network-specific USDM spend cap on the new key request. It accepts a
+human USDM amount and preserves the default fee token, expiry, spend token, and
+spend period. Use a full `--permissions` file for anything outside that narrow
 override.
 
 ## Commands
@@ -199,22 +200,22 @@ When adding or changing wallet commands, update the command unit tests in
 wired through `registerWalletCommands` and tested through the canonical
 `mega wallet <command>` shape.
 
-For command-level regression checks, use:
+For mainnet command-level regression checks, use:
 
 ```bash
 pnpm e2e:functional
 ```
 
-This uses the current local profile and performs validation plus read-only
-Aave/USDM calls. Paid relay writes are opt-in:
+This uses the current mainnet local profile and performs validation plus
+read-only protocol/USDM calls. Paid relay writes are opt-in:
 
 ```bash
 pnpm e2e:functional:writes
 ```
 
 Only run paid write mode when the active delegated key has the required call
-scopes for USDM `transfer`, USDM `approve`, Aave `supply`, and Aave `withdraw`,
-and the test wallet has enough USDM to cover relay fees. Add
+scopes for the tested transfer/approval/protocol functions, and the test wallet
+has enough USDM to cover relay fees. Add
 `-- --include-timeout` only when deliberately testing timeout UX.
 
 ## Security Rules
