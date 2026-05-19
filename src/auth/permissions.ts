@@ -18,7 +18,6 @@ export type CliPermissionRequest = {
     limit: string;
     symbol?: string;
   };
-  maxFeesUSD?: number;
   permissions: AuthorizedKey["permissions"];
 };
 
@@ -166,16 +165,6 @@ export function parsePermissionRequest(value: unknown): CliPermissionRequest {
     feeToken,
     permissions: parsePermissionScope(value.permissions),
   };
-
-  if (value.maxFeesUSD !== undefined) {
-    if (
-      typeof value.maxFeesUSD !== "number" ||
-      !Number.isFinite(value.maxFeesUSD)
-    ) {
-      throw new CliError("permissions maxFeesUSD must be a finite number");
-    }
-    request.maxFeesUSD = value.maxFeesUSD;
-  }
 
   return request;
 }

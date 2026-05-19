@@ -111,6 +111,10 @@ additional keys, use `mega wallet create-key --spend-limit <amount>` to
 override the default USDM spend cap. Use `--permissions ./permissions.json` to
 change fee token, call scope, expiry, spend token, or spend period.
 
+Fee limits are token-denominated. The CLI does not implement `maxFeesUSD`; use
+`feeToken.limit` for the amount of `feeToken.symbol` the key may spend on relay
+fees.
+
 ## Inspect The Active Wallet
 
 ```bash

@@ -87,6 +87,10 @@ fee token with a `1 USDM` fee allowance, `100 USDM` spend cap for the
 authorization window, and explicit broad contract call authority represented as
 `permissions.calls: [{}]`.
 
+Fee allowances are token-denominated. A `maxFeesUSD` permission field is not
+implemented by the CLI; set `feeToken.limit` to the approved amount of
+`feeToken.symbol` instead.
+
 If a profile already exists, `login` exits before opening the browser. Use
 `mega wallet create-key` to add another delegated key, or `mega wallet logout`
 to forget the local profile.

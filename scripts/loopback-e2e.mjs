@@ -13,10 +13,12 @@ const chainConfigs = {
   mainnet: {
     chainIdHex: "0x10e6",
     usdmAddress: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
+    usdt0Address: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
   },
   testnet: {
     chainIdHex: "0x18c7",
     usdmAddress: "0x15e9f2b0a747ac05c7446559306687085d161e5c",
+    usdt0Address: "0xd7617e72202b060ff8f315177748b52c7163a010",
   },
 };
 const nativeTokenAddress = "native";
@@ -68,6 +70,7 @@ try {
 
   page = await browser.newPage();
   attachPageTelemetry(page, telemetry);
+  await routeWalletRelayToShim(page, options);
   const webauthn = await installVirtualAuthenticator(
     browser,
     page,
@@ -722,6 +725,17 @@ async function handleShimRequest(
         usdPrice: "1",
         usdBalance: "20",
       },
+      {
+        address: chainConfig.usdt0Address,
+        name: network === "mainnet" ? "USDT0" : "EXP",
+        symbol: network === "mainnet" ? "USDT0" : "EXP",
+        decimals: network === "mainnet" ? 6 : 18,
+        balance:
+          network === "mainnet" ? "5000000" : "5000000000000000000",
+        displayBalance: "5",
+        usdPrice: "1",
+        usdBalance: "5",
+      },
     ]);
     return;
   }
@@ -1285,6 +1299,18 @@ function buildDeviceApproval(record, body) {
     accessAddress: normalizeAddress(body.accessAddress),
     ...(body.revokeTxHash ? { revokeTxHash: body.revokeTxHash } : {}),
   };
+}
+
+async function routeWalletRelayToShim(page, runOptions) {
+  const relayOrigin = new URL(defaultRelayUrl).origin;
+  await page.route(`${relayOrigin}/**`, async (route) => {
+    const request = route.request();
+    const target = new URL(request.url());
+    const shimPath = target.pathname === "/" ? "/rpc" : target.pathname;
+    const shimUrl = `${shimApiUrl(runOptions)}${shimPath}${target.search}`;
+    const response = await route.fetch({ url: shimUrl });
+    await route.fulfill({ response });
+  });
 }
 
 function normalizeAddress(value) {
@@ -1935,13 +1961,16 @@ function memoryOutput() {
 
 async function exercisePermissionEditor(page, runOptions) {
   const { timeoutMs } = runOptions;
-  const { usdmAddress } = e2eChainConfig(runOptions.network);
-  const secondToken = "0x2222222222222222222222222222222222222222";
-  const removedToken = "0x9999999999999999999999999999999999999999";
+  const { usdmAddress, usdt0Address } = e2eChainConfig(runOptions.network);
   const exactTarget = "0x3333333333333333333333333333333333333333";
   const contractTarget = "0x4444444444444444444444444444444444444444";
   const exactSignature = "transfer(address,uint256)";
   const signatureOnly = "approve(address,uint256)";
+  const secondTokenSymbol = runOptions.network === "mainnet" ? "USDT0" : "EXP";
+  const secondTokenLimit =
+    runOptions.network === "mainnet"
+      ? "2500000"
+      : "2500000000000000000";
   const expiryValue = formatDatetimeLocal(
     new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
   );
@@ -1949,12 +1978,12 @@ async function exercisePermissionEditor(page, runOptions) {
   await page.getByRole("button", { name: "Edit" }).click();
   await waitForBodyText(
     page,
-    (text) => text.includes("Contract interactions"),
+    (text) => text.includes("Spend limits") && text.includes("Allowed calls"),
     "permission editor",
     timeoutMs,
   );
 
-  const firstLimitReload = page.getByLabel("Limit reload").first();
+  const firstLimitReload = page.getByLabel("Reload period").first();
   assertEqual(
     await firstLimitReload.inputValue(),
     "week",
@@ -1976,16 +2005,22 @@ async function exercisePermissionEditor(page, runOptions) {
     "edited spend reload cadence was not derived from expiry",
   );
 
-  await page.getByRole("button", { name: "Add token limit" }).click();
-  await page.getByLabel("Token address").nth(1).fill(secondToken);
+  await page.getByRole("button", { name: "Add spend limit" }).click();
+  await page.getByRole("button", { name: /Spend token USDM/i }).nth(1).click();
+  await waitForBodyText(
+    page,
+    (text) => text.includes("Select spend token"),
+    "spend token picker",
+    timeoutMs,
+  );
+  await page.getByRole("button", { name: new RegExp(secondTokenSymbol, "i") }).click();
   await page.getByLabel("Amount").nth(1).fill("2.5");
-  await page.getByLabel("Limit reload").nth(1).selectOption("day");
+  await page.getByLabel("Reload period").nth(1).selectOption("day");
 
-  await page.getByRole("button", { name: "Add token limit" }).click();
-  await page.getByLabel("Token address").nth(2).fill(removedToken);
-  await page.getByRole("button", { name: "Remove token limit" }).last().click();
+  await page.getByRole("button", { name: "Add spend limit" }).click();
+  await page.getByRole("button", { name: "Remove limit" }).last().click();
 
-  const contractInteractions = page.getByLabel("Contract interactions");
+  const contractInteractions = page.getByLabel("Contract calls");
   const contractInteractionOptions = await contractInteractions
     .locator("option")
     .allTextContents();
@@ -1997,7 +2032,7 @@ async function exercisePermissionEditor(page, runOptions) {
   await contractInteractions.selectOption("all");
   await waitForBodyText(
     page,
-    (text) => text.includes("This key can call any contract"),
+    (text) => text.includes("Any contract call. Spend limits apply."),
     "arbitrary call mode",
     timeoutMs,
   );
@@ -2007,18 +2042,32 @@ async function exercisePermissionEditor(page, runOptions) {
     timeout: timeoutMs,
   });
   await page.getByLabel("Contract address").nth(0).fill(exactTarget);
-  await page.getByLabel("Function signature").nth(0).fill(exactSignature);
+  await page.getByLabel("Function").nth(0).fill(exactSignature);
 
   await page.getByRole("button", { name: "Add allowed call" }).click();
   await page.getByLabel("Contract address").nth(1).fill(contractTarget);
 
   await page.getByRole("button", { name: "Add allowed call" }).click();
-  await page.getByLabel("Function signature").nth(2).fill(signatureOnly);
+  await page.getByLabel("Function").nth(2).fill(signatureOnly);
 
   await waitForBodyText(
     page,
     (text) => text.includes("Up to 3 allowed calls can be added."),
     "allowed-call row cap",
+    timeoutMs,
+  );
+
+  await page.getByRole("button", { name: "Save" }).click();
+  await waitForBodyText(
+    page,
+    (text) =>
+      /Spend up to 75 USDm every week/i.test(text) &&
+      text.includes(`Spend up to 2.5 ${secondTokenSymbol} every day`) &&
+      text.includes("Call transfer(address,uint256) on 0x333333...3333") &&
+      text.includes("Call any function on 0x444444...4444") &&
+      text.includes("Call approve(address,uint256) on any contract") &&
+      text.includes("Fees up to 1 USDM"),
+    "saved edited permission summary",
     timeoutMs,
   );
 
@@ -2042,9 +2091,9 @@ async function exercisePermissionEditor(page, runOptions) {
         token: usdmAddress,
       },
       {
-        limit: "2500000000000000000",
+        limit: secondTokenLimit,
         period: "day",
-        token: secondToken,
+        token: usdt0Address,
       },
     ],
     expiry: Math.floor(new Date(expiryValue).getTime() / 1000),
@@ -2095,16 +2144,18 @@ async function assertPermissionScreen(page, timeoutMs) {
   });
   await waitForBodyText(
     page,
-    (text) => /Spend up to\s+100\s+\S+\s+total over the next week/i.test(text),
-    "100 USDM/week spend permission",
+    (text) => /Spend up to\s+100\s+USDM/i.test(text),
+    "100 USDM spend permission",
     timeoutMs,
   );
 
   const body = await page.locator("body").innerText();
+  assertMissing(body, "total over the next week");
   assertMissing(body, "No token spend requested");
   assertMissing(body, "Create offline transactions");
   assertMissing(body, "Pay up to 0 ETH in fees");
   assertMissing(body, "Pay up to 0 eth in fees");
+  assertMissing(body, "$1 USDM");
 }
 
 function assertMissing(text, forbidden) {

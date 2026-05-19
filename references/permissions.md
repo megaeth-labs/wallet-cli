@@ -58,6 +58,8 @@ the inner `permissions` object:
 - `expiry` is required and must be a future Unix timestamp in seconds.
 - `feeToken` is required. `feeToken.limit` is a decimal string; `symbol` is
   optional but should be included for user-readable approval text.
+- `feeToken.limit` is token-denominated. `maxFeesUSD` is not implemented by the
+  CLI; do not include it in permission files.
 - `permissions` is required.
 - `permissions.spend` is required and may be `[]` for no explicit spend.
 - Spend `limit` values are integer base units, not human decimals.
