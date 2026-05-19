@@ -82,6 +82,10 @@ the inner `permissions` object:
 - Use a 4-byte selector only when the full function signature is unavailable.
   For example, prefer `supply(address,uint256,address,uint16)` instead of
   `0x617ba037`.
+- ETH and WETH are different spend scopes. A flow that wraps native ETH and
+  then supplies or swaps WETH may need both native ETH spend and WETH spend,
+  plus calls for `deposit()`, `approve(address,uint256)`, and the downstream
+  contract function.
 
 ## Multi-Contract Writes
 

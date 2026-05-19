@@ -208,10 +208,11 @@ export function relayErrorToCliError(error: unknown): CliError {
     return new CliError("permission not granted for delegated key");
   }
 
+  const detail = relayErrorDetail(error);
   const message =
-    error instanceof Error && error.message.length > 0
-      ? `relay execution failed: ${sanitizeRelayMessage(error.message)}`
-      : "relay execution failed";
+    detail === undefined
+      ? "relay execution failed"
+      : `relay execution failed: ${detail}`;
 
   return new CliError(message);
 }
@@ -249,8 +250,11 @@ function collectErrorText(error: unknown, depth = 0): string {
 function collectObjectText(error: object, depth: number): string {
   const object = error as Record<string, unknown>;
   const values = [
+    object["message"],
     object["shortMessage"],
     object["details"],
+    object["reason"],
+    object["error"],
     object["data"],
     object["cause"],
   ];
@@ -264,6 +268,23 @@ function collectObjectText(error: object, depth: number): string {
           : collectErrorText(value, depth + 1),
     )
     .join("\n");
+}
+
+function relayErrorDetail(error: unknown): string | undefined {
+  const lines = collectErrorText(error)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const selected =
+    lines.find((line) => !isGenericRelayErrorLine(line)) ?? lines[0];
+
+  return selected === undefined ? undefined : sanitizeRelayMessage(selected);
+}
+
+function isGenericRelayErrorLine(line: string): boolean {
+  return /^(An error occurred while executing calls|Execution reverted for an unknown reason)\.?$/i.test(
+    line,
+  );
 }
 
 function normalizeRelayUrl(value: string): string {

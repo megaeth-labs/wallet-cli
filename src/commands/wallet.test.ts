@@ -163,6 +163,35 @@ describe("wallet status commands", () => {
     );
   });
 
+  it("renders USDm consistently in delegated key permission summaries", async () => {
+    const env = await tempEnv();
+    const profile = makeProfile();
+    const key = profile.keys[0]!;
+    key.authorizedKey.feeToken = {
+      limit: "1",
+      symbol: "USDM",
+    };
+    key.authorizedKey.permissions.spend = [
+      {
+        limit: "100000000000000000000",
+        period: "week",
+        token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
+      },
+    ];
+    const stdout = memoryOutput();
+    await writeWalletProfile(profile, env);
+
+    await runWalletPermissions(
+      key.id,
+      { network: "mainnet" },
+      { env, now: () => activeNow, stdout },
+    );
+
+    expect(stdout.text).toContain("Can spend up to 100 USDm per week");
+    expect(stdout.text).toContain("Can pay up to 1 USDm in relay fees");
+    expect(stdout.text).not.toContain("USDM");
+  });
+
   it("switches the default key without deleting older keys", async () => {
     const env = await tempEnv();
     const first = makeProfile();

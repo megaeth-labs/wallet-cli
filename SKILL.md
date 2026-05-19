@@ -199,6 +199,8 @@ because they produce unusable write keys.
 For workflows that move ERC20 value through another contract, the key usually
 needs both spend permission for the token and call permission for each contract
 function it invokes, such as ERC20 `approve` plus the downstream protocol call.
+Create one bundled `--calls` transaction containing `approve` and the consuming
+action; do not rely on a standalone approval persisting after relay execution.
 
 Example custom call scopes on top of the default spend request:
 

@@ -8,7 +8,7 @@ export type PermissionSummary = {
 const tokenMetadata: Record<string, { decimals: number; symbol: string }> = {
   "0xfafddbb3fc7688494971a79cc65dca3ef82079e7": {
     decimals: 18,
-    symbol: "USDM",
+    symbol: "USDm",
   },
 };
 
@@ -76,7 +76,7 @@ function summarizeFeeToken(feeToken: AuthorizedKey["feeToken"]): string[] {
   }
 
   return [
-    `Can pay up to ${feeToken.limit} ${feeToken.symbol ?? "token"} in relay fees`,
+    `Can pay up to ${feeToken.limit} ${displayTokenSymbol(feeToken.symbol)} in relay fees`,
   ];
 }
 
@@ -117,6 +117,18 @@ function formatTokenAmount(
   const trimmed = padded.replace(/0+$/u, "");
 
   return `${whole.toString()}.${trimmed}`;
+}
+
+function displayTokenSymbol(symbol: string | undefined): string {
+  if (symbol === undefined) {
+    return "token";
+  }
+
+  if (symbol.toLowerCase() === "usdm") {
+    return "USDm";
+  }
+
+  return symbol;
 }
 
 function expiresWithinOneYear(expiry: number): boolean {

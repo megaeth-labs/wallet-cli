@@ -297,6 +297,31 @@ describe("wallet execute", () => {
     );
   });
 
+  it("uses nested relay details when the top-level relay error is generic", async () => {
+    const relayActions = fakeRelayActions({
+      prepareCalls: async () => {
+        throw Object.assign(
+          new Error("An error occurred while executing calls."),
+          {
+            details: "execution reverted: ERC20InsufficientAllowance()",
+          },
+        );
+      },
+    });
+
+    await expect(
+      executeWalletCalls(
+        {
+          calls: [{ data: "0x", to: target }],
+          network: "mainnet",
+        },
+        dependencies({ relayActions }),
+      ),
+    ).rejects.toThrow(
+      "relay execution failed: execution reverted: ERC20InsufficientAllowance()",
+    );
+  });
+
   it("registers the reachable wallet execute command", async () => {
     const stdout = memoryOutput();
     const program = new Command();
