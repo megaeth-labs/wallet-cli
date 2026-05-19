@@ -1,5 +1,5 @@
 import { RelayActions } from "porto";
-import { createClient, defineChain, http } from "viem";
+import { createClient, defineChain, http, zeroAddress } from "viem";
 
 import { getChainConfig, type Network } from "../config/chains.js";
 import type { HexString } from "../config/profile.js";
@@ -39,6 +39,18 @@ export type RelayAccountKey = {
 
 export type PortoRelayClient = unknown;
 
+export type RelayFeeTokenCapability = {
+  address: HexString;
+  feeToken?: boolean;
+  symbol: string;
+};
+
+export type RelayCapabilities = {
+  fees?: {
+    tokens?: readonly RelayFeeTokenCapability[];
+  };
+};
+
 export type PortoRelayActions = {
   prepareCalls(
     client: PortoRelayClient,
@@ -65,6 +77,10 @@ export type PortoRelayActions = {
     client: PortoRelayClient,
     parameters: { account: HexString; chainIds?: readonly number[] },
   ): Promise<readonly RelayAccountKey[]>;
+  getCapabilities?(
+    client: PortoRelayClient,
+    parameters: { chainId?: number },
+  ): Promise<RelayCapabilities>;
 };
 
 export type SendRelayCallsOptions = {
@@ -72,6 +88,7 @@ export type SendRelayCallsOptions = {
   actions?: PortoRelayActions;
   calls: readonly RelayCall[];
   client: PortoRelayClient;
+  network: Network;
   sessionKey: RelaySessionKey;
 };
 
@@ -105,7 +122,12 @@ export async function sendRelayCalls(
   options: SendRelayCallsOptions,
 ): Promise<RelayExecutionResult> {
   const actions = options.actions ?? portoRelayActions;
-  const feeToken = options.sessionKey.permissions?.spend?.[0]?.token;
+  const feeToken = await resolveApprovedFeeTokenAddress({
+    actions,
+    client: options.client,
+    network: options.network,
+    sessionKey: options.sessionKey,
+  });
   const prepared = await actions.prepareCalls(options.client, {
     account: options.accountAddress,
     calls: options.calls,
@@ -125,6 +147,60 @@ export async function sendRelayCalls(
     prepared,
     signature,
   };
+}
+
+async function resolveApprovedFeeTokenAddress(options: {
+  actions: PortoRelayActions;
+  client: PortoRelayClient;
+  network: Network;
+  sessionKey: RelaySessionKey;
+}): Promise<HexString | undefined> {
+  const feeToken = options.sessionKey.feeToken;
+  if (feeToken === undefined || feeToken === null) {
+    return undefined;
+  }
+
+  const symbol = feeToken.symbol?.trim();
+  if (symbol === undefined || symbol.length === 0 || isNativeFeeSymbol(symbol)) {
+    return zeroAddress;
+  }
+
+  const config = getChainConfig(options.network);
+  const capability = await findRelayFeeToken(options, symbol, config.chainId);
+  if (capability !== undefined) {
+    return capability.address;
+  }
+
+  if (symbol.toLowerCase() === config.defaultFeeToken.symbol.toLowerCase()) {
+    return config.defaultFeeToken.address;
+  }
+
+  throw new CliError(
+    `approved fee token ${symbol} is not supported by ${config.name}`,
+  );
+}
+
+async function findRelayFeeToken(
+  options: {
+    actions: PortoRelayActions;
+    client: PortoRelayClient;
+  },
+  symbol: string,
+  chainId: number,
+): Promise<RelayFeeTokenCapability | undefined> {
+  const capabilities = await options.actions.getCapabilities?.(options.client, {
+    chainId,
+  });
+  const tokens = capabilities?.fees?.tokens ?? [];
+  return tokens.find(
+    (token) =>
+      token.feeToken !== false &&
+      token.symbol.toLowerCase() === symbol.toLowerCase(),
+  );
+}
+
+function isNativeFeeSymbol(symbol: string): boolean {
+  return symbol.toLowerCase() === "eth" || symbol.toLowerCase() === "native";
 }
 
 export function relayErrorToCliError(error: unknown): CliError {

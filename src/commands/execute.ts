@@ -168,6 +168,7 @@ export async function executeWalletCalls(
       actions: dependencies.relayActions,
       calls,
       client,
+      network,
       sessionKey,
     });
     const status = await pollRelayCallsStatus({

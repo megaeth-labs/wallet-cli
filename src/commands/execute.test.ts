@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { Command } from "commander";
+import { zeroAddress } from "viem";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -58,7 +59,7 @@ describe("wallet execute", () => {
             value: 7n,
           },
         ]);
-        expect(params.feeToken).toBe(feeToken);
+        expect(params.feeToken).toBe(zeroAddress);
         expect(params.key.type).toBe("secp256k1");
         expect(params.key.role).toBe("session");
         expect(params.key.publicKey).toBe(accessAddress);
@@ -142,6 +143,72 @@ describe("wallet execute", () => {
     expect(result.receipts?.[0]?.transactionHash).toBe(txHash);
     expect(order).toEqual(["prepare", "sign", "send", "status", "status"]);
     expect(sleep).toHaveBeenCalledWith(1);
+  });
+
+  it("uses the approved fee token instead of the first spend token", async () => {
+    const client = { name: "porto-client" };
+    const relayActions = fakeRelayActions({
+      getCapabilities: vi.fn(async () => ({
+        fees: {
+          tokens: [
+            {
+              address: feeToken,
+              feeToken: true,
+              symbol: "USDm",
+            },
+          ],
+        },
+      })),
+      prepareCalls: async (_actualClient, params) => {
+        expect(params.feeToken).toBe(feeToken);
+        expect(params.key.feeToken).toEqual({
+          limit: "1",
+          symbol: "USDm",
+        });
+        expect(params.key.permissions?.spend).toEqual([
+          {
+            limit: 5n,
+            period: "day",
+          },
+        ]);
+        return preparedResponse();
+      },
+    });
+
+    await executeWalletCalls(
+      {
+        calls: [
+          {
+            data: "0x1234",
+            to: target,
+            value: "0",
+          },
+        ],
+        network: "mainnet",
+        pollIntervalMs: 1,
+        timeoutMs: 1_000,
+      },
+      dependencies({
+        client,
+        profile: makeProfile({
+          feeToken: {
+            limit: "1",
+            symbol: "USDm",
+          },
+          spend: [
+            {
+              limit: "5",
+              period: "day",
+            },
+          ],
+        }),
+        relayActions,
+      }),
+    );
+
+    expect(relayActions.getCapabilities).toHaveBeenCalledWith(client, {
+      chainId: 4326,
+    });
   });
 
   it("maps relay authorization failures to delegated-key errors", async () => {
@@ -329,18 +396,21 @@ function fakeRelayActions(
   overrides: Partial<PortoRelayActions> = {},
 ): PortoRelayActions & {
   getCallsStatus: ReturnType<typeof vi.fn>;
+  getCapabilities: ReturnType<typeof vi.fn>;
   prepareCalls: ReturnType<typeof vi.fn>;
   sendPreparedCalls: ReturnType<typeof vi.fn>;
   signCalls: ReturnType<typeof vi.fn>;
 } {
   return {
     getCallsStatus: vi.fn(async () => confirmedStatus()),
+    getCapabilities: vi.fn(),
     prepareCalls: vi.fn(async () => preparedResponse()),
     sendPreparedCalls: vi.fn(async () => ({ id: bundleId })),
     signCalls: vi.fn(async () => signature),
     ...overrides,
   } as PortoRelayActions & {
     getCallsStatus: ReturnType<typeof vi.fn>;
+    getCapabilities: ReturnType<typeof vi.fn>;
     prepareCalls: ReturnType<typeof vi.fn>;
     sendPreparedCalls: ReturnType<typeof vi.fn>;
     signCalls: ReturnType<typeof vi.fn>;
@@ -391,6 +461,8 @@ function confirmedStatus(): Awaited<
 function makeProfile(
   overrides: Partial<{
     expiry: number;
+    feeToken: WalletProfile["keys"][number]["authorizedKey"]["feeToken"];
+    spend: WalletProfile["keys"][number]["authorizedKey"]["permissions"]["spend"];
   }> = {},
 ): WalletProfile {
   return {
@@ -408,7 +480,7 @@ function makeProfile(
           role: "session",
           publicKey: accessAddress,
           expiry: overrides.expiry ?? 1_900_000_000,
-          feeToken: {
+          feeToken: overrides.feeToken ?? {
             limit: "1",
             symbol: "ETH",
           },
@@ -419,7 +491,7 @@ function makeProfile(
                 signature: "transfer(address,uint256)",
               },
             ],
-            spend: [
+            spend: overrides.spend ?? [
               {
                 limit: "5",
                 period: "day",
