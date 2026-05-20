@@ -73,6 +73,13 @@ before browser auth and direct the user to either `mega wallet logout` or
 `mega wallet create-key`. Use `create-key` to add delegated keys to an existing
 wallet profile.
 
+If `create-key` fails because the authorized wallet account does not match the
+local profile, treat it as a browser-wallet mismatch. Run `mega wallet whoami`
+to identify the expected account, then direct the user to switch the browser
+wallet/profile to that account or intentionally `mega wallet logout` and log in
+again with the desired wallet. Failed mismatched authorizations must not be
+stored locally.
+
 Loopback requires the browser and CLI process to run on the same machine.
 Device authorization is available with `--auth-flow device` for headless, SSH,
 container, and remote CLI environments. In device auth, the CLI prints a

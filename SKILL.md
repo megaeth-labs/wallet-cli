@@ -95,6 +95,12 @@ Use login only to connect a wallet profile when none exists. If the CLI reports
 `mega wallet logout` only when the user explicitly wants this CLI install to
 forget the local wallet profile.
 
+If `create-key` fails because the authorized wallet account does not match the
+local profile, run `mega wallet whoami`, then ask the user to switch the browser
+wallet/profile to that account. `mega wallet logout` deletes the local profile
+and delegated private key material; run it only after the user explicitly
+approves reconnecting this CLI to a different wallet.
+
 Login defaults to mainnet, `https://account.megaeth.com`,
 `https://wallet-api.megaeth.com`, and `https://wallet-relay.megaeth.com`. Use
 `--wallet-url`, `--wallet-api-url`, or `--relay-url` only when deliberately
