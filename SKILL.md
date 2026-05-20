@@ -19,9 +19,9 @@ wallet account.
 - Commands default to mainnet. Add `--network testnet` when the user explicitly
   asks for testnet; local profiles are separate per network.
 - `mega wallet login` connects this CLI install to that wallet account and
-  stores the first approved delegated session key locally.
-- `mega wallet create-key` asks the passkey wallet to approve another scoped
-  session key for the same wallet account.
+  stores an account profile locally. It does not create a delegated session key.
+- `mega wallet create-key` generates a delegated key locally and asks the
+  passkey wallet to approve a scoped session key for the same wallet account.
 - Session keys can spend only within their approved expiry, token spend limits,
   fee allowance, and contract call scopes.
 - The CLI signs with the delegated session key and submits writes through the
@@ -63,8 +63,9 @@ mega wallet login
 
 The CLI opens MegaETH Wallet in the system browser, listens on
 `127.0.0.1:<random-port>/callback`, validates `state`, and stores the approved
-delegated-key profile locally. The callback must not contain private keys or
-transferable bearer credentials.
+account profile locally. The callback must not contain private keys or
+transferable bearer credentials. Login alone is not enough for writes; create a
+scoped delegated key before `execute` or `transfer`.
 
 `--auth-flow` selects the authorization protocol. `--no-browser` only prevents
 the CLI from opening the browser automatically and prints the authorization URL
@@ -72,10 +73,21 @@ instead. For example, `mega wallet login --no-browser` still uses same-machine
 loopback auth; use `--auth-flow device` when the browser is not on the CLI
 machine.
 
+Authorization commands that use `--no-browser` are interactive waiting
+processes. Do not run them as unmonitored foreground shell commands: the printed
+URL/code can be lost while the process keeps waiting for browser approval.
+Before starting `login`, `create-key`, or `revoke` with `--no-browser`, make
+sure your execution tool will stream stdout/stderr immediately and keep the
+session open for polling. Capture the printed URL/code, show it to the user, and
+continue monitoring until the command completes, times out, or the user asks you
+to stop. Pass an explicit bounded `--timeout-ms` when running under automation.
+If you cannot monitor live output, do not start the auth flow; tell the user the
+exact command to run locally instead.
+
 For headless, SSH, container, or remote CLI environments, use device-style auth:
 
 ```bash
-mega wallet login --auth-flow device --no-browser
+mega wallet login --auth-flow device --no-browser --timeout-ms 300000
 ```
 
 The CLI prints an authorization URL and a verification code:
@@ -86,8 +98,9 @@ Running headless? Go to https://account.megaeth.com/cli-auth and input this code
 
 Open the URL in any browser-capable device, enter the code, approve with the
 wallet passkey, and leave the CLI running until approval completes. The
-delegated private key and PKCE verifier remain on the CLI machine; the browser
-and wallet backend only handle public request and approval metadata.
+PKCE verifier remains on the CLI machine; the browser and wallet backend only
+handle public request and approval metadata. For `create-key`, the delegated
+private key also remains on the CLI machine.
 
 Use login only to connect a wallet profile when none exists. If the CLI reports
 `Wallet already connected to ...`, do not rerun login. Use
@@ -107,18 +120,19 @@ Login defaults to mainnet, `https://account.megaeth.com`,
 targeting non-canonical endpoints. Use `--network testnet` for the wallet
 testnet profile and chain config.
 
-Default login permissions expire after one week, prefer network-specific USDM
-as the fee token with a `1 USDM` allowance, and ask for a flat `100 USDM` spend
-cap over the one-week authorization window. Approved broad-call keys are
-represented as `permissions.calls: [{}]`, which allows arbitrary contract
-interactions bounded by spend/fee/expiry limits. Use `--allow-call` or a custom
-permissions file when a more restrictive protocol-specific key is required. For
-additional keys, use `mega wallet create-key --spend-limit <amount>` to
-override the default USDM spend cap. Use `--permissions ./permissions.json` to
-change fee token, call scope, expiry, spend token, or spend period.
-Custom permission files must include a non-empty `permissions.calls` array.
-Never omit `permissions.calls`; omitted calls have produced keys that the relay
-rejects for writes.
+Create-key defaults keep the approval simple: one-week expiry, network-specific
+USDM as the fee token with a `1 USDM` allowance, and a flat `100 USDM` spend cap
+over the one-week authorization window. The agent must provide call scope with
+`--allow-call <target:signature>`, copy a known-good key with `--from`, or pass
+a complete `--permissions ./permissions.json` file. Do not create workflow keys
+with implicit broad call authority. If broad authority is explicitly intended,
+represent it as `permissions.calls: [{}]` in a permissions file.
+
+Use `mega wallet create-key --spend-limit <amount> --allow-call ...` to
+override the default USDM spend cap while preserving the default fee token,
+expiry, spend token, and spend period. Custom permission files must include a
+non-empty `permissions.calls` array. Never omit `permissions.calls`; omitted
+calls have produced keys that the relay rejects for writes.
 
 Fee limits are token-denominated. The CLI does not implement `maxFeesUSD`; use
 `feeToken.limit` for the amount of `feeToken.symbol` the key may spend on relay
@@ -143,12 +157,22 @@ mega wallet list --json
 mega wallet list --show-inactive --json
 mega wallet permissions 0xKEY_OR_ACCESS_ADDRESS --json
 mega wallet switch 0xKEY_OR_ACCESS_ADDRESS
-mega wallet create-key --label "agent"
-mega wallet create-key --spend-limit 25 --label "agent"
-mega wallet create-key --auth-flow device --no-browser --label "agent"
+mega wallet create-key \
+  --allow-call '0xfafddbb3fc7688494971a79cc65dca3ef82079e7:transfer(address,uint256)' \
+  --label "usdm-transfer"
+mega wallet create-key \
+  --spend-limit 25 \
+  --allow-call '0xfafddbb3fc7688494971a79cc65dca3ef82079e7:transfer(address,uint256)' \
+  --label "agent"
+mega wallet create-key --auth-flow device --no-browser --timeout-ms 300000 \
+  --allow-call '0xfafddbb3fc7688494971a79cc65dca3ef82079e7:transfer(address,uint256)' \
+  --label "agent"
 mega wallet label 0xKEY_OR_ACCESS_ADDRESS "agent"
 mega wallet revoke 0xKEY_OR_ACCESS_ADDRESS
-mega wallet revoke 0xKEY_OR_ACCESS_ADDRESS --auth-flow device --no-browser
+mega wallet revoke 0xKEY_OR_ACCESS_ADDRESS \
+  --auth-flow device \
+  --no-browser \
+  --timeout-ms 300000
 ```
 
 Use `list` to inspect local keys. Revoked and expired keys are hidden unless
@@ -158,15 +182,16 @@ scope in plain English before a write. When operating on testnet, pass
 revoke, fund, and logout commands.
 
 Use `create-key` when no existing key has the requested scope; it opens the
-browser/passkey approval flow. Use `--auth-flow device --no-browser` for
-headless create-key or revoke authorization. Use `revoke` to revoke a key
-on-chain; the CLI keeps an inactive audit record but removes local private key
-material.
+browser/passkey approval flow and requires explicit call scope unless using
+`--from` or `--permissions`. Use `--auth-flow device --no-browser` for headless
+create-key or revoke authorization. Use `revoke` to revoke a key on-chain; the
+CLI keeps an inactive audit record but removes local private key material.
 
 ## Custom Permission Files
 
-Use `create-key --spend-limit <amount>` for a simple default USDM spend cap.
-Read [references/permissions.md](references/permissions.md) only when building
+Use `create-key --spend-limit <amount> --allow-call ...` for a simple default
+USDM spend cap with explicit call scope. Read
+[references/permissions.md](references/permissions.md) only when building
 `--permissions ./permissions.json` files or debugging permission schema errors.
 
 ## Read State
@@ -212,7 +237,8 @@ function it invokes, such as ERC20 `approve` plus the downstream protocol call.
 Create one bundled `--calls` transaction containing `approve` and the consuming
 action; do not rely on a standalone approval persisting after relay execution.
 
-Example custom call scopes on top of the default spend request:
+Example scoped USDM approval plus protocol call on top of the default spend
+request:
 
 ```bash
 mega wallet create-key \

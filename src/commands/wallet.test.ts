@@ -72,7 +72,6 @@ describe("wallet status commands", () => {
     await expect(
       login(
         {
-          allowCall: [],
           network: "mainnet",
           timeoutMs: 1_000,
         },
@@ -238,7 +237,9 @@ describe("wallet status commands", () => {
 
     const result = await runWalletCreateKey(
       {
-        allowCall: [],
+        allowCall: [
+          "0x4444444444444444444444444444444444444444:transfer(address,uint256)",
+        ],
         label: "agent",
         network: "mainnet",
         timeoutMs: 1_000,
@@ -298,6 +299,31 @@ describe("wallet status commands", () => {
     ).rejects.toThrow(
       "permissions.calls must be present and include at least one call",
     );
+  });
+
+  it("requires explicit call scope for default create-key requests", async () => {
+    const env = await tempEnv();
+    const profile = makeProfile();
+    await writeWalletProfile(profile, env);
+
+    await expect(
+      runWalletCreateKey(
+        {
+          allowCall: [],
+          network: "mainnet",
+          spendLimit: "25",
+          timeoutMs: 1_000,
+        },
+        {
+          authorizeKey: async () => {
+            throw new Error("authorizeKey should not be called");
+          },
+          env,
+          now: () => activeNow,
+          stdout: memoryOutput(),
+        },
+      ),
+    ).rejects.toThrow("Use create-key --allow-call");
   });
 
   it("refuses to copy permissions from a delegated key with omitted calls", async () => {
@@ -433,6 +459,8 @@ describe("wallet status commands", () => {
       "testnet",
       "--spend-limit",
       "25",
+      "--allow-call",
+      "0x4444444444444444444444444444444444444444:transfer(address,uint256)",
       "-t",
     ]);
 
@@ -449,17 +477,11 @@ describe("wallet status commands", () => {
     const env = await tempEnv();
     const stdout = memoryOutput();
     const stderr = memoryOutput();
-    const created = makeKey({
-      id: "0x8888888888888888888888888888888888888888",
-      accessAddress: "0x8888888888888888888888888888888888888888",
-      privateKey:
-        "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-    });
     const opened: string[] = [];
     const program = new Command();
     program.exitOverride();
     registerWalletCommands(program, {
-      authorizeDeviceKey: async (options) => {
+      authorizeDeviceLogin: async (options) => {
         expect(options.walletUrl).toBe("https://wallet.example");
         expect(options.walletApiUrl).toBe("https://wallet-api.example");
         options.onPrompt?.({
@@ -472,7 +494,6 @@ describe("wallet status commands", () => {
         return {
           accountAddress: "0x1111111111111111111111111111111111111111",
           authUrl: "https://wallet.example/cli-auth?code=ABCD-1234",
-          key: created,
           relayUrl: "https://relay.example",
           walletUrl: "https://wallet.example",
         };
@@ -507,7 +528,8 @@ describe("wallet status commands", () => {
     expect(rendered.accountAddress).toBe(
       "0x1111111111111111111111111111111111111111",
     );
-    expect(stdout.text).not.toContain(created.privateKey);
+    expect(rendered.activeKeyId).toBeUndefined();
+    expect(rendered.keys).toEqual([]);
     expect(stderr.text).toContain(
       "Running headless? Go to https://wallet.example/cli-auth and input this code - ABCD-1234",
     );
@@ -515,6 +537,7 @@ describe("wallet status commands", () => {
     expect(opened).toEqual([]);
     await expect(readWalletProfile("mainnet", env)).resolves.toMatchObject({
       walletApiUrl: "https://wallet-api.example",
+      keys: [],
     });
   });
 
@@ -534,7 +557,9 @@ describe("wallet status commands", () => {
 
     await runWalletCreateKey(
       {
-        allowCall: [],
+        allowCall: [
+          "0x4444444444444444444444444444444444444444:transfer(address,uint256)",
+        ],
         authFlow: "device",
         browser: false,
         network: "mainnet",

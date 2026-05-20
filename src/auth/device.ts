@@ -21,6 +21,14 @@ import { createPkcePair, createState } from "./pkce.js";
 
 export type DeviceStartRequest =
   | {
+      operation: "login";
+      clientName: "mega-cli";
+      network: Network;
+      codeChallenge: string;
+      codeChallengeMethod: "S256";
+      state: string;
+    }
+  | {
       operation: "grant";
       clientName: "mega-cli";
       network: Network;
@@ -51,6 +59,13 @@ export type DeviceStartResponse = {
   interval: number;
 };
 
+export type DeviceLoginApproved = {
+  status: "approved";
+  operation: "login";
+  state: string;
+  accountAddress: HexString;
+};
+
 export type DeviceGrantApproved = {
   status: "approved";
   operation: "grant";
@@ -75,6 +90,7 @@ export type DeviceTokenResponse =
   | { status: "slow_down"; interval: number }
   | { status: "expired_token" }
   | { status: "access_denied"; error?: string }
+  | DeviceLoginApproved
   | DeviceGrantApproved
   | DeviceRevokeApproved;
 
@@ -93,6 +109,26 @@ export type AuthorizationPrompt = {
 export type DeviceAuthClient = {
   start: (request: DeviceStartRequest) => Promise<DeviceStartResponse>;
   token: (request: DeviceTokenRequest) => Promise<DeviceTokenResponse>;
+};
+
+export type DeviceLoginAuthorizationOptions = {
+  network: Network;
+  walletUrl: string;
+  walletApiUrl: string;
+  relayUrl: string;
+  timeoutMs?: number;
+  now?: Date;
+  state?: string;
+  client?: DeviceAuthClient;
+  sleep?: (ms: number) => Promise<void>;
+  onPrompt?: (prompt: AuthorizationPrompt) => void;
+};
+
+export type DeviceLoginAuthorizationResult = {
+  accountAddress: HexString;
+  authUrl: string;
+  relayUrl: string;
+  walletUrl: string;
 };
 
 export type DeviceGrantAuthorizationOptions = {
@@ -164,6 +200,52 @@ export class HttpDeviceAuthClient implements DeviceAuthClient {
     }
     return payload;
   }
+}
+
+export async function authorizeDeviceLogin(
+  options: DeviceLoginAuthorizationOptions,
+): Promise<DeviceLoginAuthorizationResult> {
+  const timeoutMs = options.timeoutMs ?? defaultTimeoutMs;
+  assertPositiveTimeout(timeoutMs);
+  assertUrl(options.walletUrl, "walletUrl must be a valid URL");
+  assertUrl(options.walletApiUrl, "walletApiUrl must be a valid URL");
+  assertUrl(options.relayUrl, "relayUrl must be a valid URL");
+
+  const state = options.state ?? createState();
+  assertState(state);
+  const pkce = createPkcePair();
+  const client =
+    options.client ?? new HttpDeviceAuthClient(options.walletApiUrl);
+
+  const start = await client.start({
+    operation: "login",
+    clientName: "mega-cli",
+    network: options.network,
+    codeChallenge: pkce.codeChallenge,
+    codeChallengeMethod: pkce.codeChallengeMethod,
+    state,
+  });
+  options.onPrompt?.(buildAuthorizationPrompt(start, options.now));
+
+  const approved = await pollDeviceApproval(client, {
+    deviceCode: start.deviceCode,
+    codeVerifier: pkce.codeVerifier,
+    intervalSeconds: start.interval,
+    timeoutMs: Math.min(timeoutMs, start.expiresIn * 1000),
+    sleep: options.sleep,
+  });
+
+  if (approved.operation !== "login") {
+    throw new CliError("device authorization operation mismatch");
+  }
+  validateDeviceState(approved, state);
+
+  return {
+    accountAddress: approved.accountAddress,
+    authUrl: start.verificationUriComplete,
+    relayUrl: options.relayUrl,
+    walletUrl: options.walletUrl,
+  };
 }
 
 export async function authorizeDeviceKey(
@@ -313,7 +395,7 @@ export async function pollDeviceApproval(
     timeoutMs: number;
     sleep?: (ms: number) => Promise<void>;
   },
-): Promise<DeviceGrantApproved | DeviceRevokeApproved> {
+): Promise<DeviceLoginApproved | DeviceGrantApproved | DeviceRevokeApproved> {
   assertPositiveTimeout(options.timeoutMs);
   let intervalMs = intervalToMs(options.intervalSeconds);
   const sleep = options.sleep ?? defaultSleep;
@@ -423,18 +505,24 @@ export function buildAuthorizationPrompt(
 
 function parseApprovedDeviceResponse(
   value: Record<string, unknown>,
-): DeviceGrantApproved | DeviceRevokeApproved {
+): DeviceLoginApproved | DeviceGrantApproved | DeviceRevokeApproved {
   const operation = requireString(value.operation, "operation");
   const base = {
     status: "approved" as const,
     state: requireString(value.state, "state"),
     accountAddress: requireAddress(value.accountAddress, "accountAddress"),
-    accessAddress: requireAddress(value.accessAddress, "accessAddress"),
   };
+  if (operation === "login") {
+    return {
+      ...base,
+      operation,
+    };
+  }
   if (operation === "grant") {
     const approved: DeviceGrantApproved = {
       ...base,
       operation,
+      accessAddress: requireAddress(value.accessAddress, "accessAddress"),
       authorizedKey: parseAuthorizedKey(value.authorizedKey),
     };
     if (value.grantTxHash !== undefined) {
@@ -446,6 +534,7 @@ function parseApprovedDeviceResponse(
     const approved: DeviceRevokeApproved = {
       ...base,
       operation,
+      accessAddress: requireAddress(value.accessAddress, "accessAddress"),
     };
     if (value.revokeTxHash !== undefined) {
       approved.revokeTxHash = requireHex(value.revokeTxHash, "revokeTxHash");
@@ -496,14 +585,21 @@ function validateApprovalCommon(
   approved: DeviceGrantApproved | DeviceRevokeApproved,
   expected: { state: string; accessAddress: HexString },
 ): void {
-  if (!constantTimeEqual(approved.state, expected.state)) {
-    throw new CliError("device authorization state mismatch");
-  }
+  validateDeviceState(approved, expected.state);
   if (
     approved.accessAddress.toLowerCase() !==
     expected.accessAddress.toLowerCase()
   ) {
     throw new CliError("device authorization access address mismatch");
+  }
+}
+
+function validateDeviceState(
+  approved: DeviceLoginApproved | DeviceGrantApproved | DeviceRevokeApproved,
+  expectedState: string,
+): void {
+  if (!constantTimeEqual(approved.state, expectedState)) {
+    throw new CliError("device authorization state mismatch");
   }
 }
 

@@ -91,10 +91,14 @@ try {
       `${options.authFlow === "device" ? "Device" : "Loopback"} authorization completed.`,
     );
     console.log(`Account: ${loginResult.profile.accountAddress}`);
-    console.log(`Access key: ${loginResult.profile.keys[0].accessAddress}`);
-    console.log(
-      `Expires: ${new Date(loginResult.profile.keys[0].authorizedKey.expiry * 1000).toISOString()}`,
-    );
+    if (loginResult.profile.keys[0]) {
+      console.log(`Access key: ${loginResult.profile.keys[0].accessAddress}`);
+      console.log(
+        `Expires: ${new Date(loginResult.profile.keys[0].authorizedKey.expiry * 1000).toISOString()}`,
+      );
+    } else {
+      console.log("Access key: none");
+    }
     console.log(`CLI config: ${options.configDir}`);
 
     if (options.management) {
@@ -129,7 +133,6 @@ function parseArgs(args) {
     headed: false,
     hold: false,
     relayUrl: defaultRelayUrl,
-    formInputs: false,
     management: false,
     mockRelay: false,
     network: "mainnet",
@@ -180,9 +183,6 @@ function parseArgs(args) {
         break;
       case "--hold":
         parsed.hold = true;
-        break;
-      case "--form-inputs":
-        parsed.formInputs = true;
         break;
       case "--management":
         parsed.management = true;
@@ -288,7 +288,6 @@ Options:
   --screen-only          Stop after verifying the wallet permission screen
   --headed               Show the Playwright Chromium window
   --hold                 Keep the browser open after the check
-  --form-inputs          Exercise permission edit-form inputs before approving
   --management           Run live delegated-key management checks after login
   --mock-relay           Mock relay send/status/key RPCs in the local shim
   --network <network>    CLI wallet network: mainnet or testnet (default: mainnet)
@@ -730,8 +729,7 @@ async function handleShimRequest(
         name: network === "mainnet" ? "USDT0" : "EXP",
         symbol: network === "mainnet" ? "USDT0" : "EXP",
         decimals: network === "mainnet" ? 6 : 18,
-        balance:
-          network === "mainnet" ? "5000000" : "5000000000000000000",
+        balance: network === "mainnet" ? "5000000" : "5000000000000000000",
         displayBalance: "5",
         usdPrice: "1",
         usdBalance: "5",
@@ -1182,7 +1180,10 @@ function assertDeviceStartRequest(request) {
   if (request.codeChallengeMethod !== "S256") {
     throw new Error("device start codeChallengeMethod must be S256");
   }
-  if (!/^0x[0-9a-fA-F]{40}$/.test(request.accessAddress ?? "")) {
+  if (
+    request.operation !== "login" &&
+    !/^0x[0-9a-fA-F]{40}$/.test(request.accessAddress ?? "")
+  ) {
     throw new Error("device start accessAddress must be a 20-byte address");
   }
   if (!/^[A-Za-z0-9_-]{43,128}$/.test(request.codeChallenge ?? "")) {
@@ -1257,28 +1258,43 @@ function sanitizeDeviceLookup(record) {
     network: record.network,
     operation: record.operation,
     request:
-      record.operation === "grant"
+      record.operation === "login"
         ? {
-            accessAddress: stored.accessAddress,
             clientName: stored.clientName,
-            existingAccountAddress: stored.existingAccountAddress,
             network: stored.network,
             operation: stored.operation,
-            permissions: stored.permissions,
           }
-        : {
-            accessAddress: stored.accessAddress,
-            accountAddress: stored.accountAddress,
-            clientName: stored.clientName,
-            network: stored.network,
-            operation: stored.operation,
-          },
+        : record.operation === "grant"
+          ? {
+              accessAddress: stored.accessAddress,
+              clientName: stored.clientName,
+              existingAccountAddress: stored.existingAccountAddress,
+              network: stored.network,
+              operation: stored.operation,
+              permissions: stored.permissions,
+            }
+          : {
+              accessAddress: stored.accessAddress,
+              accountAddress: stored.accountAddress,
+              clientName: stored.clientName,
+              network: stored.network,
+              operation: stored.operation,
+            },
     status: record.status,
     userCode: record.userCode,
   };
 }
 
 function buildDeviceApproval(record, body) {
+  if (record.operation === "login") {
+    return {
+      status: "approved",
+      operation: "login",
+      state: record.request.state,
+      accountAddress: normalizeAddress(body.accountAddress),
+    };
+  }
+
   if (record.operation === "grant") {
     return {
       status: "approved",
@@ -1533,23 +1549,13 @@ async function runCliLogin(page, runOptions) {
     return runDeviceCliLogin(page, runOptions);
   }
 
-  const [{ runLoopbackLogin }, { resolveLoginPermissions }] = await Promise.all(
-    [
-      import(pathToFileURL(resolve(repoRoot, "dist/auth/loopback.js")).href),
-      import(pathToFileURL(resolve(repoRoot, "dist/auth/permissions.js")).href),
-    ],
+  const { runLoopbackLogin } = await import(
+    pathToFileURL(resolve(repoRoot, "dist/auth/loopback.js")).href
   );
-  const permissionRequest = await resolveLoginPermissions({
-    allowCalls: runOptions.allowCalls,
-    network: runOptions.network,
-    permissionsFile: runOptions.permissionsFile,
-  });
-  let editedPermissionExpectation;
 
   try {
     const result = await runLoopbackLogin({
       network: runOptions.network,
-      permissionRequest,
       relayUrl: runOptions.relayUrl,
       walletUrl: runOptions.walletUrl,
       timeoutMs: runOptions.timeoutMs,
@@ -1559,14 +1565,7 @@ async function runCliLogin(page, runOptions) {
       },
       openBrowser: async (authUrl) => {
         await page.goto(authUrl, { waitUntil: "domcontentloaded" });
-        await assertPermissionScreen(page, runOptions.timeoutMs);
-
-        if (runOptions.formInputs) {
-          editedPermissionExpectation = await exercisePermissionEditor(
-            page,
-            runOptions,
-          );
-        }
+        await assertLoginScreen(page, runOptions.timeoutMs);
 
         if (runOptions.screenOnly) {
           throw new ScreenOnlyComplete();
@@ -1575,19 +1574,6 @@ async function runCliLogin(page, runOptions) {
         await page.getByRole("button", { name: "Approve" }).click();
       },
     });
-    if (editedPermissionExpectation) {
-      assertEditedPermissions(
-        result.profile.keys[0]?.authorizedKey,
-        editedPermissionExpectation,
-      );
-    } else if (
-      !runOptions.permissionsFile &&
-      runOptions.allowCalls.length === 0
-    ) {
-      assertDefaultArbitraryCallPermission(
-        result.profile.keys[0]?.authorizedKey,
-      );
-    }
     return {
       screenOnly: false,
       profile: result.profile,
@@ -1612,27 +1598,20 @@ async function runDeviceCliLogin(page, runOptions) {
   try {
     const profile = await walletCommands.login(
       {
-        allowCall: runOptions.allowCalls,
         authFlow: "device",
         network: runOptions.network,
-        permissions: runOptions.permissionsFile,
         relayUrl: runOptions.relayUrl,
         timeoutMs: runOptions.timeoutMs,
         walletApiUrl: shimApiUrl(runOptions),
         walletUrl: runOptions.walletUrl,
       },
       {
-        authorizeDeviceKey: createDeviceKeyAuthorizer(page, runOptions, {
-          formInputs: runOptions.formInputs,
+        authorizeDeviceLogin: createDeviceLoginAuthorizer(page, runOptions, {
           screenOnly: runOptions.screenOnly,
         }),
         env,
       },
     );
-
-    if (!runOptions.permissionsFile && runOptions.allowCalls.length === 0) {
-      assertDefaultArbitraryCallPermission(profile.keys[0]?.authorizedKey);
-    }
 
     return {
       screenOnly: false,
@@ -1649,7 +1628,7 @@ async function runDeviceCliLogin(page, runOptions) {
 function createDeviceKeyAuthorizer(
   page,
   runOptions,
-  { formInputs = false, screenOnly = false } = {},
+  { screenOnly = false } = {},
 ) {
   return async (authorizationOptions) => {
     const { authorizeDeviceKey } = await import(
@@ -1665,7 +1644,32 @@ function createDeviceKeyAuthorizer(
       },
       onPrompt: (prompt) => {
         promptTask = handleDeviceGrantPrompt(page, prompt, runOptions, {
-          formInputs,
+          screenOnly,
+        });
+      },
+    });
+  };
+}
+
+function createDeviceLoginAuthorizer(
+  page,
+  runOptions,
+  { screenOnly = false } = {},
+) {
+  return async (authorizationOptions) => {
+    const { authorizeDeviceLogin } = await import(
+      pathToFileURL(resolve(repoRoot, "dist/auth/device.js")).href
+    );
+    let promptTask = Promise.resolve();
+
+    return authorizeDeviceLogin({
+      ...authorizationOptions,
+      sleep: async (ms) => {
+        await promptTask;
+        await delay(Math.min(ms, 500));
+      },
+      onPrompt: (prompt) => {
+        promptTask = handleDeviceLoginPrompt(page, prompt, runOptions, {
           screenOnly,
         });
       },
@@ -1697,7 +1701,7 @@ async function handleDeviceGrantPrompt(
   page,
   prompt,
   runOptions,
-  { formInputs, screenOnly },
+  { screenOnly },
 ) {
   await page.goto(prompt.verificationUriComplete, {
     waitUntil: "domcontentloaded",
@@ -1711,11 +1715,31 @@ async function handleDeviceGrantPrompt(
   await page.getByRole("button", { name: "Approve CLI Key" }).click();
   await assertPermissionScreen(page, runOptions.timeoutMs);
 
-  if (formInputs) {
-    await exercisePermissionEditor(page, runOptions);
+  await page.getByRole("button", { name: "Approve" }).click();
+}
+
+async function handleDeviceLoginPrompt(
+  page,
+  prompt,
+  runOptions,
+  { screenOnly },
+) {
+  await page.goto(prompt.verificationUriComplete, {
+    waitUntil: "domcontentloaded",
+  });
+  await assertDeviceRequestScreen(page, prompt.userCode, runOptions.timeoutMs);
+
+  if (screenOnly) {
+    throw new ScreenOnlyComplete();
   }
 
-  await page.getByRole("button", { name: "Approve" }).click();
+  await page.getByRole("button", { name: "Approve CLI Login" }).click();
+  await waitForBodyText(
+    page,
+    (text) => text.includes("CLI request approved"),
+    "device login approval",
+    runOptions.timeoutMs,
+  );
 }
 
 async function handleDeviceRevokePrompt(page, prompt, runOptions) {
@@ -1741,8 +1765,35 @@ async function assertDeviceRequestScreen(page, userCode, timeoutMs) {
   );
 }
 
+async function assertLoginScreen(page, timeoutMs) {
+  await waitForBodyText(
+    page,
+    (text) =>
+      /mega cli/i.test(text) && (/connect/i.test(text) || /login/i.test(text)),
+    "CLI login screen",
+    timeoutMs,
+  );
+}
+
 function shimApiUrl(runOptions) {
   return `http://127.0.0.1:${runOptions.shimPort}`;
+}
+
+function createManagementKeyOptions(runOptions, label) {
+  return {
+    allowCall:
+      runOptions.permissionsFile || runOptions.allowCalls.length > 0
+        ? runOptions.allowCalls
+        : [`${anyCallTarget}:${anyCallSelector}`],
+    authFlow: runOptions.authFlow,
+    label,
+    network: runOptions.network,
+    permissions: runOptions.permissionsFile,
+    relayUrl: runOptions.relayUrl,
+    timeoutMs: runOptions.timeoutMs,
+    walletApiUrl: shimApiUrl(runOptions),
+    walletUrl: runOptions.walletUrl,
+  };
 }
 
 async function runKeyManagementE2E(page, runOptions, initialProfile) {
@@ -1755,25 +1806,46 @@ async function runKeyManagementE2E(page, runOptions, initialProfile) {
     ...process.env,
     MEGA_WALLET_CLI_CONFIG_DIR: runOptions.configDir,
   };
-  const firstKey = initialProfile.keys[0];
-  if (!firstKey?.id) {
-    throw new Error("initial loopback profile did not include a delegated key");
-  }
 
   console.log("Running delegated-key management E2E...");
 
+  let firstKey = initialProfile.keys[0];
+  if (!firstKey?.id) {
+    const bootstrap = await withOutput((stdout) =>
+      walletCommands.runWalletCreateKey(
+        createManagementKeyOptions(runOptions, "e2e-bootstrap"),
+        {
+          ...(runOptions.authFlow === "device"
+            ? {
+                authorizeDeviceKey: createDeviceKeyAuthorizer(page, runOptions),
+              }
+            : {
+                authorizeKey: (options) =>
+                  loopback.authorizeLoopbackKey({
+                    ...options,
+                    env,
+                    openBrowser: async (authUrl) => {
+                      await page.goto(authUrl, {
+                        waitUntil: "domcontentloaded",
+                      });
+                      await assertPermissionScreen(page, runOptions.timeoutMs);
+                      await page
+                        .getByRole("button", { name: "Approve" })
+                        .click();
+                    },
+                  }),
+              }),
+          env,
+          stdout,
+        },
+      ),
+    );
+    firstKey = bootstrap.result.key;
+  }
+
   const created = await withOutput((stdout) =>
     walletCommands.runWalletCreateKey(
-      {
-        allowCall: [],
-        authFlow: runOptions.authFlow,
-        label: "e2e-management",
-        network: runOptions.network,
-        relayUrl: runOptions.relayUrl,
-        timeoutMs: runOptions.timeoutMs,
-        walletApiUrl: shimApiUrl(runOptions),
-        walletUrl: runOptions.walletUrl,
-      },
+      createManagementKeyOptions(runOptions, "e2e-management"),
       {
         ...(runOptions.authFlow === "device"
           ? {
@@ -1957,185 +2029,6 @@ function memoryOutput() {
       text += chunk;
     },
   };
-}
-
-async function exercisePermissionEditor(page, runOptions) {
-  const { timeoutMs } = runOptions;
-  const { usdmAddress, usdt0Address } = e2eChainConfig(runOptions.network);
-  const exactTarget = "0x3333333333333333333333333333333333333333";
-  const contractTarget = "0x4444444444444444444444444444444444444444";
-  const exactSignature = "transfer(address,uint256)";
-  const signatureOnly = "approve(address,uint256)";
-  const secondTokenSymbol = runOptions.network === "mainnet" ? "USDT0" : "EXP";
-  const secondTokenLimit =
-    runOptions.network === "mainnet"
-      ? "2500000"
-      : "2500000000000000000";
-  const expiryValue = formatDatetimeLocal(
-    new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
-  );
-
-  await page.getByRole("button", { name: "Edit" }).click();
-  await waitForBodyText(
-    page,
-    (text) => text.includes("Spend limits") && text.includes("Allowed calls"),
-    "permission editor",
-    timeoutMs,
-  );
-
-  const firstLimitReload = page.getByLabel("Reload period").first();
-  assertEqual(
-    await firstLimitReload.inputValue(),
-    "week",
-    "initial spend reload cadence was not derived from expiry",
-  );
-  const firstLimitReloadOptions = await firstLimitReload
-    .locator("option")
-    .allTextContents();
-  assert(
-    !firstLimitReloadOptions.some((text) => /expiry/i.test(text)),
-    "limit reload select still contains expiry copy",
-  );
-
-  await page.getByLabel("Expiry date").fill(expiryValue);
-  await page.getByLabel("Amount").first().fill("75");
-  assertEqual(
-    await firstLimitReload.inputValue(),
-    "week",
-    "edited spend reload cadence was not derived from expiry",
-  );
-
-  await page.getByRole("button", { name: "Add spend limit" }).click();
-  await page.getByRole("button", { name: /Spend token USDM/i }).nth(1).click();
-  await waitForBodyText(
-    page,
-    (text) => text.includes("Select spend token"),
-    "spend token picker",
-    timeoutMs,
-  );
-  await page.getByRole("button", { name: new RegExp(secondTokenSymbol, "i") }).click();
-  await page.getByLabel("Amount").nth(1).fill("2.5");
-  await page.getByLabel("Reload period").nth(1).selectOption("day");
-
-  await page.getByRole("button", { name: "Add spend limit" }).click();
-  await page.getByRole("button", { name: "Remove limit" }).last().click();
-
-  const contractInteractions = page.getByLabel("Contract calls");
-  const contractInteractionOptions = await contractInteractions
-    .locator("option")
-    .allTextContents();
-  assert(
-    !contractInteractionOptions.includes("No contract interactions"),
-    "no-call option should not be available while token spend limits exist",
-  );
-
-  await contractInteractions.selectOption("all");
-  await waitForBodyText(
-    page,
-    (text) => text.includes("Any contract call. Spend limits apply."),
-    "arbitrary call mode",
-    timeoutMs,
-  );
-
-  await contractInteractions.selectOption("scoped");
-  await page.getByLabel("Contract address").nth(0).waitFor({
-    timeout: timeoutMs,
-  });
-  await page.getByLabel("Contract address").nth(0).fill(exactTarget);
-  await page.getByLabel("Function").nth(0).fill(exactSignature);
-
-  await page.getByRole("button", { name: "Add allowed call" }).click();
-  await page.getByLabel("Contract address").nth(1).fill(contractTarget);
-
-  await page.getByRole("button", { name: "Add allowed call" }).click();
-  await page.getByLabel("Function").nth(2).fill(signatureOnly);
-
-  await waitForBodyText(
-    page,
-    (text) => text.includes("Up to 3 allowed calls can be added."),
-    "allowed-call row cap",
-    timeoutMs,
-  );
-
-  await page.getByRole("button", { name: "Save" }).click();
-  await waitForBodyText(
-    page,
-    (text) =>
-      /Spend up to 75 USDm every week/i.test(text) &&
-      text.includes(`Spend up to 2.5 ${secondTokenSymbol} every day`) &&
-      text.includes("Call transfer(address,uint256) on 0x333333...3333") &&
-      text.includes("Call any function on 0x444444...4444") &&
-      text.includes("Call approve(address,uint256) on any contract") &&
-      text.includes("Fees up to 1 USDM"),
-    "saved edited permission summary",
-    timeoutMs,
-  );
-
-  return {
-    calls: [
-      {
-        to: exactTarget,
-        signature: exactSignature,
-      },
-      {
-        to: contractTarget,
-      },
-      {
-        signature: signatureOnly,
-      },
-    ],
-    spend: [
-      {
-        limit: "75000000000000000000",
-        period: "week",
-        token: usdmAddress,
-      },
-      {
-        limit: secondTokenLimit,
-        period: "day",
-        token: usdt0Address,
-      },
-    ],
-    expiry: Math.floor(new Date(expiryValue).getTime() / 1000),
-  };
-}
-
-function assertEditedPermissions(authorizedKey, expected) {
-  assert(authorizedKey, "edited login did not return an authorized key");
-  const permissions = authorizedKey.permissions;
-  assertEqual(
-    JSON.stringify(permissions.calls),
-    JSON.stringify(expected.calls),
-    "edited call permissions were not serialized correctly",
-  );
-  assertEqual(
-    JSON.stringify(permissions.spend),
-    JSON.stringify(expected.spend),
-    "edited spend permissions were not serialized correctly",
-  );
-  assertEqual(
-    authorizedKey.expiry,
-    expected.expiry,
-    "edited expiry was not serialized correctly",
-  );
-}
-
-function assertDefaultArbitraryCallPermission(authorizedKey) {
-  assert(authorizedKey, "default login did not return an authorized key");
-  assertEqual(
-    JSON.stringify(authorizedKey.permissions.calls),
-    JSON.stringify([{}]),
-    "default arbitrary call permission was not serialized explicitly",
-  );
-}
-
-function formatDatetimeLocal(date) {
-  const year = date.getFullYear().toString().padStart(4, "0");
-  const month = (date.getMonth() + 1).toString().padStart(2, "0");
-  const day = date.getDate().toString().padStart(2, "0");
-  const hour = date.getHours().toString().padStart(2, "0");
-  const minute = date.getMinutes().toString().padStart(2, "0");
-  return `${year}-${month}-${day}T${hour}:${minute}`;
 }
 
 async function assertPermissionScreen(page, timeoutMs) {

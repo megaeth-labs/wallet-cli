@@ -12,6 +12,7 @@ import {
   type TransferCommandDependencies,
 } from "./transfer.js";
 import {
+  authorizeDeviceLogin,
   authorizeDeviceKey,
   authorizeDeviceRevoke,
   type AuthorizationPrompt,
@@ -26,8 +27,8 @@ import {
 } from "../auth/loopback.js";
 import {
   assertExecutableCallPermission,
-  defaultLoginPermissions,
-  resolveLoginPermissions,
+  defaultKeyPermissions,
+  resolveKeyPermissions,
   type CliPermissionRequest,
 } from "../auth/permissions.js";
 import {
@@ -67,14 +68,14 @@ type LoginCommandOptions = {
   walletUrl?: string;
   walletApiUrl?: string;
   relayUrl?: string;
-  permissions?: string;
-  allowCall: string[];
   timeoutMs: number;
   json?: boolean;
   terse?: boolean;
 };
 
 type CreateKeyCommandOptions = LoginCommandOptions & {
+  permissions?: string;
+  allowCall: string[];
   from?: string;
   label?: string;
   spendLimit?: string;
@@ -108,6 +109,7 @@ type OutputWriter = {
 type AuthFlow = "loopback" | "device";
 
 export type WalletCommandDependencies = {
+  authorizeDeviceLogin?: typeof authorizeDeviceLogin;
   authorizeDeviceKey?: typeof authorizeDeviceKey;
   authorizeKey?: typeof authorizeLoopbackKey;
   deviceClient?: DeviceAuthClient;
@@ -201,16 +203,6 @@ export function registerWalletSubcommands(
     .option("--wallet-api-url <url>", "wallet API URL for device authorization")
     .option("--relay-url <url>", "MegaETH relay URL")
     .option(
-      "--permissions <file>",
-      "JSON file containing requested permissions",
-    )
-    .option(
-      "--allow-call <target:signature>",
-      "allow a target function call",
-      collect,
-      [],
-    )
-    .option(
       "--timeout-ms <ms>",
       "loopback authorization timeout",
       parsePositiveInteger,
@@ -282,7 +274,7 @@ export function registerWalletSubcommands(
     .option("--label <label>", "human-readable key label")
     .option(
       "--spend-limit <amount>",
-      "USDM spend cap for the default permission request",
+      "USDM spend cap for the scoped permission request",
     )
     .option(
       "--permissions <file>",
@@ -290,7 +282,7 @@ export function registerWalletSubcommands(
     )
     .option(
       "--allow-call <target:signature>",
-      "allow a target function call",
+      "allow a target function call; required unless using --permissions or --from",
       collect,
       [],
     )
@@ -399,16 +391,9 @@ export async function login(
   assertHttpUrl(walletApiUrl, "wallet-api-url must be an HTTP(S) URL");
   assertHttpUrl(relayUrl, "relay-url must be an HTTP(S) URL");
 
-  const permissionRequest = await resolveLoginPermissions({
-    permissionsFile: options.permissions,
-    allowCalls: options.allowCall,
-    network,
-  });
-
   if (authFlow === "loopback") {
     const result = await runLoopbackLogin({
       network,
-      permissionRequest,
       walletUrl,
       relayUrl,
       timeoutMs: options.timeoutMs,
@@ -424,10 +409,9 @@ export async function login(
   }
 
   const authorization = await (
-    dependencies.authorizeDeviceKey ?? authorizeDeviceKey
+    dependencies.authorizeDeviceLogin ?? authorizeDeviceLogin
   )({
     network,
-    permissionRequest,
     walletUrl,
     walletApiUrl,
     relayUrl,
@@ -440,8 +424,7 @@ export async function login(
     version: 1,
     network,
     accountAddress: authorization.accountAddress,
-    activeKeyId: authorization.key.id,
-    keys: [authorization.key],
+    keys: [],
     walletUrl,
     walletApiUrl,
     relayUrl,
@@ -746,32 +729,18 @@ function renderLogin(
   profile: WalletProfile,
   options: LoginCommandOptions,
 ): string {
-  const activeKey = getActiveWalletKey(profile);
-  if (activeKey === undefined) {
-    throw new CliError("wallet login did not create an active delegated key");
-  }
-
   if (options.json) {
     return toJson(summarizeProfile(profile));
   }
 
-  const expiry = new Date(activeKey.authorizedKey.expiry * 1000).toISOString();
   if (options.terse) {
-    return [
-      profile.network,
-      profile.accountAddress,
-      activeKey.accessAddress,
-      activeKey.authorizedKey.expiry.toString(),
-    ]
-      .join("\t")
-      .concat("\n");
+    return [profile.network, profile.accountAddress].join("\t").concat("\n");
   }
 
   return [
     `Logged in to ${profile.network}.`,
     `Account: ${compactAddress(profile.accountAddress)}`,
-    `Delegated key: ${compactAddress(activeKey.accessAddress)}`,
-    `Expires: ${expiry}`,
+    "No delegated key was created. Run mega wallet create-key with explicit call scopes before write operations.",
   ]
     .join("\n")
     .concat("\n");
@@ -1027,7 +996,7 @@ async function resolveCreateKeyPermissions(
 
   if (options.from !== undefined) {
     const source = requireWalletKey(profile, options.from);
-    const fallback = defaultLoginPermissions(now, { network });
+    const fallback = defaultKeyPermissions(now, { network });
 
     const request = {
       expiry: fallback.expiry,
@@ -1038,7 +1007,7 @@ async function resolveCreateKeyPermissions(
     return request;
   }
 
-  return resolveLoginPermissions({
+  return resolveKeyPermissions({
     permissionsFile: options.permissions,
     allowCalls: options.allowCall,
     network,

@@ -4,6 +4,7 @@ import type { AuthorizedKey, HexString } from "../config/profile.js";
 import type { CliPermissionRequest } from "./permissions.js";
 import {
   HttpDeviceAuthClient,
+  authorizeDeviceLogin,
   authorizeDeviceKey,
   authorizeDeviceRevoke,
   buildAuthorizationPrompt,
@@ -96,6 +97,20 @@ describe("device auth helpers", () => {
     expect(
       parseDeviceTokenResponse({
         status: "approved",
+        operation: "login",
+        state: testState,
+        accountAddress: "0x1111111111111111111111111111111111111111",
+      }),
+    ).toEqual({
+      status: "approved",
+      operation: "login",
+      state: testState,
+      accountAddress: "0x1111111111111111111111111111111111111111",
+    });
+
+    expect(
+      parseDeviceTokenResponse({
+        status: "approved",
         operation: "grant",
         state: testState,
         accountAddress: "0x1111111111111111111111111111111111111111",
@@ -146,6 +161,60 @@ describe("device auth helpers", () => {
       { deviceCode: "device-secret", codeVerifier: "verifier-secret" },
     ]);
     expect(sleeps).toEqual([1_000, 2_000, 4_000]);
+  });
+
+  it("returns account-only login authorization result", async () => {
+    let startRequest: DeviceStartRequest | undefined;
+    const prompts: ReturnType<typeof buildAuthorizationPrompt>[] = [];
+    const client = makeClient({
+      start: async (request) => {
+        startRequest = request;
+        return makeStartResponse();
+      },
+      token: async () => ({
+        status: "approved",
+        operation: "login",
+        state: testState,
+        accountAddress: "0x1111111111111111111111111111111111111111",
+      }),
+    });
+
+    const result = await authorizeDeviceLogin({
+      network: "mainnet",
+      walletUrl: "https://account.example",
+      walletApiUrl: "https://wallet-api.example",
+      relayUrl: "https://relay.example",
+      state: testState,
+      now: new Date("2026-05-13T12:00:00.000Z"),
+      client,
+      sleep: async () => undefined,
+      onPrompt: (prompt) => prompts.push(prompt),
+    });
+
+    expect(startRequest).toMatchObject({
+      operation: "login",
+      clientName: "mega-cli",
+      network: "mainnet",
+      state: testState,
+      codeChallengeMethod: "S256",
+    });
+    expect(JSON.stringify(startRequest)).not.toContain(testPrivateKey);
+    expect(JSON.stringify(startRequest)).not.toContain("permissions");
+    expect(result).toEqual({
+      accountAddress: "0x1111111111111111111111111111111111111111",
+      authUrl: "https://account.example/cli-auth?code=ABCD-1234",
+      relayUrl: "https://relay.example",
+      walletUrl: "https://account.example",
+    });
+    expect(prompts).toEqual([
+      {
+        verificationUri: "https://account.example/cli-auth",
+        verificationUriComplete:
+          "https://account.example/cli-auth?code=ABCD-1234",
+        userCode: "ABCD-1234",
+        expiresAt: "2026-05-13T12:10:00.000Z",
+      },
+    ]);
   });
 
   it("returns the loopback-shaped grant authorization result", async () => {

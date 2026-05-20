@@ -129,7 +129,7 @@ async function main() {
     await exerciseLogoutWithoutTouchingActiveProfile(options.configDir);
   });
 
-  await test("login validates URL, timeout, and call scope arguments", async () => {
+  await test("login validates URL and timeout arguments", async () => {
     const tempConfig = await mkdtempSafe("mega-wallet-functional-login-");
     const env = configEnv(tempConfig);
     assertIncludes(
@@ -146,16 +146,18 @@ async function main() {
         .stderr,
       "timeout-ms must be a positive integer",
     );
+    await rm(tempConfig, { recursive: true, force: true });
+  });
+
+  await test("create-key validates call scope arguments before authorization", async () => {
     assertIncludes(
       (
-        await wallet(["login", "--allow-call", "bad"], {
-          env,
+        await wallet(["create-key", "--allow-call", "bad"], {
           expectCode: 1,
         })
       ).stderr,
       "allow-call must use 0xTarget:signature",
     );
-    await rm(tempConfig, { recursive: true, force: true });
   });
 
   await test("call raw calldata reads Aave pool address", async () => {
@@ -394,7 +396,7 @@ async function runWriteTests(profile, fixtures) {
       [
         "active profile is missing write scopes:",
         ...missing.map((scope) => `  ${scope}`),
-        "Re-run loopback login with the required --allow-call flags.",
+        "Run mega wallet create-key with the required --allow-call flags.",
       ].join("\n"),
     );
   });

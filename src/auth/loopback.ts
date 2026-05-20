@@ -10,10 +10,8 @@ import { platform } from "node:os";
 
 import { getChainConfig, isNetwork, type Network } from "../config/chains.js";
 import {
-  addWalletKey,
   parseWalletProfile,
   profileExists,
-  readWalletProfile,
   writeWalletProfile,
   type AuthorizedKey,
   type HexString,
@@ -28,6 +26,14 @@ import {
 } from "./permissions.js";
 
 export type LoopbackRedirectUri = `http://127.0.0.1:${number}/callback`;
+
+export type CliLoginUrlParams = {
+  walletUrl: string;
+  redirectUri: LoopbackRedirectUri;
+  state: string;
+  network: Network;
+  clientName: "mega-cli";
+};
 
 export type CliAuthUrlParams = {
   walletUrl: string;
@@ -63,6 +69,18 @@ export type LoopbackCallback =
       error?: string;
     };
 
+export type LoopbackLoginCallback =
+  | {
+      state: string;
+      status: "approved";
+      accountAddress: HexString;
+    }
+  | {
+      state: string;
+      status: "cancelled" | "error";
+      error?: string;
+    };
+
 export type LoopbackRevokeCallback =
   | {
       state: string;
@@ -87,11 +105,21 @@ export type BrowserOpener = (url: string) => Promise<void> | void;
 
 export type LoopbackLoginOptions = {
   network: Network;
-  permissionRequest: CliPermissionRequest;
   walletUrl?: string;
   relayUrl?: string;
   timeoutMs?: number;
   env?: NodeJS.ProcessEnv;
+  now?: Date;
+  state?: string;
+  openBrowser?: BrowserOpener;
+};
+
+export type LoopbackKeyAuthorizationOptions = {
+  network: Network;
+  permissionRequest: CliPermissionRequest;
+  walletUrl?: string;
+  relayUrl?: string;
+  timeoutMs?: number;
   now?: Date;
   state?: string;
   privateKey?: HexString;
@@ -132,6 +160,12 @@ type CallbackServer = {
   close: () => Promise<void>;
 };
 
+type LoginCallbackServer = {
+  redirectUri: LoopbackRedirectUri;
+  waitForCallback: Promise<LoopbackLoginCallback>;
+  close: () => Promise<void>;
+};
+
 type RevokeCallbackServer = {
   redirectUri: LoopbackRedirectUri;
   waitForCallback: Promise<LoopbackRevokeCallback>;
@@ -141,6 +175,11 @@ type RevokeCallbackServer = {
 type CallbackServerOptions = {
   state: string;
   accessAddress: HexString;
+  timeoutMs: number;
+};
+
+type LoginCallbackServerOptions = {
+  state: string;
   timeoutMs: number;
 };
 
@@ -189,58 +228,72 @@ const keccakRhoOffsets = [
 export async function runLoopbackLogin(
   options: LoopbackLoginOptions,
 ): Promise<LoopbackLoginResult> {
-  const authorization = await authorizeLoopbackKey(options);
-  const now = (options.now ?? new Date()).toISOString();
-  const existingProfile = await readExistingWalletProfile(
-    options.network,
-    options.env,
-  );
-  const profile =
-    existingProfile !== undefined &&
-    existingProfile.accountAddress.toLowerCase() ===
-      authorization.accountAddress.toLowerCase()
-      ? addWalletKey(
-          {
-            ...existingProfile,
-            walletUrl: authorization.walletUrl,
-            relayUrl: authorization.relayUrl,
-          },
-          authorization.key,
-          options.now,
-        )
-      : parseWalletProfile({
-          version: 1,
-          network: options.network,
-          accountAddress: authorization.accountAddress,
-          activeKeyId: authorization.key.id,
-          keys: [authorization.key],
-          walletUrl: authorization.walletUrl,
-          relayUrl: authorization.relayUrl,
-          createdAt: now,
-          updatedAt: now,
-        });
-
-  await writeWalletProfile(profile, options.env);
-
-  return {
-    profile,
-    authUrl: authorization.authUrl,
-  };
-}
-
-async function readExistingWalletProfile(
-  network: Network,
-  env: NodeJS.ProcessEnv | undefined,
-): Promise<WalletProfile | undefined> {
-  if (!(await profileExists(network, env))) {
-    return undefined;
+  if (await profileExists(options.network, options.env)) {
+    throw new CliError(
+      "wallet profile already exists; run mega wallet create-key to add a delegated key or mega wallet logout to replace the profile",
+    );
   }
 
-  return readWalletProfile(network, env);
+  const chainConfig = getChainConfig(options.network);
+  const walletUrl = options.walletUrl ?? chainConfig.walletUrl;
+  const relayUrl = options.relayUrl ?? chainConfig.relayUrl;
+  const timeoutMs = options.timeoutMs ?? defaultTimeoutMs;
+  assertPositiveTimeout(timeoutMs);
+
+  const state = options.state ?? createState();
+  const callbackServer = await startLoopbackLoginCallbackServer({
+    state,
+    timeoutMs,
+  });
+
+  const authUrl = buildCliLoginUrl({
+    walletUrl,
+    redirectUri: callbackServer.redirectUri,
+    state,
+    network: options.network,
+    clientName: "mega-cli",
+  });
+
+  const waitForCallback = callbackServer.waitForCallback;
+  waitForCallback.catch(() => undefined);
+
+  try {
+    await (options.openBrowser ?? openSystemBrowser)(authUrl);
+    const callback = await waitForCallback;
+
+    if (callback.status !== "approved") {
+      throw new CliError(
+        callback.status === "cancelled"
+          ? "wallet login was cancelled"
+          : `wallet login failed${callback.error ? `: ${callback.error}` : ""}`,
+      );
+    }
+
+    const now = (options.now ?? new Date()).toISOString();
+    const profile = parseWalletProfile({
+      version: 1,
+      network: options.network,
+      accountAddress: callback.accountAddress,
+      keys: [],
+      walletUrl,
+      relayUrl,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await writeWalletProfile(profile, options.env);
+
+    return {
+      profile,
+      authUrl,
+    };
+  } finally {
+    await callbackServer.close();
+  }
 }
 
 export async function authorizeLoopbackKey(
-  options: LoopbackLoginOptions,
+  options: LoopbackKeyAuthorizationOptions,
 ): Promise<LoopbackKeyAuthorizationResult> {
   const chainConfig = getChainConfig(options.network);
   const walletUrl = options.walletUrl ?? chainConfig.walletUrl;
@@ -328,6 +381,25 @@ export function buildCliAuthUrl(params: CliAuthUrlParams): string {
   const url = new URL("/cli-auth/loopback", params.walletUrl);
   url.searchParams.set("accessAddress", params.accessAddress);
   url.searchParams.set("permissions", params.permissions);
+  url.searchParams.set("redirectUri", params.redirectUri);
+  url.searchParams.set("state", params.state);
+  url.searchParams.set("network", params.network);
+  url.searchParams.set("clientName", params.clientName);
+
+  return url.toString();
+}
+
+export function buildCliLoginUrl(params: CliLoginUrlParams): string {
+  assertLoopbackRedirectUri(params.redirectUri);
+  if (!isNetwork(params.network)) {
+    throw new CliError(`unsupported network: ${params.network}`);
+  }
+  if (params.state.length < 16) {
+    throw new CliError("state must be at least 16 characters");
+  }
+
+  const url = new URL("/cli-auth/loopback", params.walletUrl);
+  url.searchParams.set("operation", "login");
   url.searchParams.set("redirectUri", params.redirectUri);
   url.searchParams.set("state", params.state);
   url.searchParams.set("network", params.network);
@@ -435,6 +507,80 @@ export async function startLoopbackCallbackServer(
 
   const server = createServer((request, response) => {
     handleCallbackRequest(request, response, options, (result) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timer) {
+        clearTimeout(timer);
+      }
+
+      if (result instanceof Error) {
+        rejectCallback(result);
+      } else {
+        settleCallback(result);
+      }
+    });
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+
+  timer = setTimeout(() => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    rejectCallback(
+      new CliError(`wallet login timed out after ${options.timeoutMs}ms`),
+    );
+  }, options.timeoutMs);
+
+  const address = server.address();
+  if (!isAddressInfo(address)) {
+    throw new CliError("failed to start loopback callback server");
+  }
+
+  return {
+    redirectUri: `http://127.0.0.1:${address.port}${callbackPath}`,
+    waitForCallback,
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        if (timer) {
+          clearTimeout(timer);
+        }
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      }),
+  };
+}
+
+export async function startLoopbackLoginCallbackServer(
+  options: LoginCallbackServerOptions,
+): Promise<LoginCallbackServer> {
+  assertPositiveTimeout(options.timeoutMs);
+
+  let settled = false;
+  let settleCallback: (callback: LoopbackLoginCallback) => void = () => {};
+  let rejectCallback: (error: Error) => void = () => {};
+  let timer: NodeJS.Timeout | undefined;
+
+  const waitForCallback = new Promise<LoopbackLoginCallback>(
+    (resolve, reject) => {
+      settleCallback = resolve;
+      rejectCallback = reject;
+    },
+  );
+
+  const server = createServer((request, response) => {
+    handleLoginCallbackRequest(request, response, options, (result) => {
       if (settled) {
         return;
       }
@@ -621,6 +767,39 @@ export function parseLoopbackCallback(
   return callback;
 }
 
+export function parseLoopbackLoginCallback(
+  params: URLSearchParams,
+  expected: { state: string },
+): LoopbackLoginCallback {
+  const state = requireParam(params, "state");
+  if (!constantTimeEqual(state, expected.state)) {
+    throw new CliError("callback state mismatch");
+  }
+
+  const status = requireParam(params, "status");
+  if (status === "cancelled" || status === "error") {
+    const callback: LoopbackLoginCallback = {
+      state,
+      status,
+    };
+    const error = params.get("error");
+    if (error) {
+      callback.error = error;
+    }
+    return callback;
+  }
+
+  if (status !== "approved") {
+    throw new CliError("callback status is invalid");
+  }
+
+  return {
+    state,
+    status: "approved",
+    accountAddress: requireAddress(params, "accountAddress"),
+  };
+}
+
 export function parseLoopbackRevokeCallback(
   params: URLSearchParams,
   expected: { state: string; accessAddress: HexString },
@@ -796,6 +975,59 @@ function handleCallbackRequest(
     settle(callback);
   } catch (error) {
     sendText(response, 400, "Invalid Mega CLI authorization callback.");
+    settle(error instanceof Error ? error : new CliError("invalid callback"));
+  }
+}
+
+function handleLoginCallbackRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  options: LoginCallbackServerOptions,
+  settle: (result: LoopbackLoginCallback | Error) => void,
+): void {
+  if (request.method !== "GET") {
+    sendText(response, 405, "Method not allowed.");
+    return;
+  }
+
+  if (!isLoopbackRemoteAddress(request.socket.remoteAddress)) {
+    sendText(response, 403, "Only loopback callbacks are allowed.");
+    settle(new CliError("callback did not originate from loopback"));
+    return;
+  }
+
+  const url = new URL(request.url ?? "/", "http://127.0.0.1");
+  if (url.pathname !== callbackPath) {
+    sendText(response, 404, "Not found.");
+    return;
+  }
+
+  try {
+    const callback = parseLoopbackLoginCallback(url.searchParams, {
+      state: options.state,
+    });
+    if (callback.status === "approved") {
+      sendText(
+        response,
+        200,
+        "Wallet login successful. You can close this browser window.",
+      );
+    } else if (callback.status === "cancelled") {
+      sendText(
+        response,
+        200,
+        "Wallet login cancelled. You can close this browser window.",
+      );
+    } else {
+      sendText(
+        response,
+        400,
+        "Wallet login failed. You can close this browser window.",
+      );
+    }
+    settle(callback);
+  } catch (error) {
+    sendText(response, 400, "Invalid Mega CLI login callback.");
     settle(error instanceof Error ? error : new CliError("invalid callback"));
   }
 }

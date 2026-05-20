@@ -38,7 +38,7 @@ const periods = new Set(["minute", "hour", "day", "week", "month", "year"]);
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const decimalAmountPattern = /^(?:0|[1-9]\d*)(?:\.\d+)?$/;
 
-export async function resolveLoginPermissions(
+export async function resolveKeyPermissions(
   options: ResolvePermissionsOptions = {},
 ): Promise<CliPermissionRequest> {
   if (
@@ -48,9 +48,10 @@ export async function resolveLoginPermissions(
     throw new CliError("use either --permissions or --spend-limit, not both");
   }
 
+  const allowCalls = options.allowCalls ?? [];
   const request =
     options.permissionsFile === undefined
-      ? defaultLoginPermissions(options.now, {
+      ? defaultKeyPermissions(options.now, {
           network: options.network,
           spendLimit: options.spendLimit,
         })
@@ -58,7 +59,6 @@ export async function resolveLoginPermissions(
           JSON.parse(await readFile(options.permissionsFile, "utf8")),
         );
 
-  const allowCalls = options.allowCalls ?? [];
   if (allowCalls.length === 0) {
     assertExecutableCallPermission(request);
     return request;
@@ -81,7 +81,7 @@ export async function resolveLoginPermissions(
   return merged;
 }
 
-export function defaultLoginPermissions(
+export function defaultKeyPermissions(
   now = new Date(),
   options: Pick<ResolvePermissionsOptions, "network" | "spendLimit"> = {},
 ): CliPermissionRequest {
@@ -94,7 +94,7 @@ export function defaultLoginPermissions(
       symbol: chainConfig.defaultFeeToken.symbol,
     },
     permissions: {
-      calls: [{}],
+      calls: [],
       spend: [
         {
           limit: normalizeDefaultUsdmSpendLimit(options.spendLimit),
@@ -121,7 +121,7 @@ export function assertExecutableCallPermission(
     request.permissions.calls.length === 0
   ) {
     throw new CliError(
-      "permissions.calls must be present and include at least one call permission; relay-backed wallet writes require contract call permission. Use permissions.calls: [{}] for broad contract authority or add explicit call scopes.",
+      "permissions.calls must be present and include at least one call permission; relay-backed wallet writes require contract call permission. Use create-key --allow-call <target:signature>, provide permissions.calls in --permissions, or use permissions.calls: [{}] only when broad contract authority is explicitly intended.",
     );
   }
 }

@@ -3,10 +3,13 @@
 Read this when constructing `--permissions ./permissions.json` files, changing
 non-default permission limits, or debugging wallet permission schema errors.
 
-For a simple default USDM spend cap on a new key, prefer:
+For a simple default USDM spend cap on a new key, pair `--spend-limit` with the
+workflow's explicit call scope:
 
 ```bash
-mega wallet create-key --spend-limit 25
+mega wallet create-key \
+  --spend-limit 25 \
+  --allow-call '0xfafddbb3fc7688494971a79cc65dca3ef82079e7:transfer(address,uint256)'
 ```
 
 Add `--network testnet` when creating a testnet key. The default USDM token
@@ -17,7 +20,8 @@ addresses for the selected network. The built-in defaults use:
 - testnet USDM: `0x15e9f2b0a747ac05c7446559306687085d161e5c`
 
 Use a full permission file when the user needs custom expiry, fee token, spend
-token, spend period, call scope, or no spend.
+token, spend period, broad call authority, multi-contract call scope, or no
+spend.
 
 ## File Shape
 

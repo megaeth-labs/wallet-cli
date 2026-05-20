@@ -13,7 +13,7 @@ agent-facing docs, and user-facing recovery messages should teach
 
 Core commands:
 
-- `mega wallet login`: connect the first local wallet profile through loopback or device authorization.
+- `mega wallet login`: connect the local wallet account profile through loopback or device authorization.
 - `mega wallet whoami`: show the active account, delegated key, expiry, and limits.
 - `mega wallet list`: list locally known delegated/access keys and approved limits.
 - `mega wallet call`: read-only `eth_call`; does not use the relay for writes.
@@ -56,22 +56,24 @@ profiles, private keys, or auth material.
 
 `mega wallet login` defaults to a native-app loopback flow:
 
-1. The CLI generates a delegated secp256k1 private key locally.
-2. The CLI opens MegaETH Wallet at `/cli-auth/loopback` with the delegated
-   public address, requested permissions, a high-entropy `state`, and a
-   loopback `redirectUri`.
-3. The browser wallet approves the delegated key through the existing
-   MegaETH/Porto account flow.
-4. The browser redirects to `http://127.0.0.1:<random-port>/callback` with
-   approved public metadata.
-5. The CLI validates `state`, persists the local private key plus the approved
-   `authorizedKey` metadata, and uses those fields to reconstruct the Porto
-   session key for later relay execution.
+1. The CLI opens MegaETH Wallet at `/cli-auth/loopback` with `operation=login`,
+   a high-entropy `state`, and a loopback `redirectUri`.
+2. The browser wallet approves connecting the wallet account to the local CLI
+   profile.
+3. The browser redirects to `http://127.0.0.1:<random-port>/callback` with the
+   approved public account address.
+4. The CLI validates `state` and persists the account profile without delegated
+   private key material.
 
 Login is a profile bootstrap command. If a profile already exists, it must fail
 before browser auth and direct the user to either `mega wallet logout` or
 `mega wallet create-key`. Use `create-key` to add delegated keys to an existing
 wallet profile.
+
+`mega wallet create-key` is the delegated-key grant flow. It generates the
+secp256k1 private key locally, opens MegaETH Wallet with the delegated public
+address and requested permissions, validates the callback state/account, and
+persists the private key only after approval.
 
 If `create-key` fails because the authorized wallet account does not match the
 local profile, treat it as a browser-wallet mismatch. Run `mega wallet whoami`
@@ -87,7 +89,8 @@ verification URL/code, wallet-backend brokers the short-lived pending request,
 and PKCE binds final redemption to the CLI process that started the request.
 
 The loopback callback must never carry the delegated private key, bearer tokens,
-API keys, passkey material, or other transferable secrets. It may carry public
+API keys, passkey material, or other transferable secrets. Login callbacks may
+carry only public account metadata. Create-key callbacks may carry public
 approval metadata required to reconstruct the authorized session key.
 
 Device auth callbacks/polling must follow the same secret boundary: never send
@@ -128,9 +131,10 @@ pnpm e2e:loopback -- --auth-flow device --screen-only --mock-relay --reset
 pnpm e2e:loopback -- --auth-flow device --management --mock-relay --reset
 ```
 
-The device management check covers device login, device create-key, local
-list/permissions/switch, and device revoke through the local wallet UI and
-shim.
+The device management check covers device login, device create-key,
+local list/permissions/switch, and device revoke through the local wallet UI and
+shim. Login should produce a profile with no delegated keys; create-key should
+produce the first active delegated key.
 
 ## Permission Model
 
@@ -176,21 +180,24 @@ intended for the relay/orchestrator path. It is not EVM gas introspection and it
 is not a separate magical gas-only permission at the final relay permission
 layer. Be careful when changing defaults or copy around this.
 
-The agent-oriented default keeps the visible approval simple: one-week expiry,
+The create-key default keeps the visible approval simple: one-week expiry,
 network-specific USDM as the fee token with a `1 USDM` allowance, and a flat
-`100 USDM` spend cap for the authorization window. Approved broad-call keys must
-be represented as `permissions.calls: [{}]`. Do not create CLI write keys with
-omitted or empty `permissions.calls`; provide explicit call scopes when a more
-restrictive key is required. Keep those caps and call-scope requirements
-explicit in prompt/UI copy, avoid ambiguous empty or omitted permissions, and
-update `README.md`, `SKILL.md`, tests, and this file together when changing the
+`100 USDM` spend cap for the authorization window. It must not silently request
+broad call authority. Require explicit call scopes from `--allow-call`, copied
+permissions from `--from`, or a full `--permissions` file. Approved broad-call
+keys may still be represented as `permissions.calls: [{}]` only when broad
+authority is explicitly intended. Do not create CLI write keys with omitted or
+empty `permissions.calls`. Keep those caps and call-scope requirements explicit
+in prompt/UI copy, avoid ambiguous empty or omitted permissions, and update
+`README.md`, `SKILL.md`, tests, and this file together when changing the
 default.
 
 `mega wallet create-key --spend-limit <amount>` is a shorthand for overriding
 the default network-specific USDM spend cap on the new key request. It accepts a
 human USDM amount and preserves the default fee token, expiry, spend token, and
-spend period. Use a full `--permissions` file for anything outside that narrow
-override.
+spend period; it still requires `--allow-call`, `--from`, or `--permissions` to
+define executable call scope. Use a full `--permissions` file for anything
+outside that narrow override.
 
 ## Commands
 

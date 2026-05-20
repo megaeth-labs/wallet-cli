@@ -1,10 +1,10 @@
 # MegaETH Wallet CLI
 
-MegaETH Wallet CLI lets a local machine use delegated session keys for a
-MegaETH passkey wallet. The CLI generates delegated secp256k1 keys locally,
-opens MegaETH Wallet for passkey approval, receives public approval metadata,
-and stores the approved local profile with private key material on the same
-machine.
+MegaETH Wallet CLI connects a local machine to a MegaETH passkey wallet and
+uses delegated session keys for writes. Login stores the wallet account profile;
+`create-key` generates delegated secp256k1 keys locally, opens MegaETH Wallet
+for passkey approval, receives public approval metadata, and stores the
+approved private key material on the same machine.
 
 Use `mega wallet <command>` as the canonical command shape. The standalone
 `wallet` binary is kept as a compatibility shortcut.
@@ -53,8 +53,9 @@ mega wallet login
 ```
 
 Login opens MegaETH Wallet at `https://account.megaeth.com`, asks the passkey
-wallet to approve a delegated session key, and stores the approved profile
-locally. The relay default is `https://wallet-relay.megaeth.com`.
+wallet to connect the account, and stores the local profile. It does not create
+a delegated key. Create a scoped key with `mega wallet create-key` before
+state-changing wallet writes.
 
 Mainnet is the default network. Pass `--network testnet` to use the separate
 testnet profile and chain config:
@@ -78,22 +79,17 @@ Running headless? Go to https://account.megaeth.com/cli-auth and input this code
 ```
 
 Open that URL on any browser-capable device, enter the code, approve with the
-wallet passkey, and leave the CLI running until approval completes. The
-delegated private key and PKCE verifier stay on the CLI machine; the browser
-and backend only receive public request/approval metadata.
-
-Default permissions are agent-oriented: one-week expiry, network-specific USDM
-fee token with a `1 USDM` fee allowance, `100 USDM` spend cap for the
-authorization window, and explicit broad contract call authority represented as
-`permissions.calls: [{}]`.
+wallet passkey, and leave the CLI running until approval completes. The PKCE
+verifier stays on the CLI machine; the browser and backend only receive public
+request/approval metadata.
 
 Fee allowances are token-denominated. A `maxFeesUSD` permission field is not
 implemented by the CLI; set `feeToken.limit` to the approved amount of
 `feeToken.symbol` instead.
 
 If a profile already exists, `login` exits before opening the browser. Use
-`mega wallet create-key` to add another delegated key, or `mega wallet logout`
-to forget the local profile.
+`mega wallet create-key` to add a delegated key, or `mega wallet logout` to
+forget the local profile.
 
 ## Keys
 
@@ -117,19 +113,26 @@ Show a key's approved scope:
 mega wallet permissions 0xKEY_OR_ACCESS_ADDRESS
 ```
 
-Create a new delegated key:
+Create a new scoped delegated key:
 
 ```bash
-mega wallet create-key --label "agent"
-mega wallet create-key --spend-limit 25 --label "agent"
-mega wallet create-key --auth-flow device --no-browser --label "agent"
+mega wallet create-key \
+  --allow-call '0xfafddbb3fc7688494971a79cc65dca3ef82079e7:transfer(address,uint256)' \
+  --label "usdm-transfer"
+mega wallet create-key \
+  --spend-limit 25 \
+  --allow-call '0xfafddbb3fc7688494971a79cc65dca3ef82079e7:transfer(address,uint256)'
+mega wallet create-key --auth-flow device --no-browser \
+  --allow-call '0xfafddbb3fc7688494971a79cc65dca3ef82079e7:transfer(address,uint256)'
 ```
 
-`--spend-limit` accepts a human USDM amount and preserves the network-specific
-default fee token, expiry, spend period, and broad call authority. Use
-`--permissions ./permissions.json` only for custom expiry, fee token, spend
-token, spend period, no-spend, or custom call scope. See
-[references/permissions.md](references/permissions.md) for that file schema.
+`create-key` requires an explicit call scope unless copying an existing key
+with `--from` or using a complete `--permissions ./permissions.json` file.
+`--spend-limit` accepts a human USDM amount and preserves the default fee token,
+expiry, spend token, and spend period while the `--allow-call` flags define
+what the key can execute. See [references/permissions.md](references/permissions.md)
+for custom expiry, fee token, spend token, spend period, no-spend, broad call
+authority, or multi-contract scopes.
 
 Switch or label local keys:
 
@@ -198,6 +201,8 @@ Spend permission is not call permission. Empty call permissions create keys
 that cannot execute relay-backed writes, including native ETH transfers. Custom
 permission files with omitted or empty `permissions.calls` are rejected; use
 `permissions.calls: [{}]` for broad authority or include explicit call scopes.
+Logging in alone is not enough for writes; select or create a key whose call and
+spend scopes cover the requested operation.
 
 ## Transfers
 
