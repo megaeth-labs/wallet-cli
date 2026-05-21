@@ -73,6 +73,10 @@ instead. For example, `mega wallet login --no-browser` still uses same-machine
 loopback auth; use `--auth-flow device` when the browser is not on the CLI
 machine.
 
+For both browser-opened and `--no-browser` authorization flows, pass
+`--timeout-ms 300000` when passkey approval may take longer than the default
+120 seconds.
+
 Authorization commands that use `--no-browser` are interactive waiting
 processes. Do not run them as unmonitored foreground shell commands: the printed
 URL/code can be lost while the process keeps waiting for browser approval.
@@ -80,9 +84,8 @@ Before starting `login`, `create-key`, or `revoke` with `--no-browser`, make
 sure your execution tool will stream stdout/stderr immediately and keep the
 session open for polling. Capture the printed URL/code, show it to the user, and
 continue monitoring until the command completes, times out, or the user asks you
-to stop. Pass an explicit bounded `--timeout-ms` when running under automation.
-If you cannot monitor live output, do not start the auth flow; tell the user the
-exact command to run locally instead.
+to stop. If you cannot monitor live output, do not start the auth flow; tell the
+user the exact command to run locally instead.
 
 For headless, SSH, container, or remote CLI environments, use device-style auth:
 
@@ -96,11 +99,9 @@ The CLI prints an authorization URL and a verification code:
 Running headless? Go to https://account.megaeth.com/cli-auth and input this code - XXXX-XXXX
 ```
 
-Open the URL in any browser-capable device, enter the code, approve with the
-wallet passkey, and leave the CLI running until approval completes. The
-PKCE verifier remains on the CLI machine; the browser and wallet backend only
-handle public request and approval metadata. For `create-key`, the delegated
-private key also remains on the CLI machine.
+Open the URL in a browser, enter the code, approve with the wallet passkey, and
+leave the CLI running until approval completes. PKCE remains on the CLI machine;
+`create-key` delegated private keys do too.
 
 Use login only to connect a wallet profile when none exists. If the CLI reports
 `Wallet already connected to ...`, do not rerun login. Use
@@ -136,19 +137,24 @@ calls have produced keys that the relay rejects for writes.
 
 Fee limits are token-denominated. The CLI does not implement `maxFeesUSD`; use
 `feeToken.limit` for the amount of `feeToken.symbol` the key may spend on relay
-fees.
+fees. Fee token encoding is symbol-based; for native ETH relay fees use
+`"feeToken": { "limit": "0.001", "symbol": "ETH" }`. This differs from native
+ETH spend permissions, where the spend entry omits `token`.
 
 ## Inspect The Active Wallet
 
 ```bash
 mega wallet whoami --json
-mega wallet whoami --network testnet --json
 mega wallet list --json
 mega wallet permissions 0xKEY_OR_ACCESS_ADDRESS --json
 ```
 
 Use these before writes to verify the account, delegated access address, expiry,
-and approved permission limits.
+approved permission limits, and current on-chain spend remaining. If you only
+have a shortened key id from plain text output, run `mega wallet list --json`
+and copy the full `accessAddress` into `mega wallet permissions`.
+In `permissions --json`, treat `authorizedKey.permissions.spend` as the stored
+request and `spendInfos[].remaining` as the live execution capacity.
 
 ## Manage Delegated Keys
 
@@ -177,9 +183,10 @@ mega wallet revoke 0xKEY_OR_ACCESS_ADDRESS \
 
 Use `list` to inspect local keys. Revoked and expired keys are hidden unless
 `--show-inactive` is present. Use `permissions` to inspect the exact approved
-scope in plain English before a write. When operating on testnet, pass
-`--network testnet` consistently on login, create-key, inspection, writes,
-revoke, fund, and logout commands.
+scope and remaining on-chain spend before a write. Plain-text output separates
+the stored approved scope from live on-chain spend remaining. When operating on
+testnet, pass `--network testnet` consistently on login, create-key,
+inspection, writes, revoke, fund, and logout commands.
 
 Use `create-key` when no existing key has the requested scope; it opens the
 browser/passkey approval flow and requires explicit call scope unless using
@@ -189,9 +196,7 @@ CLI keeps an inactive audit record but removes local private key material.
 
 ## Custom Permission Files
 
-Use `create-key --spend-limit <amount> --allow-call ...` for a simple default
-USDM spend cap with explicit call scope. Read
-[references/permissions.md](references/permissions.md) only when building
+Read [references/permissions.md](references/permissions.md) only when building
 `--permissions ./permissions.json` files or debugging permission schema errors.
 
 ## Read State
@@ -221,31 +226,45 @@ For multiple writes, pass `--calls ./calls.json`. Pass
 non-default stored key. Confirm that the requested operation fits the approved
 delegated-key permissions before executing.
 
+When hand-writing raw calldata or `--allow-call` signatures, verify the
+function selector first with an ABI encoder or `cast sig`; mismatched selectors
+cause permission rejections or wrong calls.
+
+> **ERC20 approvals must be bundled.** On the MegaETH relay, a standalone
+> `approve` is reset at end-of-transaction. Always include `approve` and its
+> consuming call in the same `--calls` array.
+
 Spend permission is not call permission. A key with `calls: []` or omitted
 `permissions.calls` cannot execute relay-backed writes, including native ETH
 transfers, even when it has spend allowance. Do not request `calls: []` and do
 not omit `permissions.calls`; use `permissions.calls: [{}]` for broad contract
 authority or explicit `--allow-call` scopes for restrictive keys.
 
-For custom permission files, use `permissions.calls: [{}]` for broad contract
-call authority. The CLI rejects omitted or empty `permissions.calls` permission
-requests because they produce unusable write keys.
-
 For workflows that move ERC20 value through another contract, the key usually
 needs both spend permission for the token and call permission for each contract
 function it invokes, such as ERC20 `approve` plus the downstream protocol call.
-Create one bundled `--calls` transaction containing `approve` and the consuming
-action; do not rely on a standalone approval persisting after relay execution.
 
-Example scoped USDM approval plus protocol call on top of the default spend
-request:
+### Common Patterns
 
-```bash
-mega wallet create-key \
-  --spend-limit 100 \
-  --allow-call '0xfafddbb3fc7688494971a79cc65dca3ef82079e7:approve(address,uint256)' \
-  --allow-call '0x1234567890abcdef1234567890abcdef12345678:deposit(uint256)'
+ERC20 approve plus protocol call, such as Aave supply or a swap:
+
+```json
+[
+  {
+    "to": "<TOKEN>",
+    "data": "0x<approve(spender,amount) calldata>",
+    "value": "0"
+  },
+  {
+    "to": "<PROTOCOL>",
+    "data": "0x<supply/swap/deposit calldata>",
+    "value": "0"
+  }
+]
 ```
+
+Use one `mega wallet execute --calls ./calls.json` command for the array above.
+Do not split approval and consumption across two `execute` calls.
 
 ## Transfer Funds
 

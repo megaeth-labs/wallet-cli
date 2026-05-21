@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { zeroAddress } from "viem";
 
 import { registerCallCommand } from "./call.js";
 import {
@@ -37,7 +38,12 @@ import {
   isNetwork,
   type Network,
 } from "../config/chains.js";
-import { summarizeAuthorizedKey } from "../config/permissionSummary.js";
+import {
+  formatTokenAmount,
+  summarizeAuthorizedKey,
+  tokenLabel,
+  type TokenDisplayMetadataMap,
+} from "../config/permissionSummary.js";
 import {
   addWalletKey,
   deleteWalletProfile,
@@ -57,8 +63,11 @@ import {
   type WalletKeySummary,
   type WalletProfile,
 } from "../config/profile.js";
+import { createEthCallClient } from "../eth/client.js";
+import { readErc20Metadata } from "../eth/erc20.js";
 import { CliError } from "../errors.js";
 import { compactAddress, toJson } from "../output.js";
+import { readSpendInfos, type DelegatedSpendInfo } from "../relay/spendInfo.js";
 
 type LoginCommandOptions = {
   authFlow?: string;
@@ -108,6 +117,11 @@ type OutputWriter = {
 
 type AuthFlow = "loopback" | "device";
 
+type TokenMetadataReader = (options: {
+  network: Network;
+  tokens: readonly HexString[];
+}) => Promise<TokenDisplayMetadataMap>;
+
 export type WalletCommandDependencies = {
   authorizeDeviceLogin?: typeof authorizeDeviceLogin;
   authorizeDeviceKey?: typeof authorizeDeviceKey;
@@ -120,6 +134,8 @@ export type WalletCommandDependencies = {
   openBrowser?: BrowserOpener;
   revokeDeviceKey?: typeof authorizeDeviceRevoke;
   revokeKey?: typeof runLoopbackRevoke;
+  readSpendInfos?: typeof readSpendInfos;
+  readTokenMetadata?: TokenMetadataReader;
   stderr?: OutputWriter;
   stdout?: OutputWriter;
   transfer?: TransferCommandDependencies;
@@ -127,6 +143,8 @@ export type WalletCommandDependencies = {
 
 export type WalletStatusResult = ProfileSummary & {
   activeKey?: RenderedWalletKey;
+  permissionLines?: string[];
+  tokenMetadata?: TokenDisplayMetadataMap;
 };
 
 export type WalletListResult = {
@@ -141,6 +159,9 @@ export type WalletPermissionsResult = {
   key: RenderedWalletKey;
   network: Network;
   permissionLines: string[];
+  spendInfoError?: string;
+  spendInfos?: DelegatedSpendInfo[];
+  tokenMetadata?: TokenDisplayMetadataMap;
 };
 
 export type WalletSwitchResult = {
@@ -238,8 +259,8 @@ export function registerWalletSubcommands(
 
   wallet
     .command("permissions")
-    .description("Show a delegated key permission scope")
-    .argument("<key>", "delegated key id or access address")
+    .description("Show a delegated key permission scope and remaining spend")
+    .argument("<key>", "full delegated key id or access address")
     .option("--network <network>", "wallet network: mainnet or testnet")
     .option("--json", "render JSON output")
     .option("-t, --terse", "render compact text output")
@@ -442,7 +463,16 @@ export async function runWalletWhoami(
 ): Promise<WalletStatusResult> {
   const network = parseNetwork(options.network);
   const profile = await readWalletProfile(network, dependencies.env);
-  const result = buildStatusResult(profile, getNow(dependencies));
+  const activeKey = getActiveWalletKey(profile);
+  const tokenMetadata =
+    activeKey === undefined || options.terse
+      ? {}
+      : await loadTokenMetadata([activeKey], undefined, network, dependencies);
+  const result = buildStatusResult(
+    profile,
+    getNow(dependencies),
+    tokenMetadata,
+  );
 
   getStdout(dependencies).write(renderWhoami(result, options));
 
@@ -486,16 +516,125 @@ export async function runWalletPermissions(
   const profile = await readWalletProfile(network, dependencies.env);
   const key = requireWalletKey(profile, selector);
   const renderedKey = renderableKey(profile, key, getNow(dependencies));
+  const spendInfoResult = options.terse
+    ? {}
+    : await loadSpendInfos(profile, key, network, dependencies);
+  const tokenMetadata = options.terse
+    ? {}
+    : await loadTokenMetadata(
+        [key],
+        spendInfoResult.spendInfos,
+        network,
+        dependencies,
+      );
   const result: WalletPermissionsResult = {
     accountAddress: profile.accountAddress,
     key: renderedKey,
     network,
-    permissionLines: summarizeAuthorizedKey(key.authorizedKey).lines,
+    permissionLines: summarizeAuthorizedKey(key.authorizedKey, tokenMetadata)
+      .lines,
+    ...spendInfoResult,
+    ...(Object.keys(tokenMetadata).length === 0 ? {} : { tokenMetadata }),
   };
 
   getStdout(dependencies).write(renderPermissions(result, options));
 
   return result;
+}
+
+async function loadSpendInfos(
+  profile: WalletProfile,
+  key: WalletKeyRecord,
+  network: Network,
+  dependencies: WalletCommandDependencies,
+): Promise<Pick<WalletPermissionsResult, "spendInfoError" | "spendInfos">> {
+  try {
+    const spendInfos = await (dependencies.readSpendInfos ?? readSpendInfos)({
+      accountAddress: profile.accountAddress,
+      key,
+      network,
+    });
+
+    return { spendInfos };
+  } catch (error) {
+    return { spendInfoError: formatSpendInfoError(error) };
+  }
+}
+
+function formatSpendInfoError(error: unknown): string {
+  return formatUnknownError(error).split("\n", 1)[0] ?? "unknown error";
+}
+
+async function loadTokenMetadata(
+  keys: readonly WalletKeyRecord[],
+  spendInfos: readonly DelegatedSpendInfo[] | undefined,
+  network: Network,
+  dependencies: WalletCommandDependencies,
+): Promise<TokenDisplayMetadataMap> {
+  const tokens = collectSpendTokens(keys, spendInfos);
+  if (tokens.length === 0) {
+    return {};
+  }
+
+  try {
+    return await (
+      dependencies.readTokenMetadata ?? readPermissionTokenMetadata
+    )({
+      network,
+      tokens,
+    });
+  } catch {
+    return {};
+  }
+}
+
+function collectSpendTokens(
+  keys: readonly WalletKeyRecord[],
+  spendInfos: readonly DelegatedSpendInfo[] | undefined,
+): HexString[] {
+  const tokens = new Set<HexString>();
+  for (const key of keys) {
+    for (const spend of key.authorizedKey.permissions.spend) {
+      addMetadataToken(tokens, spend.token);
+    }
+  }
+  for (const info of spendInfos ?? []) {
+    addMetadataToken(tokens, info.token);
+  }
+
+  return [...tokens];
+}
+
+function addMetadataToken(
+  tokens: Set<HexString>,
+  token: HexString | undefined,
+): void {
+  if (token === undefined || token.toLowerCase() === zeroAddress) {
+    return;
+  }
+
+  tokens.add(token.toLowerCase() as HexString);
+}
+
+async function readPermissionTokenMetadata(options: {
+  network: Network;
+  tokens: readonly HexString[];
+}): Promise<TokenDisplayMetadataMap> {
+  const client = createEthCallClient(options.network);
+  const entries = await Promise.all(
+    options.tokens.map(async (token) => {
+      try {
+        return [
+          token.toLowerCase(),
+          await readErc20Metadata(client, token),
+        ] as const;
+      } catch {
+        return undefined;
+      }
+    }),
+  );
+
+  return Object.fromEntries(entries.filter((entry) => entry !== undefined));
 }
 
 export async function runWalletSwitch(
@@ -751,7 +890,12 @@ function renderWhoami(
   options: StatusCommandOptions,
 ): string {
   if (options.json) {
-    return toJson(result);
+    const {
+      permissionLines: _permissionLines,
+      tokenMetadata: _tokenMetadata,
+      ...jsonResult
+    } = result;
+    return toJson(jsonResult);
   }
 
   if (result.activeKey === undefined) {
@@ -780,7 +924,11 @@ function renderWhoami(
     `Delegated key: ${formatKeyLabel(result.activeKey)}`,
     `Status: ${result.activeKey.effectiveStatus}`,
     `Expires: ${result.activeKey.expiresAt}`,
-    ...summarizeAuthorizedKey(result.activeKey.authorizedKey).lines,
+    ...(result.permissionLines ??
+      summarizeAuthorizedKey(
+        result.activeKey.authorizedKey,
+        result.tokenMetadata,
+      ).lines),
   ];
 
   if (result.activeKey.expired) {
@@ -860,10 +1008,73 @@ function renderPermissions(
     `Permissions for ${formatKeyLabel(result.key)}:`,
     `Status: ${result.key.effectiveStatus}`,
     `Expires: ${result.key.expiresAt}`,
+    "Approved scope (stored request):",
     ...result.permissionLines,
+    ...renderSpendInfoLines(result),
   ]
     .join("\n")
     .concat("\n");
+}
+
+function renderSpendInfoLines(result: WalletPermissionsResult): string[] {
+  if (result.spendInfoError !== undefined) {
+    return [
+      `Live on-chain spend remaining: unavailable (${result.spendInfoError})`,
+    ];
+  }
+
+  if (result.spendInfos === undefined) {
+    return [];
+  }
+
+  if (result.spendInfos.length === 0) {
+    return ["Live on-chain spend remaining: no spend limits found"];
+  }
+
+  return [
+    "Live on-chain spend remaining:",
+    ...result.spendInfos.map((info) => {
+      const token = spendInfoTokenLabel(info, result.tokenMetadata);
+      const remaining = formatSpendInfoAmount(
+        info.remaining,
+        info,
+        result.tokenMetadata,
+      );
+      const currentSpent = formatSpendInfoAmount(
+        info.currentSpent,
+        info,
+        result.tokenMetadata,
+      );
+      const limit = formatSpendInfoAmount(
+        info.limit,
+        info,
+        result.tokenMetadata,
+      );
+
+      return `- ${remaining} ${token} remaining for current ${info.period} (${currentSpent} of ${limit} spent)`;
+    }),
+  ];
+}
+
+function formatSpendInfoAmount(
+  value: string,
+  info: DelegatedSpendInfo,
+  tokenMetadata: TokenDisplayMetadataMap = {},
+): string {
+  return formatTokenAmount(value, spendInfoToken(info), tokenMetadata);
+}
+
+function spendInfoTokenLabel(
+  info: DelegatedSpendInfo,
+  tokenMetadata: TokenDisplayMetadataMap = {},
+): string {
+  return tokenLabel(spendInfoToken(info), tokenMetadata);
+}
+
+function spendInfoToken(info: DelegatedSpendInfo): HexString | undefined {
+  return info.token.toLowerCase() === zeroAddress
+    ? undefined
+    : (info.token as HexString);
 }
 
 function renderSwitch(
@@ -963,6 +1174,7 @@ function renderLogout(
 function buildStatusResult(
   profile: WalletProfile,
   now: Date,
+  tokenMetadata: TokenDisplayMetadataMap = {},
 ): WalletStatusResult {
   const activeKey = getActiveWalletKey(profile);
   const summary = summarizeProfile(profile);
@@ -971,7 +1183,14 @@ function buildStatusResult(
     ...summary,
     ...(activeKey === undefined
       ? {}
-      : { activeKey: renderableKey(profile, activeKey, now) }),
+      : {
+          activeKey: renderableKey(profile, activeKey, now),
+          permissionLines: summarizeAuthorizedKey(
+            activeKey.authorizedKey,
+            tokenMetadata,
+          ).lines,
+        }),
+    ...(Object.keys(tokenMetadata).length === 0 ? {} : { tokenMetadata }),
   };
 }
 

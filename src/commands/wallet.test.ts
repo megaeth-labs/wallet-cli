@@ -90,7 +90,12 @@ describe("wallet status commands", () => {
 
     const result = await runWalletWhoami(
       { network: "mainnet" },
-      { env, now: () => expiredNow, stdout },
+      {
+        env,
+        now: () => expiredNow,
+        readTokenMetadata: async () => ({}),
+        stdout,
+      },
     );
 
     expect(result.activeKey?.expired).toBe(true);
@@ -109,7 +114,12 @@ describe("wallet status commands", () => {
 
     await runWalletWhoami(
       { json: true, network: "mainnet" },
-      { env, now: () => activeNow, stdout },
+      {
+        env,
+        now: () => activeNow,
+        readTokenMetadata: async () => ({}),
+        stdout,
+      },
     );
 
     expect(stdout.text).not.toContain(profile.keys[0]!.privateKey);
@@ -150,7 +160,13 @@ describe("wallet status commands", () => {
     const result = await runWalletPermissions(
       profile.keys[0]!.id,
       { network: "mainnet" },
-      { env, now: () => activeNow, stdout },
+      {
+        env,
+        now: () => activeNow,
+        readSpendInfos: async () => [],
+        readTokenMetadata: async () => ({}),
+        stdout,
+      },
     );
 
     expect(result.permissionLines).toContain(
@@ -159,6 +175,180 @@ describe("wallet status commands", () => {
     expect(stdout.text).toContain("Can spend up to 0.1 0x5555...5555 per day");
     expect(stdout.text).toContain(
       "Can pay up to 1000000000000000 ETH in relay fees",
+    );
+    expect(stdout.text).toContain("Approved scope (stored request):");
+  });
+
+  it("renders delegated key remaining spend from on-chain spend info", async () => {
+    const env = await tempEnv();
+    const profile = makeProfile();
+    const stdout = memoryOutput();
+    await writeWalletProfile(profile, env);
+
+    const result = await runWalletPermissions(
+      profile.keys[0]!.id,
+      { network: "mainnet" },
+      {
+        env,
+        now: () => activeNow,
+        readSpendInfos: async (options) => {
+          expect(options.accountAddress).toBe(profile.accountAddress);
+          expect(options.key.id).toBe(profile.keys[0]!.id);
+          expect(options.network).toBe("mainnet");
+
+          return [
+            {
+              current: "1800000000",
+              currentSpent: "25000000000000000",
+              lastUpdated: "1800000000",
+              limit: "100000000000000000",
+              period: "day",
+              remaining: "75000000000000000",
+              spent: "25000000000000000",
+              token: "0x5555555555555555555555555555555555555555",
+            },
+          ];
+        },
+        readTokenMetadata: async () => ({
+          "0x5555555555555555555555555555555555555555": {
+            decimals: 18,
+          },
+        }),
+        stdout,
+      },
+    );
+
+    expect(result.spendInfos).toHaveLength(1);
+    expect(stdout.text).toContain("Live on-chain spend remaining:");
+    expect(stdout.text).toContain(
+      "- 0.075 0x5555...5555 remaining for current day (0.025 of 0.1 spent)",
+    );
+  });
+
+  it("uses ERC20 decimals and symbols for delegated spend output", async () => {
+    const env = await tempEnv();
+    const profile = makeProfile();
+    const key = profile.keys[0]!;
+    key.authorizedKey.permissions.spend = [
+      {
+        limit: "1000000",
+        period: "week",
+        token: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
+      },
+    ];
+    const stdout = memoryOutput();
+    await writeWalletProfile(profile, env);
+
+    await runWalletPermissions(
+      key.id,
+      { network: "mainnet" },
+      {
+        env,
+        now: () => activeNow,
+        readSpendInfos: async () => [
+          {
+            current: "1800000000",
+            currentSpent: "250000",
+            lastUpdated: "1800000000",
+            limit: "1000000",
+            period: "week",
+            remaining: "750000",
+            spent: "250000",
+            token: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
+          },
+        ],
+        readTokenMetadata: async (options) => {
+          expect(options.tokens).toEqual([
+            "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
+          ]);
+          return {
+            "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb": {
+              decimals: 6,
+              symbol: "USDT0",
+            },
+          };
+        },
+        stdout,
+      },
+    );
+
+    expect(stdout.text).toContain("Can spend up to 1 USDT0 per week");
+    expect(stdout.text).toContain(
+      "- 0.75 USDT0 remaining for current week (0.25 of 1 spent)",
+    );
+    expect(stdout.text).not.toContain("0.000000000001");
+  });
+
+  it("formats native ETH spend with 18 decimals", async () => {
+    const env = await tempEnv();
+    const profile = makeProfile();
+    const key = profile.keys[0]!;
+    key.authorizedKey.permissions.spend = [
+      {
+        limit: "500000000000000000",
+        period: "week",
+        token: "0x0000000000000000000000000000000000000000",
+      },
+    ];
+    const stdout = memoryOutput();
+    await writeWalletProfile(profile, env);
+
+    await runWalletPermissions(
+      key.id,
+      { network: "mainnet" },
+      {
+        env,
+        now: () => activeNow,
+        readSpendInfos: async () => [
+          {
+            current: "1800000000",
+            currentSpent: "250000000000000000",
+            lastUpdated: "1800000000",
+            limit: "500000000000000000",
+            period: "week",
+            remaining: "250000000000000000",
+            spent: "250000000000000000",
+            token: "0x0000000000000000000000000000000000000000",
+          },
+        ],
+        readTokenMetadata: async (options) => {
+          expect(options.tokens).toEqual([]);
+          return {};
+        },
+        stdout,
+      },
+    );
+
+    expect(stdout.text).toContain("Can spend up to 0.5 ETH per week");
+    expect(stdout.text).toContain(
+      "- 0.25 ETH remaining for current week (0.25 of 0.5 spent)",
+    );
+  });
+
+  it("keeps permission output readable when on-chain spend info is unavailable", async () => {
+    const env = await tempEnv();
+    const profile = makeProfile();
+    const stdout = memoryOutput();
+    await writeWalletProfile(profile, env);
+
+    const result = await runWalletPermissions(
+      profile.keys[0]!.id,
+      { network: "mainnet" },
+      {
+        env,
+        now: () => activeNow,
+        readSpendInfos: async () => {
+          throw new Error("RPC unavailable");
+        },
+        readTokenMetadata: async () => ({}),
+        stdout,
+      },
+    );
+
+    expect(result.spendInfoError).toBe("RPC unavailable");
+    expect(stdout.text).toContain("Can spend up to 0.1 0x5555...5555 per day");
+    expect(stdout.text).toContain(
+      "Live on-chain spend remaining: unavailable (RPC unavailable)",
     );
   });
 
@@ -183,7 +373,13 @@ describe("wallet status commands", () => {
     await runWalletPermissions(
       key.id,
       { network: "mainnet" },
-      { env, now: () => activeNow, stdout },
+      {
+        env,
+        now: () => activeNow,
+        readSpendInfos: async () => [],
+        readTokenMetadata: async () => ({}),
+        stdout,
+      },
     );
 
     expect(stdout.text).toContain("Can spend up to 100 USDm per week");

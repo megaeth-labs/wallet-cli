@@ -85,7 +85,8 @@ request/approval metadata.
 
 Fee allowances are token-denominated. A `maxFeesUSD` permission field is not
 implemented by the CLI; set `feeToken.limit` to the approved amount of
-`feeToken.symbol` instead.
+`feeToken.symbol` instead. For native ETH relay fees, use `symbol: "ETH"`; do
+not encode it like native spend permissions, which omit `token`.
 
 If a profile already exists, `login` exits before opening the browser. Use
 `mega wallet create-key` to add a delegated key, or `mega wallet logout` to
@@ -112,6 +113,11 @@ Show a key's approved scope:
 ```bash
 mega wallet permissions 0xKEY_OR_ACCESS_ADDRESS
 ```
+
+Use the full key id or `accessAddress`; `mega wallet list --json` prints both.
+`permissions` also fetches current on-chain spend remaining when RPC is
+available. In JSON, `authorizedKey.permissions.spend` is the stored request;
+`spendInfos[].remaining` is the live remaining capacity.
 
 Create a new scoped delegated key:
 

@@ -60,36 +60,66 @@ the inner `permissions` object:
 ## Field Rules
 
 - `expiry` is required and must be a future Unix timestamp in seconds.
-- `feeToken` is required. `feeToken.limit` is a decimal string; `symbol` is
-  optional but should be included for user-readable approval text.
-- `feeToken.limit` is token-denominated. `maxFeesUSD` is not implemented by the
-  CLI; do not include it in permission files.
+- `feeToken` is required. `feeToken.limit` is a human-decimal token amount,
+  such as `"1"` for 1 USDM; `symbol` is optional but should be included for
+  user-readable approval text.
+- `feeToken` is symbol-based and has no `token` address field. For native ETH
+  relay fees, use `"feeToken": { "limit": "0.001", "symbol": "ETH" }`. This is
+  different from native ETH spend permissions, where the spend entry omits
+  `token`.
+- `maxFeesUSD` is not implemented by the CLI; do not include it in permission
+  files.
 - `permissions` is required.
 - `permissions.spend` is required and may be `[]` for no explicit spend.
-- Spend `limit` values are integer base units, not human decimals.
+- Spend `limit` values are integer base units, not human decimals. For an
+  18-decimal token, `"1000000000000000000"` means 1 token.
 - Spend `period` must be `minute`, `hour`, `day`, `week`, `month`, or `year`.
 - Omit `token` for native ETH spend. Use a 20-byte token address for ERC20
   spend.
-- `permissions.calls` is required and must contain at least one entry.
+- `permissions.calls` is required and must contain at least one entry. Do not
+  omit it or use `permissions.calls: []`; both produce unusable or rejected
+  write keys.
 - Use `permissions.calls: [{}]` for broad contract call authority: any target
   and any function, still bounded by spend, fee, expiry, relay, and account
   enforcement.
-- Do not use `permissions.calls: []`. Empty call permissions cannot execute
-  relay-backed writes, including native ETH transfers, and the CLI rejects them
-  in custom permission request files.
-- Do not omit `permissions.calls`. Omitted call permissions have produced
-  approvals that look funded but are rejected by the relay for writes; the CLI
-  rejects them in custom permission request files.
 - A call entry may specify `to`, `signature`, or both. Prefer human-readable
   function signatures, such as `transfer(address,uint256)` or
-  `supply(address,uint256,address,uint16)`, over 4-byte hex selectors.
-- Use a 4-byte selector only when the full function signature is unavailable.
-  For example, prefer `supply(address,uint256,address,uint16)` instead of
-  `0x617ba037`.
+  `supply(address,uint256,address,uint16)`, over 4-byte hex selectors; use a
+  selector only when the full function signature is unavailable.
+- Tuple parameters use standard ABI notation with nested parentheses, such as
+  `exactOutputSingle((address,address,uint24,address,uint256,uint256,uint160))`.
+  Use canonical signatures without parameter names or spaces, and verify complex
+  selectors with an ABI encoder or `cast sig`.
 - ETH and WETH are different spend scopes. A flow that wraps native ETH and
   then supplies or swaps WETH may need both native ETH spend and WETH spend,
   plus calls for `deposit()`, `approve(address,uint256)`, and the downstream
   contract function.
+
+## Additional Examples
+
+Non-USDM spend token:
+
+```json
+"spend": [
+  {
+    "token": "0x7777777777777777777777777777777777777777",
+    "limit": "1000000000000000000",
+    "period": "week"
+  }
+]
+```
+
+Selector-only call permission, used when the full function signature is not
+available:
+
+```json
+"calls": [
+  {
+    "to": "0x8888888888888888888888888888888888888888",
+    "signature": "0x5fd9ae2e"
+  }
+]
+```
 
 ## Multi-Contract Writes
 

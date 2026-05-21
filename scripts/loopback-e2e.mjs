@@ -1564,14 +1564,14 @@ async function runCliLogin(page, runOptions) {
         MEGA_WALLET_CLI_CONFIG_DIR: runOptions.configDir,
       },
       openBrowser: async (authUrl) => {
-        await page.goto(authUrl, { waitUntil: "domcontentloaded" });
+        await gotoWalletAuth(page, authUrl);
         await assertLoginScreen(page, runOptions.timeoutMs);
 
         if (runOptions.screenOnly) {
           throw new ScreenOnlyComplete();
         }
 
-        await page.getByRole("button", { name: "Approve" }).click();
+        await approveLoopback(page, "Approve", runOptions.timeoutMs);
       },
     });
     return {
@@ -1713,7 +1713,7 @@ async function handleDeviceGrantPrompt(
   }
 
   await page.getByRole("button", { name: "Approve CLI Key" }).click();
-  await assertPermissionScreen(page, runOptions.timeoutMs);
+  await assertPermissionScreen(page, runOptions.timeoutMs, runOptions);
 
   await page.getByRole("button", { name: "Approve" }).click();
 }
@@ -1825,13 +1825,17 @@ async function runKeyManagementE2E(page, runOptions, initialProfile) {
                     ...options,
                     env,
                     openBrowser: async (authUrl) => {
-                      await page.goto(authUrl, {
-                        waitUntil: "domcontentloaded",
-                      });
-                      await assertPermissionScreen(page, runOptions.timeoutMs);
-                      await page
-                        .getByRole("button", { name: "Approve" })
-                        .click();
+                      await gotoWalletAuth(page, authUrl);
+                      await assertPermissionScreen(
+                        page,
+                        runOptions.timeoutMs,
+                        runOptions,
+                      );
+                      await approveLoopback(
+                        page,
+                        "Approve",
+                        runOptions.timeoutMs,
+                      );
                     },
                   }),
               }),
@@ -1857,9 +1861,17 @@ async function runKeyManagementE2E(page, runOptions, initialProfile) {
                   ...options,
                   env,
                   openBrowser: async (authUrl) => {
-                    await page.goto(authUrl, { waitUntil: "domcontentloaded" });
-                    await assertPermissionScreen(page, runOptions.timeoutMs);
-                    await page.getByRole("button", { name: "Approve" }).click();
+                    await gotoWalletAuth(page, authUrl);
+                    await assertPermissionScreen(
+                      page,
+                      runOptions.timeoutMs,
+                      runOptions,
+                    );
+                    await approveLoopback(
+                      page,
+                      "Approve",
+                      runOptions.timeoutMs,
+                    );
                   },
                 }),
             }),
@@ -1917,7 +1929,11 @@ async function runKeyManagementE2E(page, runOptions, initialProfile) {
       { env, stdout },
     ),
   );
-  assertIncludes(permissions.stdout, "Can spend up to 100 USDm per week");
+  if (runOptions.permissionsFile) {
+    await assertPermissionsOutput(permissions.stdout, runOptions);
+  } else {
+    assertIncludes(permissions.stdout, "Can spend up to 100 USDm per week");
+  }
 
   await withOutput((stdout) =>
     walletCommands.runWalletLabel(
@@ -1967,7 +1983,7 @@ async function runKeyManagementE2E(page, runOptions, initialProfile) {
                 loopback.runLoopbackRevoke({
                   ...options,
                   openBrowser: async (authUrl) => {
-                    await page.goto(authUrl, { waitUntil: "domcontentloaded" });
+                    await gotoWalletAuth(page, authUrl);
                     await page
                       .getByText(/Revok(e|ing) Mega CLI Key/)
                       .waitFor({ timeout: runOptions.timeoutMs / 2 })
@@ -2031,10 +2047,35 @@ function memoryOutput() {
   };
 }
 
-async function assertPermissionScreen(page, timeoutMs) {
+async function assertPermissionScreen(page, timeoutMs, runOptions) {
   await page.getByText("Permissions Requested", { exact: true }).waitFor({
     timeout: timeoutMs,
   });
+
+  if (runOptions?.permissionsFile) {
+    const request = await readPermissionRequest(runOptions.permissionsFile);
+    for (const spend of request.permissions.spend ?? []) {
+      const expected = expectedSpendText(spend, runOptions.network);
+      await waitForBodyText(
+        page,
+        (text) => normalizeText(text).includes(expected),
+        `${expected} permission`,
+        timeoutMs,
+      );
+    }
+    if (request.feeToken?.limit && request.feeToken?.symbol) {
+      await waitForBodyText(
+        page,
+        (text) =>
+          normalizeText(text).includes(request.feeToken.limit) &&
+          normalizeText(text).includes(request.feeToken.symbol.toUpperCase()),
+        `${request.feeToken.limit} ${request.feeToken.symbol} fee permission`,
+        timeoutMs,
+      );
+    }
+    return;
+  }
+
   await waitForBodyText(
     page,
     (text) => /Spend up to\s+100\s+USDM/i.test(text),
@@ -2049,6 +2090,85 @@ async function assertPermissionScreen(page, timeoutMs) {
   assertMissing(body, "Pay up to 0 ETH in fees");
   assertMissing(body, "Pay up to 0 eth in fees");
   assertMissing(body, "$1 USDM");
+}
+
+async function assertPermissionsOutput(stdout, runOptions) {
+  const request = await readPermissionRequest(runOptions.permissionsFile);
+  for (const spend of request.permissions.spend ?? []) {
+    assertIncludes(stdout, expectedStoredSpendLine(spend, runOptions.network));
+  }
+  if (request.feeToken?.limit && request.feeToken?.symbol) {
+    assertIncludes(
+      stdout,
+      `Can pay up to ${request.feeToken.limit} ${formatSymbol(
+        request.feeToken.symbol,
+      )} in relay fees`,
+    );
+  }
+}
+
+async function readPermissionRequest(permissionsFile) {
+  const value = JSON.parse(await readFile(permissionsFile, "utf8"));
+  if (!value?.permissions || !Array.isArray(value.permissions.spend)) {
+    throw new Error("permissions file is missing permissions.spend");
+  }
+  return value;
+}
+
+function expectedStoredSpendLine(spend, network) {
+  const token = permissionSpendToken(spend, network);
+  return `Can spend up to ${formatBaseUnits(spend.limit, token.decimals)} ${
+    token.symbol
+  } per ${spend.period}`;
+}
+
+function expectedSpendText(spend, network) {
+  const token = permissionSpendToken(spend, network);
+  return `Spend up to ${formatBaseUnits(spend.limit, token.decimals)} ${
+    token.symbol
+  } per ${spend.period}`;
+}
+
+function permissionSpendToken(spend, network) {
+  if (
+    !spend.token ||
+    spend.token.toLowerCase() === "0x0000000000000000000000000000000000000000"
+  ) {
+    return { decimals: 18, symbol: "ETH" };
+  }
+  const normalized = spend.token.toLowerCase();
+  const config = chainConfigs[network];
+  if (normalized === config.usdmAddress.toLowerCase()) {
+    return { decimals: 18, symbol: "USDm" };
+  }
+  if (normalized === config.usdt0Address.toLowerCase()) {
+    return { decimals: network === "mainnet" ? 6 : 18, symbol: "USDT0" };
+  }
+  return {
+    decimals: 18,
+    symbol: `${spend.token.slice(0, 6)}...${spend.token.slice(-4)}`,
+  };
+}
+
+function formatBaseUnits(value, decimals) {
+  const units = BigInt(value.toString());
+  const scale = 10n ** BigInt(decimals);
+  const whole = units / scale;
+  const fraction = units % scale;
+  if (fraction === 0n) return whole.toString();
+  const trimmed = fraction
+    .toString()
+    .padStart(decimals, "0")
+    .replace(/0+$/u, "");
+  return `${whole}.${trimmed}`;
+}
+
+function formatSymbol(symbol) {
+  return symbol.toLowerCase() === "usdm" ? "USDm" : symbol;
+}
+
+function normalizeText(value) {
+  return value.replace(/\s+/gu, " ").trim();
 }
 
 function assertMissing(text, forbidden) {
@@ -2093,6 +2213,28 @@ async function waitForBodyText(page, predicate, label, timeoutMs) {
   }
 
   throw new Error(`permission screen missing ${label}\n\n${body}`);
+}
+
+async function gotoWalletAuth(page, authUrl) {
+  await settlePageNavigation(page);
+  await page.goto(authUrl, { waitUntil: "domcontentloaded" });
+}
+
+async function approveLoopback(page, buttonName, timeoutMs) {
+  await page.getByRole("button", { name: buttonName }).click();
+  await page
+    .waitForURL(/(127\.0\.0\.1|localhost|\[::1\]):\d+\/callback/u, {
+      timeout: Math.min(timeoutMs, 5000),
+    })
+    .catch(() => undefined);
+  await settlePageNavigation(page);
+}
+
+async function settlePageNavigation(page) {
+  await delay(75);
+  await page
+    .waitForLoadState("domcontentloaded", { timeout: 2000 })
+    .catch(() => undefined);
 }
 
 function delay(ms) {

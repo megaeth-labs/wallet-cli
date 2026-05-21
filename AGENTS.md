@@ -16,6 +16,7 @@ Core commands:
 - `mega wallet login`: connect the local wallet account profile through loopback or device authorization.
 - `mega wallet whoami`: show the active account, delegated key, expiry, and limits.
 - `mega wallet list`: list locally known delegated/access keys and approved limits.
+- `mega wallet permissions`: show a key's approved scope and on-chain spend remaining. The stored spend request is not the same thing as live remaining capacity; use `spendInfos[].remaining` when judging whether another execution can fit.
 - `mega wallet call`: read-only `eth_call`; does not use the relay for writes.
 - `mega wallet execute`: submit state-changing calls through the MegaETH/Porto relay.
 - `mega wallet transfer`: convenience wrapper over `execute`.
