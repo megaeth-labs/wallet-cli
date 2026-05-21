@@ -225,6 +225,50 @@ describe("wallet transfer", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it("prints the full transaction hash in text and JSON output", async () => {
+    const stdout = memoryOutput();
+
+    await runWalletTransfer(
+      {
+        amount: "0.1",
+        network: "mainnet",
+        pollIntervalMs: 1,
+        timeoutMs: 1_000,
+        to: recipient,
+      },
+      dependencies({
+        executeWalletCalls: async () => executionResult(),
+        stdout,
+      }),
+    );
+
+    expect(stdout.text).toContain(`Transaction: ${txHash}`);
+    expect(stdout.text).not.toContain("0x44444444...444444");
+
+    const jsonStdout = memoryOutput();
+    await runWalletTransfer(
+      {
+        amount: "0.1",
+        json: true,
+        network: "mainnet",
+        pollIntervalMs: 1,
+        timeoutMs: 1_000,
+        to: recipient,
+      },
+      dependencies({
+        executeWalletCalls: async () => executionResult(),
+        stdout: jsonStdout,
+      }),
+    );
+
+    const parsed = JSON.parse(jsonStdout.text) as {
+      id: string;
+      receipts: { transactionHash: string }[];
+    };
+    expect(parsed.id).toBe("0x33333333...333333");
+    expect(parsed.receipts[0]?.transactionHash).toBe(txHash);
+  });
+
   it("registers the reachable wallet transfer command", async () => {
     let captured: ExecuteWalletCallsOptions | undefined;
     const stdout = memoryOutput();

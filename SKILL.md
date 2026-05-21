@@ -155,6 +155,8 @@ have a shortened key id from plain text output, run `mega wallet list --json`
 and copy the full `accessAddress` into `mega wallet permissions`.
 In `permissions --json`, treat `authorizedKey.permissions.spend` as the stored
 request and `spendInfos[].remaining` as the live execution capacity.
+`spendInfos` is Porto/account spend accounting, so it can include relay
+fee-token allowance even when `authorizedKey.permissions.spend` is empty.
 
 ## Manage Delegated Keys
 

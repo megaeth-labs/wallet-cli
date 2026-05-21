@@ -245,7 +245,7 @@ function renderTransferResult(
   stdout: OutputWriter,
 ): void {
   if (options.json) {
-    stdout.write(toJson(result));
+    stdout.write(toJson(result, { preserveKeys: ["transactionHash"] }));
     return;
   }
 
@@ -276,7 +276,7 @@ function renderTransferResult(
   ];
 
   if (transactionHash !== undefined) {
-    lines.push(`Transaction: ${redactString(transactionHash)}`);
+    lines.push(`Transaction: ${transactionHash}`);
   }
 
   stdout.write(lines.join("\n").concat("\n"));

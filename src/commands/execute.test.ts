@@ -322,34 +322,37 @@ describe("wallet execute", () => {
     );
   });
 
-  it("registers the reachable wallet execute command", async () => {
+  it("prints the full transaction hash in text and JSON output", async () => {
     const stdout = memoryOutput();
-    const program = new Command();
-    program.exitOverride();
-    const wallet = program.command("wallet");
-    registerExecuteCommand(
-      wallet,
-      dependencies({
-        relayActions: fakeRelayActions(),
-        stdout,
-      }),
+
+    await runRegisteredExecute(
+      ["--to", target, "--data", "0x", "--value", "0"],
+      stdout,
     );
 
-    await program.parseAsync([
-      "node",
-      "mega",
-      "wallet",
-      "execute",
-      "--to",
-      target,
-      "--data",
-      "0x",
-      "--value",
-      "0",
-      "--poll-interval-ms",
-      "1",
-      "-t",
-    ]);
+    expect(stdout.text).toContain(`Transaction: ${txHash}`);
+    expect(stdout.text).not.toContain("0x55555555...555555");
+
+    const jsonStdout = memoryOutput();
+    await runRegisteredExecute(
+      ["--to", target, "--data", "0x", "--value", "0", "--json"],
+      jsonStdout,
+    );
+
+    const parsed = JSON.parse(jsonStdout.text) as {
+      id: string;
+      receipts: { transactionHash: string }[];
+    };
+    expect(parsed.id).toBe("0x44444444...444444");
+    expect(parsed.receipts[0]?.transactionHash).toBe(txHash);
+  });
+
+  it("registers the reachable wallet execute command", async () => {
+    const stdout = memoryOutput();
+    await runRegisteredExecute(
+      ["--to", target, "--data", "0x", "--value", "0", "-t"],
+      stdout,
+    );
 
     expect(stdout.text).toBe(`${bundleId}\t200\t${txHash}\n`);
   });
@@ -398,6 +401,33 @@ describe("wallet execute", () => {
     expect(stdout.text).toBe(`${bundleId}\t200\t${txHash}\n`);
   });
 });
+
+async function runRegisteredExecute(
+  args: string[],
+  stdout: { write(chunk: string): void },
+  options: { relayActions?: PortoRelayActions } = {},
+): Promise<void> {
+  const program = new Command();
+  program.exitOverride();
+  const wallet = program.command("wallet");
+  registerExecuteCommand(
+    wallet,
+    dependencies({
+      relayActions: options.relayActions ?? fakeRelayActions(),
+      stdout,
+    }),
+  );
+
+  await program.parseAsync([
+    "node",
+    "mega",
+    "wallet",
+    "execute",
+    ...args,
+    "--poll-interval-ms",
+    "1",
+  ]);
+}
 
 function dependencies(options: {
   client?: PortoRelayClient;
