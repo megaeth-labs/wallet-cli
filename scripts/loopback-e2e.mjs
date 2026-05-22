@@ -717,7 +717,7 @@ async function handleShimRequest(
       {
         address: chainConfig.usdmAddress,
         name: "MegaUSD",
-        symbol: "USDM",
+        symbol: "USDm",
         decimals: 18,
         balance: "20000000000000000000",
         displayBalance: "20",
