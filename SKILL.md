@@ -67,11 +67,12 @@ account profile locally. The callback must not contain private keys or
 transferable bearer credentials. Login alone is not enough for writes; create a
 scoped delegated key before `execute` or `transfer`.
 
-`--auth-flow` selects the authorization protocol. `--no-browser` only prevents
-the CLI from opening the browser automatically and prints the authorization URL
-instead. For example, `mega wallet login --no-browser` still uses same-machine
-loopback auth; use `--auth-flow device` when the browser is not on the CLI
-machine.
+`--no-browser` only prevents the CLI from opening the browser automatically and
+prints the authorization URL instead. For example, `mega wallet login
+--no-browser` still uses same-machine loopback auth.
+
+Device-code auth is not supported right now. Do not use `--auth-flow device`;
+use loopback auth on the same machine as the browser.
 
 For both browser-opened and `--no-browser` authorization flows, pass
 `--timeout-ms 300000` when passkey approval may take longer than the default
@@ -86,22 +87,6 @@ session open for polling. Capture the printed URL/code, show it to the user, and
 continue monitoring until the command completes, times out, or the user asks you
 to stop. If you cannot monitor live output, do not start the auth flow; tell the
 user the exact command to run locally instead.
-
-For headless, SSH, container, or remote CLI environments, use device-style auth:
-
-```bash
-mega wallet login --auth-flow device --no-browser --timeout-ms 300000
-```
-
-The CLI prints an authorization URL and a verification code:
-
-```text
-Running headless? Go to https://account.megaeth.com/cli-auth and input this code - XXXX-XXXX
-```
-
-Open the URL in a browser, enter the code, approve with the wallet passkey, and
-leave the CLI running until approval completes. PKCE remains on the CLI machine;
-`create-key` delegated private keys do too.
 
 Use login only to connect a wallet profile when none exists. If the CLI reports
 `Wallet already connected to ...`, do not rerun login. Use
@@ -126,14 +111,15 @@ USDM as the fee token with a `1 USDM` allowance, and a flat `100 USDM` spend cap
 over the one-week authorization window. The agent must provide call scope with
 `--allow-call <target:signature>`, copy a known-good key with `--from`, or pass
 a complete `--permissions ./permissions.json` file. Do not create workflow keys
-with implicit broad call authority. If broad authority is explicitly intended,
-represent it as `permissions.calls: [{}]` in a permissions file.
+with implicit broad call authority. Use the narrowest call and spend scope that
+covers the requested workflow.
 
 Use `mega wallet create-key --spend-limit <amount> --allow-call ...` to
 override the default USDM spend cap while preserving the default fee token,
 expiry, spend token, and spend period. Custom permission files must include a
 non-empty `permissions.calls` array. Never omit `permissions.calls`; omitted
-calls have produced keys that the relay rejects for writes.
+calls have produced keys that the relay rejects for writes. Each call entry
+must include both `to` and `signature`.
 
 Fee limits are token-denominated. The CLI does not implement `maxFeesUSD`; use
 `feeToken.limit` for the amount of `feeToken.symbol` the key may spend on relay
@@ -172,15 +158,8 @@ mega wallet create-key \
   --spend-limit 25 \
   --allow-call '0xfafddbb3fc7688494971a79cc65dca3ef82079e7:transfer(address,uint256)' \
   --label "agent"
-mega wallet create-key --auth-flow device --no-browser --timeout-ms 300000 \
-  --allow-call '0xfafddbb3fc7688494971a79cc65dca3ef82079e7:transfer(address,uint256)' \
-  --label "agent"
 mega wallet label 0xKEY_OR_ACCESS_ADDRESS "agent"
 mega wallet revoke 0xKEY_OR_ACCESS_ADDRESS
-mega wallet revoke 0xKEY_OR_ACCESS_ADDRESS \
-  --auth-flow device \
-  --no-browser \
-  --timeout-ms 300000
 ```
 
 Use `list` to inspect local keys. Revoked and expired keys are hidden unless
@@ -192,9 +171,10 @@ inspection, writes, revoke, fund, and logout commands.
 
 Use `create-key` when no existing key has the requested scope; it opens the
 browser/passkey approval flow and requires explicit call scope unless using
-`--from` or `--permissions`. Use `--auth-flow device --no-browser` for headless
-create-key or revoke authorization. Use `revoke` to revoke a key on-chain; the
-CLI keeps an inactive audit record but removes local private key material.
+`--from` or `--permissions`. Device-code auth is not supported right now, so
+create-key and revoke authorization require same-machine loopback auth. Use
+`revoke` to revoke a key on-chain; the CLI keeps an inactive audit record but
+removes local private key material.
 
 ## Custom Permission Files
 
@@ -239,8 +219,8 @@ cause permission rejections or wrong calls.
 Spend permission is not call permission. A key with `calls: []` or omitted
 `permissions.calls` cannot execute relay-backed writes, including native ETH
 transfers, even when it has spend allowance. Do not request `calls: []` and do
-not omit `permissions.calls`; use `permissions.calls: [{}]` for broad contract
-authority or explicit `--allow-call` scopes for restrictive keys.
+not omit `permissions.calls`; use explicit `--allow-call <target:signature>`
+scopes or permission-file call entries with both `to` and `signature`.
 
 For workflows that move ERC20 value through another contract, the key usually
 needs both spend permission for the token and call permission for each contract

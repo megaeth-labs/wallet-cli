@@ -38,9 +38,7 @@ afterEach(async () => {
 
 describe("loopback login", () => {
   it("constructs the wallet key auth URL without local private key material", () => {
-    const request = defaultKeyPermissions(
-      new Date("2026-05-07T00:00:00.000Z"),
-    );
+    const request = defaultKeyPermissions(new Date("2026-05-07T00:00:00.000Z"));
     const permissions = encodePermissions({
       ...request,
       permissions: {
@@ -415,7 +413,7 @@ describe("loopback login", () => {
     );
 
     await expect(resolveKeyPermissions({ permissionsFile })).rejects.toThrow(
-      "permissions.calls must be present and include at least one call",
+      "permissions.calls must be present and include at least one explicit call",
     );
   });
 
@@ -447,6 +445,43 @@ describe("loopback login", () => {
       "permissions.calls must be present and be an array",
     );
   });
+
+  it.each([
+    ["broad", {}],
+    ["target-only", { to: "0x3333333333333333333333333333333333333333" }],
+    ["signature-only", { signature: "transfer(address,uint256)" }],
+  ])(
+    "rejects custom permission files with %s call permissions",
+    async (_label, call) => {
+      const dir = await mkdtemp(join(tmpdir(), "mega-wallet-cli-permissions-"));
+      tempDirs.push(dir);
+      const permissionsFile = join(dir, "permissions.json");
+      await writeFile(
+        permissionsFile,
+        JSON.stringify({
+          expiry: 1_800_000_000,
+          feeToken: {
+            limit: "1",
+            symbol: "USDM",
+          },
+          permissions: {
+            calls: [call],
+            spend: [
+              {
+                limit: "1000000000000000",
+                period: "week",
+              },
+            ],
+          },
+        }),
+        "utf8",
+      );
+
+      await expect(resolveKeyPermissions({ permissionsFile })).rejects.toThrow(
+        "each permissions.calls entry must include both to and signature",
+      );
+    },
+  );
 
   it("uses the testnet USDM token for testnet default permissions", async () => {
     const permissions = await resolveKeyPermissions({

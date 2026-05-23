@@ -35,7 +35,12 @@ const testPermissions: CliPermissionRequest = {
     symbol: "USDM",
   },
   permissions: {
-    calls: [{}],
+    calls: [
+      {
+        to: "0x3333333333333333333333333333333333333333",
+        signature: "transfer(address,uint256)",
+      },
+    ],
     spend: [
       {
         limit: "100000000000000000000",
@@ -529,7 +534,12 @@ function makeAuthorizedKey(publicKey: HexString): AuthorizedKey {
       symbol: "USDM",
     },
     permissions: {
-      calls: [{}],
+      calls: [
+        {
+          to: "0x3333333333333333333333333333333333333333",
+          signature: "transfer(address,uint256)",
+        },
+      ],
       spend: [
         {
           limit: "100000000000000000",

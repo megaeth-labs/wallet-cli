@@ -493,7 +493,7 @@ describe("wallet status commands", () => {
         },
       ),
     ).rejects.toThrow(
-      "permissions.calls must be present and include at least one call",
+      "permissions.calls must be present and include at least one explicit call",
     );
   });
 
@@ -546,7 +546,35 @@ describe("wallet status commands", () => {
         },
       ),
     ).rejects.toThrow(
-      "permissions.calls must be present and include at least one call",
+      "permissions.calls must be present and include at least one explicit call",
+    );
+  });
+
+  it("refuses to copy permissions from a delegated key with broad call scope", async () => {
+    const env = await tempEnv();
+    const profile = makeProfile();
+    profile.keys[0]!.authorizedKey.permissions.calls = [{}];
+    await writeWalletProfile(profile, env);
+
+    await expect(
+      runWalletCreateKey(
+        {
+          allowCall: [],
+          from: profile.keys[0]!.id,
+          network: "mainnet",
+          timeoutMs: 1_000,
+        },
+        {
+          authorizeKey: async () => {
+            throw new Error("authorizeKey should not be called");
+          },
+          env,
+          now: () => activeNow,
+          stdout: memoryOutput(),
+        },
+      ),
+    ).rejects.toThrow(
+      "each permissions.calls entry must include both to and signature",
     );
   });
 

@@ -121,8 +121,16 @@ export function assertExecutableCallPermission(
     request.permissions.calls.length === 0
   ) {
     throw new CliError(
-      "permissions.calls must be present and include at least one call permission; relay-backed wallet writes require contract call permission. Use create-key --allow-call <target:signature>, provide permissions.calls in --permissions, or use permissions.calls: [{}] only when broad contract authority is explicitly intended.",
+      "permissions.calls must be present and include at least one explicit call permission; relay-backed wallet writes require contract call permission. Use create-key --allow-call <target:signature> or provide permissions.calls entries with both to and signature.",
     );
+  }
+
+  for (const call of request.permissions.calls) {
+    if (call.to === undefined || call.signature === undefined) {
+      throw new CliError(
+        "each permissions.calls entry must include both to and signature",
+      );
+    }
   }
 }
 
@@ -216,31 +224,32 @@ function parseCallPermission(value: unknown): CallPermission {
     throw new CliError("call permission must be an object");
   }
 
-  const call: CallPermission = {};
-
-  if (value.to !== undefined) {
-    assertAddress(
-      value.to,
-      "call permission target must be a 20-byte hex address",
+  if (value.to === undefined || value.signature === undefined) {
+    throw new CliError(
+      "each permissions.calls entry must include both to and signature",
     );
-    call.to = value.to;
-  }
-  if (value.signature !== undefined) {
-    if (typeof value.signature !== "string" || value.signature.length === 0) {
-      throw new CliError("call permission signature is required");
-    }
-    if (
-      !selectorPattern.test(value.signature) &&
-      (!value.signature.includes("(") || !value.signature.endsWith(")"))
-    ) {
-      throw new CliError(
-        "call permission signature must be a function signature or 4-byte selector",
-      );
-    }
-    call.signature = value.signature;
   }
 
-  return call;
+  assertAddress(
+    value.to,
+    "call permission target must be a 20-byte hex address",
+  );
+  if (typeof value.signature !== "string" || value.signature.length === 0) {
+    throw new CliError("call permission signature is required");
+  }
+  if (
+    !selectorPattern.test(value.signature) &&
+    (!value.signature.includes("(") || !value.signature.endsWith(")"))
+  ) {
+    throw new CliError(
+      "call permission signature must be a function signature or 4-byte selector",
+    );
+  }
+
+  return {
+    to: value.to,
+    signature: value.signature,
+  };
 }
 
 function parseSpendPermission(

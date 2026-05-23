@@ -20,8 +20,7 @@ addresses for the selected network. The built-in defaults use:
 - testnet USDM: `0x15e9f2b0a747ac05c7446559306687085d161e5c`
 
 Use a full permission file when the user needs custom expiry, fee token, spend
-token, spend period, broad call authority, multi-contract call scope, or no
-spend.
+token, spend period, multi-contract call scope, or no spend.
 
 ## File Shape
 
@@ -79,11 +78,8 @@ the inner `permissions` object:
 - `permissions.calls` is required and must contain at least one entry. Do not
   omit it or use `permissions.calls: []`; both produce unusable or rejected
   write keys.
-- Use `permissions.calls: [{}]` for broad contract call authority: any target
-  and any function, still bounded by spend, fee, expiry, relay, and account
-  enforcement.
-- A call entry may specify `to`, `signature`, or both. Prefer human-readable
-  function signatures, such as `transfer(address,uint256)` or
+- Each call entry must include both `to` and `signature`. Prefer
+  human-readable function signatures, such as `transfer(address,uint256)` or
   `supply(address,uint256,address,uint16)`, over 4-byte hex selectors; use a
   selector only when the full function signature is unavailable.
 - Tuple parameters use standard ABI notation with nested parentheses, such as

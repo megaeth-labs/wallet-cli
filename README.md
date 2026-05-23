@@ -205,8 +205,9 @@ mega wallet execute --key 0xKEY_OR_ACCESS_ADDRESS --calls ./calls.json
 
 Spend permission is not call permission. Empty call permissions create keys
 that cannot execute relay-backed writes, including native ETH transfers. Custom
-permission files with omitted or empty `permissions.calls` are rejected; use
-`permissions.calls: [{}]` for broad authority or include explicit call scopes.
+permission files with omitted or empty `permissions.calls` are rejected; include
+explicit call scopes, and make each call entry include both `to` and
+`signature`.
 Logging in alone is not enough for writes; select or create a key whose call and
 spend scopes cover the requested operation.
 

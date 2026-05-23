@@ -146,9 +146,6 @@ enforcement.
 
 Be precise about empty fields versus omitted fields:
 
-- `permissions.calls: [{}]` means broad contract execution authority: any
-  target and any function, still bounded by spend, fee, expiry, relay, and
-  account enforcement.
 - `permissions.calls: []` means no app-level call scopes were requested. A key
   with spend allowance but `calls: []` cannot perform useful ERC20, swap,
   protocol, or other contract-write actions because those all require contract
@@ -157,12 +154,12 @@ Be precise about empty fields versus omitted fields:
 - Omitted `permissions.calls` is not broad call authority in relay execution.
   It has produced approvals that look funded but fail writes with delegated-key
   permission errors. Reject omitted `permissions.calls` in CLI/auth request
-  files; encode broad call authority intentionally as `permissions.calls: [{}]`,
-  document it, and cover it with tests.
+  files.
 
 `permissions.calls` scopes which target/function selectors the key may execute.
 For example, a transfer-only USDC scope should include the USDC token address
-and `transfer(address,uint256)`.
+and `transfer(address,uint256)`. CLI-created call scopes must include both
+`to` and `signature`; do not create broad or partial call entries.
 
 `permissions.spend` scopes how much native/token value can leave the account for
 a period. Native token spend is represented without a token address in the CLI
@@ -185,12 +182,11 @@ The create-key default keeps the visible approval simple: one-week expiry,
 network-specific USDM as the fee token with a `1 USDM` allowance, and a flat
 `100 USDM` spend cap for the authorization window. It must not silently request
 broad call authority. Require explicit call scopes from `--allow-call`, copied
-permissions from `--from`, or a full `--permissions` file. Approved broad-call
-keys may still be represented as `permissions.calls: [{}]` only when broad
-authority is explicitly intended. Do not create CLI write keys with omitted or
-empty `permissions.calls`. Keep those caps and call-scope requirements explicit
-in prompt/UI copy, avoid ambiguous empty or omitted permissions, and update
-`README.md`, `SKILL.md`, tests, and this file together when changing the
+permissions from `--from`, or a full `--permissions` file. Do not create CLI
+write keys with omitted or empty `permissions.calls`, or with call entries that
+omit either `to` or `signature`. Keep those caps and call-scope requirements
+explicit in prompt/UI copy, avoid ambiguous empty or omitted permissions, and
+update `README.md`, `SKILL.md`, tests, and this file together when changing the
 default.
 
 `mega wallet create-key --spend-limit <amount>` is a shorthand for overriding
