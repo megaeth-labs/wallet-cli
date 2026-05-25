@@ -46,7 +46,13 @@ describe("installer scripts", () => {
     ]);
 
     expect(stdout).toContain("would install release:");
-    expect(stdout).toContain("would write wrapper:");
+    expect(stdout).toContain(
+      `would write wrapper: ${join(dir, "bin", "mega")} ->`,
+    );
+    expect(stdout).not.toContain(`${join(dir, "bin", "wallet")} ->`);
+    expect(stdout).toContain(
+      `would remove legacy wallet wrapper if repo-owned: ${join(dir, "bin", "wallet")}`,
+    );
     expect(stdout).toContain("would install codex skill:");
     expect(stdout).toContain("would install claude skill:");
   });

@@ -28,13 +28,13 @@ Build and install the MegaETH Wallet CLI from this checkout.
 
 Options:
   --prefix DIR             Prefix used when --bin-dir is omitted (default: ~/.local)
-  --bin-dir DIR            Directory for mega/wallet wrappers (default: <prefix>/bin)
+  --bin-dir DIR            Directory for the mega wrapper (default: <prefix>/bin)
   --install-root DIR       Versioned install root (default: ~/.mega/wallet-cli)
   --skip-build             Reuse existing dist/ instead of running pnpm install/build
   --no-skill               Skip installing the agent skill from SKILL.md
   --skill-agent AGENT      Skill target: codex, claude, or all (default: all)
   --force-skill            Replace existing installed skill when it differs
-  --default-wallet-url URL Bake a wallet URL override into installed wrappers (default: none)
+  --default-wallet-url URL Bake a wallet URL override into the installed wrapper (default: none)
   -y, --yes                Install missing prerequisites without prompting
   --dry-run                Print actions without writing files or running builds
   -h, --help               Show this help
@@ -261,6 +261,35 @@ detect_pnpm() {
   exit 1
 }
 
+wrapper_is_owned() {
+  wrapper="$1"
+
+  if [ ! -f "$wrapper" ]; then
+    return 1
+  fi
+
+  grep -Fq "$install_root/current/dist/" "$wrapper"
+}
+
+remove_legacy_wallet_wrapper() {
+  target="$bin_dir/wallet"
+
+  if [ "$dry_run" -eq 1 ]; then
+    echo "would remove legacy wallet wrapper if repo-owned: $target"
+    return
+  fi
+
+  if [ ! -e "$target" ] && [ ! -L "$target" ]; then
+    return
+  fi
+
+  if wrapper_is_owned "$target"; then
+    rm -f "$target"
+  else
+    echo "skip non-owned legacy wallet wrapper: $target" >&2
+  fi
+}
+
 write_wrapper() {
   target="$1"
   entry="$2"
@@ -297,7 +326,7 @@ if [ "$dry_run" -eq 0 ] && [ "$build" -eq 1 ]; then
 fi
 
 if [ "$dry_run" -eq 0 ]; then
-  if [ ! -f "$repo_root/dist/index.js" ] || [ ! -f "$repo_root/dist/wallet.js" ]; then
+  if [ ! -f "$repo_root/dist/index.js" ]; then
     echo "dist/ is missing; run without --skip-build or run pnpm build first" >&2
     exit 1
   fi
@@ -336,7 +365,7 @@ else
 fi
 
 write_wrapper "$bin_dir/mega" "index.js"
-write_wrapper "$bin_dir/wallet" "wallet.js"
+remove_legacy_wallet_wrapper
 
 if [ "$with_skill" -eq 1 ]; then
   skill_args=(--agent "$skill_agent")
@@ -357,7 +386,6 @@ if [ "$dry_run" -eq 0 ]; then
   echo "installed MegaETH Wallet CLI"
   echo "  release: $release_dir"
   echo "  mega:    $bin_dir/mega"
-  echo "  wallet:  $bin_dir/wallet"
   if ! path_contains "$bin_dir"; then
     echo "add $bin_dir to PATH to run mega wallet commands without an absolute path"
   fi

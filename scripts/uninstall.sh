@@ -34,7 +34,7 @@ Remove a local MegaETH Wallet CLI developer install.
 
 Options:
   --prefix DIR             Prefix used when --bin-dir is omitted (default: ~/.local)
-  --bin-dir DIR            Directory containing mega/wallet wrappers (default: <prefix>/bin)
+  --bin-dir DIR            Directory containing the mega wrapper (default: <prefix>/bin)
   --install-root DIR       Versioned install root to remove (default: ~/.mega/wallet-cli)
   --agent codex|claude|all|none
                            Agent skill directory to remove (default: all)
@@ -44,7 +44,7 @@ Options:
   --config                 Also remove wallet CLI config/profile state
   --config-dir DIR         Config dir for --config (default matches the CLI's platform
                            config root, e.g. ~/Library/Application Support/megaeth/wallet-cli on macOS)
-  --force                  Remove mega/wallet wrappers even if they do not look repo-owned
+  --force                  Remove mega and legacy wallet wrappers even if they do not look repo-owned
   --dry-run                Print actions without removing files
   -h, --help               Show this help
 
@@ -178,6 +178,7 @@ remove_skill() {
 }
 
 remove_wrapper "mega"
+# Clean up the old compatibility shortcut if this machine installed one.
 remove_wrapper "wallet"
 remove_path "$install_root" "install root"
 

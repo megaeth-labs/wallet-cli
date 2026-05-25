@@ -6,8 +6,7 @@ uses delegated session keys for writes. Login stores the wallet account profile;
 for passkey approval, receives public approval metadata, and stores the
 approved private key material on the same machine.
 
-Use `mega wallet <command>` as the canonical command shape. The standalone
-`wallet` binary is kept as a compatibility shortcut.
+Use `mega wallet <command>` as the command shape.
 
 ## Install
 
@@ -19,9 +18,9 @@ From this checkout:
 
 The installer builds the CLI, installs a versioned release under
 `~/.mega/wallet-cli/releases/`, updates `~/.mega/wallet-cli/current`, writes
-`mega` and `wallet` wrappers into `~/.local/bin`, and installs the agent skill
-bundle. It checks Node.js `>=22` and pnpm before building. Add `~/.local/bin` to
-`PATH` if needed.
+the `mega` wrapper into `~/.local/bin`, removes any repo-owned legacy `wallet`
+wrapper, and installs the agent skill bundle. It checks Node.js `>=22` and pnpm
+before building. Add `~/.local/bin` to `PATH` if needed.
 
 Update by pulling the checkout and rerunning the installer:
 

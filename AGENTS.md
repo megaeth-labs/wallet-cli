@@ -6,10 +6,9 @@ task unless a small adjacent test or documentation update is required.
 
 ## Product Shape
 
-The canonical user-facing command shape is `mega wallet <command>`. The
-standalone `wallet` binary exists as a compatibility shortcut, but examples,
+The user-facing command shape is `mega wallet <command>`. Examples,
 agent-facing docs, and user-facing recovery messages should teach
-`mega wallet ...`.
+`mega wallet ...`; do not teach or rely on a standalone `wallet` command.
 
 Core commands:
 
@@ -33,7 +32,9 @@ The local install path is repo-owned and deterministic:
 
 - `scripts/install.sh` builds the CLI, installs a versioned release under
   `~/.mega/wallet-cli/releases/`, updates `~/.mega/wallet-cli/current`, and
-  writes `mega` / `wallet` wrappers into `~/.local/bin` by default.
+  writes the `mega` wrapper into `~/.local/bin` by default. It should remove any
+  repo-owned legacy `wallet` wrapper so stale compatibility shortcuts do not
+  remain on PATH.
   It must check Node.js `>=22` and pnpm before building. Interactive runs may
   prompt to install missing prerequisites; non-interactive runs must fail with
   instructions instead of changing system tooling silently.
