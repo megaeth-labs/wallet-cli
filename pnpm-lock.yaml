@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@megaeth-labs/wallet-intent':
+        specifier: ^0.1.5
+        version: 0.1.5(porto@0.2.37(@wagmi/core@3.4.9(typescript@5.9.3)(viem@2.48.4(typescript@5.9.3)(zod@4.4.3)))(typescript@5.9.3)(viem@2.48.4(typescript@5.9.3)(zod@4.4.3)))(viem@2.48.4(typescript@5.9.3)(zod@4.4.3))
       commander:
         specifier: ^14.0.2
         version: 14.0.3
@@ -50,6 +53,12 @@ packages:
 
   '@jridgewell/sourcemap-codec@1.5.5':
     resolution: {integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==}
+
+  '@megaeth-labs/wallet-intent@0.1.5':
+    resolution: {integrity: sha512-nnYebXV98qFnT0rr4kZJhjzE0Znn5AjgeRSQvEz3FsK8vHFRP2IbMgONdf4tHQtWW+Nfjdq2Cz2EceUyp3pnHA==}
+    peerDependencies:
+      porto: ^0.2.37
+      viem: ^2.0.0
 
   '@napi-rs/wasm-runtime@1.1.4':
     resolution: {integrity: sha512-3NQNNgA1YSlJb/kMH1ildASP9HW7/7kYnRI2szWJaofaS1hWmbGI4H+d3+22aGzXXN9IJ+n+GiFVcGipJP18ow==}
@@ -688,6 +697,11 @@ snapshots:
     optional: true
 
   '@jridgewell/sourcemap-codec@1.5.5': {}
+
+  '@megaeth-labs/wallet-intent@0.1.5(porto@0.2.37(@wagmi/core@3.4.9(typescript@5.9.3)(viem@2.48.4(typescript@5.9.3)(zod@4.4.3)))(typescript@5.9.3)(viem@2.48.4(typescript@5.9.3)(zod@4.4.3)))(viem@2.48.4(typescript@5.9.3)(zod@4.4.3))':
+    dependencies:
+      porto: 0.2.37(@wagmi/core@3.4.9(typescript@5.9.3)(viem@2.48.4(typescript@5.9.3)(zod@4.4.3)))(typescript@5.9.3)(viem@2.48.4(typescript@5.9.3)(zod@4.4.3))
+      viem: 2.48.4(typescript@5.9.3)(zod@4.4.3)
 
   '@napi-rs/wasm-runtime@1.1.4(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)':
     dependencies:
