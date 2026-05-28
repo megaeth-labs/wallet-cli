@@ -67,9 +67,10 @@ account profile locally. The callback must not contain private keys or
 transferable bearer credentials. Login alone is not enough for writes; create a
 scoped delegated key before `execute` or `transfer`.
 
-`--no-browser` only prevents the CLI from opening the browser automatically and
-prints the authorization URL instead. For example, `mega wallet login
---no-browser` still uses same-machine loopback auth.
+Prefer the default browser-opened loopback flow. Use `--no-browser` only as a
+fallback when the browser does not open automatically or when the user needs a
+URL to copy manually. `--no-browser` is not headless auth; it still uses
+same-machine loopback auth and waits for browser approval.
 
 Device-code auth is not supported right now. Do not use `--auth-flow device`;
 use loopback auth on the same machine as the browser.
@@ -79,14 +80,12 @@ For both browser-opened and `--no-browser` authorization flows, pass
 120 seconds.
 
 Authorization commands that use `--no-browser` are interactive waiting
-processes. Do not run them as unmonitored foreground shell commands: the printed
-URL can be lost while the process keeps waiting for browser approval.
-Before starting `login`, `create-key`, or `revoke` with `--no-browser`, make
-sure your execution tool will stream stdout/stderr immediately and keep the
-session open. Capture the printed URL, show it to the user, and
-continue monitoring until the command completes, times out, or the user asks you
-to stop. If you cannot monitor live output, do not start the auth flow; tell the
-user the exact command to run locally instead.
+processes. Do not choose them just to monitor auth; use normal browser-opened
+flows first. If `--no-browser` is necessary, make sure your execution tool will
+stream stdout/stderr immediately and keep the session open. Capture the printed
+URL, show it to the user, and continue monitoring until the command completes,
+times out, or the user asks you to stop. If you cannot monitor live output, do
+not start the auth flow; tell the user the exact command to run locally instead.
 
 Use login only to connect a wallet profile when none exists. If the CLI reports
 `Wallet already connected to ...`, do not rerun login. Use

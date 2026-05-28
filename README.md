@@ -65,9 +65,10 @@ mega wallet whoami --network testnet
 ```
 
 Browser authorization uses same-machine loopback. The browser and CLI process
-must run on the same machine; device-code auth is not supported right now. Use
-`--no-browser` only when you want the CLI to print the loopback authorization
-URL instead of opening it automatically.
+must run on the same machine; device-code auth is not supported right now.
+Normally omit `--no-browser` so the CLI opens the wallet automatically. Use
+`--no-browser` only as a fallback when the browser does not open or when you
+need to copy the loopback authorization URL manually.
 
 Fee allowances are token-denominated. A `maxFeesUSD` permission field is not
 implemented by the CLI; set `feeToken.limit` to the approved amount of
