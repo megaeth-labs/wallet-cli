@@ -38,12 +38,6 @@ export type RelayFeeTokenCapability = {
   symbol: string;
 };
 
-export type RelayCapabilities = {
-  fees?: {
-    tokens?: readonly RelayFeeTokenCapability[];
-  };
-};
-
 export type RelayPaymentPerGasToken = {
   address: HexString;
   feeToken?: boolean;
@@ -61,18 +55,10 @@ export type PortoRelayActions = {
     parameters: IntentActions.SendCallsInput,
   ): Promise<IntentActions.SendCallsResult>;
   getPaymentPerGas(client: PortoRelayClient): Promise<RelayPaymentPerGasEntry>;
-  getCallsStatus?(
-    client: PortoRelayClient,
-    parameters: { id: HexString },
-  ): Promise<RelayCallsStatus>;
   getKeys?(
     client: PortoRelayClient,
     parameters: { account: HexString; chainIds?: readonly number[] },
   ): Promise<readonly RelayAccountKey[]>;
-  getCapabilities?(
-    client: PortoRelayClient,
-    parameters: { chainId?: number },
-  ): Promise<RelayCapabilities>;
 };
 
 export type SendRelayCallsOptions = {
@@ -121,7 +107,10 @@ export function resolvePortoRelayUrl(
   return resolveRelayUrl(relayUrl, getChainConfig(network).relayUrl);
 }
 
-function resolveRelayUrl(relayUrl: string, currentDefaultRelayUrl: string): string {
+function resolveRelayUrl(
+  relayUrl: string,
+  currentDefaultRelayUrl: string,
+): string {
   const url = normalizeRelayUrl(relayUrl);
   if (url === normalizeRelayUrl("https://wallet-relay.megaeth.com")) {
     return normalizeRelayUrl(currentDefaultRelayUrl);
@@ -172,7 +161,11 @@ async function resolveApprovedFeeTokenAddress(options: {
   }
 
   const symbol = feeToken.symbol?.trim();
-  if (symbol === undefined || symbol.length === 0 || isNativeFeeSymbol(symbol)) {
+  if (
+    symbol === undefined ||
+    symbol.length === 0 ||
+    isNativeFeeSymbol(symbol)
+  ) {
     return zeroAddress;
   }
 
@@ -240,7 +233,10 @@ function normalizeRelayReceipt(
   };
 }
 
-function quantityToNumber(value: HexString | Hex | number, label: string): number {
+function quantityToNumber(
+  value: HexString | Hex | number,
+  label: string,
+): number {
   const parsed =
     typeof value === "number" ? value : Number.parseInt(value.slice(2), 16);
   if (!Number.isSafeInteger(parsed) || parsed < 0) {
@@ -268,7 +264,9 @@ function isNativeFeeSymbol(symbol: string): boolean {
 
 function isLoopbackUrl(value: string): boolean {
   const { hostname } = new URL(value);
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+  return (
+    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]"
+  );
 }
 
 export function relayErrorToCliError(error: unknown): CliError {

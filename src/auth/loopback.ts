@@ -11,8 +11,6 @@ import { platform } from "node:os";
 import { getChainConfig, isNetwork, type Network } from "../config/chains.js";
 import {
   parseWalletProfile,
-  profileExists,
-  writeWalletProfile,
   type AuthorizedKey,
   type HexString,
   type WalletKeyRecord,
@@ -172,6 +170,18 @@ type RevokeCallbackServer = {
   close: () => Promise<void>;
 };
 
+type LoopbackServer<TCallback> = {
+  redirectUri: LoopbackRedirectUri;
+  waitForCallback: Promise<TCallback>;
+  close: () => Promise<void>;
+};
+
+type LoopbackRequestHandler<TCallback> = (
+  request: IncomingMessage,
+  response: ServerResponse,
+  settle: (result: TCallback | Error) => void,
+) => void;
+
 type CallbackServerOptions = {
   state: string;
   accessAddress: HexString;
@@ -228,12 +238,6 @@ const keccakRhoOffsets = [
 export async function runLoopbackLogin(
   options: LoopbackLoginOptions,
 ): Promise<LoopbackLoginResult> {
-  if (await profileExists(options.network, options.env)) {
-    throw new CliError(
-      "wallet profile already exists; run mega wallet create-key to add a delegated key or mega wallet logout to replace the profile",
-    );
-  }
-
   const chainConfig = getChainConfig(options.network);
   const walletUrl = options.walletUrl ?? chainConfig.walletUrl;
   const relayUrl = options.relayUrl ?? chainConfig.relayUrl;
@@ -280,8 +284,6 @@ export async function runLoopbackLogin(
       createdAt: now,
       updatedAt: now,
     });
-
-    await writeWalletProfile(profile, options.env);
 
     return {
       profile,
@@ -495,71 +497,12 @@ export async function startLoopbackCallbackServer(
     "expected access address must be a 20-byte hex address",
   );
 
-  let settled = false;
-  let settleCallback: (callback: LoopbackCallback) => void = () => {};
-  let rejectCallback: (error: Error) => void = () => {};
-  let timer: NodeJS.Timeout | undefined;
-
-  const waitForCallback = new Promise<LoopbackCallback>((resolve, reject) => {
-    settleCallback = resolve;
-    rejectCallback = reject;
+  return startLoopbackServer({
+    timeoutMs: options.timeoutMs,
+    timeoutMessage: `wallet authorization timed out after ${options.timeoutMs}ms`,
+    handleRequest: (request, response, settle) =>
+      handleCallbackRequest(request, response, options, settle),
   });
-
-  const server = createServer((request, response) => {
-    handleCallbackRequest(request, response, options, (result) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      if (timer) {
-        clearTimeout(timer);
-      }
-
-      if (result instanceof Error) {
-        rejectCallback(result);
-      } else {
-        settleCallback(result);
-      }
-    });
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-
-  timer = setTimeout(() => {
-    if (settled) {
-      return;
-    }
-    settled = true;
-    rejectCallback(
-      new CliError(`wallet login timed out after ${options.timeoutMs}ms`),
-    );
-  }, options.timeoutMs);
-
-  const address = server.address();
-  if (!isAddressInfo(address)) {
-    throw new CliError("failed to start loopback callback server");
-  }
-
-  return {
-    redirectUri: `http://127.0.0.1:${address.port}${callbackPath}`,
-    waitForCallback,
-    close: () =>
-      new Promise<void>((resolve, reject) => {
-        if (timer) {
-          clearTimeout(timer);
-        }
-        server.close((error) => {
-          if (error) {
-            reject(error);
-            return;
-          }
-          resolve();
-        });
-      }),
-  };
 }
 
 export async function startLoopbackLoginCallbackServer(
@@ -567,73 +510,12 @@ export async function startLoopbackLoginCallbackServer(
 ): Promise<LoginCallbackServer> {
   assertPositiveTimeout(options.timeoutMs);
 
-  let settled = false;
-  let settleCallback: (callback: LoopbackLoginCallback) => void = () => {};
-  let rejectCallback: (error: Error) => void = () => {};
-  let timer: NodeJS.Timeout | undefined;
-
-  const waitForCallback = new Promise<LoopbackLoginCallback>(
-    (resolve, reject) => {
-      settleCallback = resolve;
-      rejectCallback = reject;
-    },
-  );
-
-  const server = createServer((request, response) => {
-    handleLoginCallbackRequest(request, response, options, (result) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      if (timer) {
-        clearTimeout(timer);
-      }
-
-      if (result instanceof Error) {
-        rejectCallback(result);
-      } else {
-        settleCallback(result);
-      }
-    });
+  return startLoopbackServer({
+    timeoutMs: options.timeoutMs,
+    timeoutMessage: `wallet login timed out after ${options.timeoutMs}ms`,
+    handleRequest: (request, response, settle) =>
+      handleLoginCallbackRequest(request, response, options, settle),
   });
-
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-
-  timer = setTimeout(() => {
-    if (settled) {
-      return;
-    }
-    settled = true;
-    rejectCallback(
-      new CliError(`wallet login timed out after ${options.timeoutMs}ms`),
-    );
-  }, options.timeoutMs);
-
-  const address = server.address();
-  if (!isAddressInfo(address)) {
-    throw new CliError("failed to start loopback callback server");
-  }
-
-  return {
-    redirectUri: `http://127.0.0.1:${address.port}${callbackPath}`,
-    waitForCallback,
-    close: () =>
-      new Promise<void>((resolve, reject) => {
-        if (timer) {
-          clearTimeout(timer);
-        }
-        server.close((error) => {
-          if (error) {
-            reject(error);
-            return;
-          }
-          resolve();
-        });
-      }),
-  };
 }
 
 export async function startLoopbackRevokeCallbackServer(
@@ -645,20 +527,31 @@ export async function startLoopbackRevokeCallbackServer(
     "expected access address must be a 20-byte hex address",
   );
 
+  return startLoopbackServer({
+    timeoutMs: options.timeoutMs,
+    timeoutMessage: `wallet key revocation timed out after ${options.timeoutMs}ms`,
+    handleRequest: (request, response, settle) =>
+      handleRevokeCallbackRequest(request, response, options, settle),
+  });
+}
+
+async function startLoopbackServer<TCallback>(options: {
+  timeoutMs: number;
+  timeoutMessage: string;
+  handleRequest: LoopbackRequestHandler<TCallback>;
+}): Promise<LoopbackServer<TCallback>> {
   let settled = false;
-  let settleCallback: (callback: LoopbackRevokeCallback) => void = () => {};
+  let settleCallback: (callback: TCallback) => void = () => {};
   let rejectCallback: (error: Error) => void = () => {};
   let timer: NodeJS.Timeout | undefined;
 
-  const waitForCallback = new Promise<LoopbackRevokeCallback>(
-    (resolve, reject) => {
-      settleCallback = resolve;
-      rejectCallback = reject;
-    },
-  );
+  const waitForCallback = new Promise<TCallback>((resolve, reject) => {
+    settleCallback = resolve;
+    rejectCallback = reject;
+  });
 
   const server = createServer((request, response) => {
-    handleRevokeCallbackRequest(request, response, options, (result) => {
+    options.handleRequest(request, response, (result) => {
       if (settled) {
         return;
       }
@@ -685,11 +578,7 @@ export async function startLoopbackRevokeCallbackServer(
       return;
     }
     settled = true;
-    rejectCallback(
-      new CliError(
-        `wallet key revocation timed out after ${options.timeoutMs}ms`,
-      ),
-    );
+    rejectCallback(new CliError(options.timeoutMessage));
   }, options.timeoutMs);
 
   const address = server.address();

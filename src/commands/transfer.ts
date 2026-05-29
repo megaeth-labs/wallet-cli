@@ -6,7 +6,12 @@ import {
   type ExecuteCommandResult,
   type ExecuteWalletCallsOptions,
 } from "./execute.js";
-import { defaultNetwork, isNetwork, type Network } from "../config/chains.js";
+import {
+  normalizeNetwork,
+  parsePositiveIntegerOption,
+  type OutputWriter,
+} from "./common.js";
+import type { Network } from "../config/chains.js";
 import { CliError } from "../errors.js";
 import {
   createEthCallClient,
@@ -75,10 +80,6 @@ type TokenMetadataReader = (options: {
   token: `0x${string}`;
 }) => Promise<Erc20Metadata>;
 
-type OutputWriter = {
-  write(chunk: string): unknown;
-};
-
 export function registerTransferCommand(
   wallet: Command,
   dependencies: TransferCommandDependencies = {},
@@ -100,13 +101,13 @@ export function registerTransferCommand(
     .option(
       "--poll-interval-ms <ms>",
       "deprecated; ignored for direct relay sends",
-      parsePositiveInteger,
+      parsePositiveIntegerOption,
       1_000,
     )
     .option(
       "--timeout-ms <ms>",
       "deprecated; ignored for direct relay sends",
-      parsePositiveInteger,
+      parsePositiveIntegerOption,
       120_000,
     )
     .option("--json", "print JSON output")
@@ -128,8 +129,6 @@ export async function runWalletTransfer(
       calls: [transfer.call],
       ...(options.key === undefined ? {} : { key: options.key }),
       network,
-      pollIntervalMs: options.pollIntervalMs,
-      timeoutMs: options.timeoutMs,
     },
     dependencies,
   );
@@ -299,24 +298,6 @@ function parseDecimals(value: string): number {
   return parsed;
 }
 
-function parsePositiveInteger(value: string): number {
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-    throw new CliError("value must be a positive integer");
-  }
-
-  return parsed;
-}
-
 function firstLine(value: string): string {
   return value.split("\n", 1)[0] ?? value;
-}
-
-function normalizeNetwork(value: string | undefined): Network {
-  const network = value ?? defaultNetwork;
-  if (!isNetwork(network)) {
-    throw new CliError(`unsupported network: ${network}`);
-  }
-
-  return network;
 }

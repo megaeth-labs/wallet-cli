@@ -88,8 +88,6 @@ describe("wallet execute", () => {
           },
         ],
         network: "mainnet",
-        pollIntervalMs: 1,
-        timeoutMs: 1_000,
       },
       dependencies({
         client,
@@ -148,8 +146,6 @@ describe("wallet execute", () => {
           },
         ],
         network: "mainnet",
-        pollIntervalMs: 1,
-        timeoutMs: 1_000,
       },
       dependencies({
         client,
@@ -397,7 +393,6 @@ function dependencies(options: {
   now?: () => Date;
   profile?: WalletProfile;
   relayActions?: PortoRelayActions;
-  sleep?: (ms: number) => Promise<void>;
   stdout?: { write(chunk: string): void };
 }): ExecuteCommandDependencies {
   return {
@@ -405,7 +400,6 @@ function dependencies(options: {
     now: options.now,
     readProfile: async () => options.profile ?? makeProfile(),
     relayActions: options.relayActions ?? fakeRelayActions(),
-    sleep: options.sleep,
     stdout: options.stdout,
   };
 }
@@ -435,9 +429,12 @@ function fakeRelayActions(
   };
 }
 
-function receiptResponse(): Awaited<ReturnType<PortoRelayActions["sendCalls"]>> {
+function receiptResponse(): Awaited<
+  ReturnType<PortoRelayActions["sendCalls"]>
+> {
   return {
-    blockHash: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    blockHash:
+      "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     blockNumber: "0x1",
     chainId: "0x10e6",
     gasUsed: "0x5208",

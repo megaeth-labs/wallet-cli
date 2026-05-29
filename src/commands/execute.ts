@@ -2,7 +2,12 @@ import { readFile } from "node:fs/promises";
 
 import { Command } from "commander";
 
-import { defaultNetwork, isNetwork, type Network } from "../config/chains.js";
+import {
+  normalizeNetwork,
+  parsePositiveIntegerOption,
+  type OutputWriter,
+} from "./common.js";
+import type { Network } from "../config/chains.js";
 import {
   markWalletKeyUsed,
   readWalletProfile,
@@ -50,8 +55,6 @@ export type ExecuteWalletCallsOptions = {
   calls: readonly ExecuteCallInput[];
   key?: string;
   network?: string;
-  pollIntervalMs?: number;
-  timeoutMs?: number;
 };
 
 export type ExecuteCommandResult = {
@@ -74,16 +77,11 @@ export type ExecuteCommandDependencies = {
     env: NodeJS.ProcessEnv,
   ) => Promise<WalletProfile>;
   relayActions?: PortoRelayActions;
-  sleep?: (ms: number) => Promise<void>;
   stdout?: OutputWriter;
   writeProfile?: (
     profile: WalletProfile,
     env: NodeJS.ProcessEnv,
   ) => Promise<void>;
-};
-
-type OutputWriter = {
-  write(chunk: string): unknown;
 };
 
 export function registerExecuteCommand(
@@ -102,13 +100,13 @@ export function registerExecuteCommand(
     .option(
       "--poll-interval-ms <ms>",
       "deprecated; ignored for direct relay sends",
-      parsePositiveInteger,
+      parsePositiveIntegerOption,
       1_000,
     )
     .option(
       "--timeout-ms <ms>",
       "deprecated; ignored for direct relay sends",
-      parsePositiveInteger,
+      parsePositiveIntegerOption,
       120_000,
     )
     .option("--json", "print JSON output")
@@ -127,8 +125,6 @@ export async function runWalletExecute(
       calls: await resolveCliCalls(options),
       ...(options.key === undefined ? {} : { key: options.key }),
       network: options.network,
-      pollIntervalMs: options.pollIntervalMs,
-      timeoutMs: options.timeoutMs,
     },
     dependencies,
   );
@@ -322,15 +318,6 @@ async function markSelectedKeyUsed(
   );
 }
 
-function normalizeNetwork(value: string | undefined): Network {
-  const network = value ?? defaultNetwork;
-  if (!isNetwork(network)) {
-    throw new CliError(`unsupported network: ${network}`);
-  }
-
-  return network;
-}
-
 function renderExecuteResult(
   result: ExecuteCommandResult,
   options: Pick<ExecuteCommandOptions, "json" | "terse">,
@@ -366,15 +353,6 @@ function renderExecuteResult(
   }
 
   stdout.write(lines.join("\n").concat("\n"));
-}
-
-function parsePositiveInteger(value: string): number {
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-    throw new CliError("value must be a positive integer");
-  }
-
-  return parsed;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

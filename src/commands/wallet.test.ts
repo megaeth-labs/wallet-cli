@@ -117,7 +117,9 @@ describe("wallet status commands", () => {
       {
         env,
         now: () => activeNow,
-        readTokenMetadata: async () => ({}),
+        readTokenMetadata: async () => {
+          throw new Error("readTokenMetadata should not be called");
+        },
         stdout,
       },
     );
@@ -576,6 +578,60 @@ describe("wallet status commands", () => {
     );
   });
 
+  it("normalizes copied fee-token spend capacity before authorization", async () => {
+    const env = await tempEnv();
+    const profile = makeProfile();
+    const source = profile.keys[0]!;
+    source.authorizedKey.feeToken = {
+      limit: "1",
+      symbol: "USDM",
+    };
+    source.authorizedKey.permissions.spend = [
+      {
+        limit: "100000000000000000000",
+        period: "week",
+        token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
+      },
+    ];
+    const created = makeKey({
+      id: "0x8888888888888888888888888888888888888888",
+      accessAddress: "0x8888888888888888888888888888888888888888",
+      privateKey:
+        "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    });
+    await writeWalletProfile(profile, env);
+
+    await runWalletCreateKey(
+      {
+        allowCall: [],
+        from: source.id,
+        network: "mainnet",
+        timeoutMs: 1_000,
+      },
+      {
+        authorizeKey: async (options) => {
+          expect(options.permissionRequest.permissions.spend).toEqual([
+            {
+              limit: "101000000000000000000",
+              period: "week",
+              token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
+            },
+          ]);
+          return {
+            accountAddress: profile.accountAddress,
+            authUrl: "https://wallet.example/cli-auth/loopback",
+            key: created,
+            relayUrl: profile.relayUrl,
+            walletUrl: profile.walletUrl,
+          };
+        },
+        env,
+        now: () => activeNow,
+        stdout: memoryOutput(),
+      },
+    );
+  });
+
   it("passes create-key spend limits into the authorization request", async () => {
     const env = await tempEnv();
     const profile = makeProfile();
@@ -695,37 +751,33 @@ describe("wallet status commands", () => {
     });
   });
 
-  it("logs in with device auth while keeping JSON stdout parseable", async () => {
+  it("logs in with loopback auth while keeping JSON stdout parseable", async () => {
     const env = await tempEnv();
     const stdout = memoryOutput();
-    const stderr = memoryOutput();
     const opened: string[] = [];
     const program = new Command();
     program.exitOverride();
     registerWalletCommands(program, {
-      authorizeDeviceLogin: async (options) => {
-        expect(options.walletUrl).toBe("https://wallet.example");
-        expect(options.walletApiUrl).toBe("https://wallet-api.example");
-        options.onPrompt?.({
-          verificationUri: "https://wallet.example/cli-auth",
-          verificationUriComplete:
-            "https://wallet.example/cli-auth?code=ABCD-1234",
-          userCode: "ABCD-1234",
-          expiresAt: "2026-05-07T00:10:00.000Z",
-        });
-        return {
-          accountAddress: "0x1111111111111111111111111111111111111111",
-          authUrl: "https://wallet.example/cli-auth?code=ABCD-1234",
-          relayUrl: "https://relay.example",
-          walletUrl: "https://wallet.example",
-        };
-      },
       env,
       now: () => activeNow,
-      openBrowser: (url) => {
+      openBrowser: async (url) => {
         opened.push(url);
+        const authUrl = new URL(url);
+        const redirectUri = authUrl.searchParams.get("redirectUri");
+        expect(redirectUri).not.toBeNull();
+        const callbackUrl = new URL(redirectUri!);
+        callbackUrl.searchParams.set(
+          "state",
+          authUrl.searchParams.get("state")!,
+        );
+        callbackUrl.searchParams.set("status", "approved");
+        callbackUrl.searchParams.set(
+          "accountAddress",
+          "0x1111111111111111111111111111111111111111",
+        );
+        const response = await fetch(callbackUrl);
+        expect(response.status).toBe(200);
       },
-      stderr,
       stdout,
     });
 
@@ -734,15 +786,12 @@ describe("wallet status commands", () => {
       "mega",
       "wallet",
       "login",
-      "--auth-flow",
-      "device",
       "--wallet-url",
       "https://wallet.example",
       "--wallet-api-url",
       "https://wallet-api.example",
       "--relay-url",
       "https://relay.example",
-      "--no-browser",
       "--json",
     ]);
 
@@ -752,76 +801,38 @@ describe("wallet status commands", () => {
     );
     expect(rendered.activeKeyId).toBeUndefined();
     expect(rendered.keys).toEqual([]);
-    expect(stderr.text).toContain(
-      "Running headless? Go to https://wallet.example/cli-auth and input this code - ABCD-1234",
-    );
-    expect(stderr.text).not.toContain("deviceCode");
-    expect(opened).toEqual([]);
+    expect(opened).toHaveLength(1);
     await expect(readWalletProfile("mainnet", env)).resolves.toMatchObject({
       walletApiUrl: "https://wallet-api.example",
       keys: [],
     });
   });
 
-  it("creates a device key with profile wallet API URL and no browser", async () => {
+  it("rejects device auth for create-key", async () => {
     const env = await tempEnv();
     const profile = makeProfile();
-    const stdout = memoryOutput();
-    const stderr = memoryOutput();
-    const created = makeKey({
-      id: "0x8888888888888888888888888888888888888888",
-      accessAddress: "0x8888888888888888888888888888888888888888",
-      privateKey:
-        "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-    });
-    const opened: string[] = [];
     await writeWalletProfile(profile, env);
 
-    await runWalletCreateKey(
-      {
-        allowCall: [
-          "0x4444444444444444444444444444444444444444:transfer(address,uint256)",
-        ],
-        authFlow: "device",
-        browser: false,
-        network: "mainnet",
-        timeoutMs: 1_000,
-        terse: true,
-      },
-      {
-        authorizeDeviceKey: async (options) => {
-          expect(options.existingAccountAddress).toBe(profile.accountAddress);
-          expect(options.walletApiUrl).toBe(profile.walletApiUrl);
-          options.onPrompt?.({
-            verificationUri: "https://wallet.example/cli-auth",
-            verificationUriComplete:
-              "https://wallet.example/cli-auth?code=WXYZ-9876",
-            userCode: "WXYZ-9876",
-            expiresAt: "2026-05-07T00:10:00.000Z",
-          });
-          return {
-            accountAddress: profile.accountAddress,
-            authUrl: "https://wallet.example/cli-auth?code=WXYZ-9876",
-            key: created,
-            relayUrl: profile.relayUrl,
-            walletUrl: profile.walletUrl,
-          };
+    await expect(
+      runWalletCreateKey(
+        {
+          allowCall: [
+            "0x4444444444444444444444444444444444444444:transfer(address,uint256)",
+          ],
+          authFlow: "device",
+          network: "mainnet",
+          timeoutMs: 1_000,
         },
-        env,
-        now: () => activeNow,
-        openBrowser: (url) => {
-          opened.push(url);
+        {
+          authorizeKey: async () => {
+            throw new Error("authorizeKey should not be called");
+          },
+          env,
+          now: () => activeNow,
+          stdout: memoryOutput(),
         },
-        stderr,
-        stdout,
-      },
-    );
-
-    expect(stdout.text).toBe(
-      `mainnet\t${created.id}\t${created.accessAddress}\n`,
-    );
-    expect(stderr.text).toContain("Verification code: WXYZ-9876");
-    expect(opened).toEqual([]);
+      ),
+    ).rejects.toThrow("device-code auth is not supported right now");
   });
 
   it("revokes a key on-chain and keeps an inactive audit record", async () => {
@@ -863,45 +874,30 @@ describe("wallet status commands", () => {
     expect(stored.keys[0]).not.toHaveProperty("privateKey");
   });
 
-  it("revokes a key through device auth", async () => {
+  it("rejects device auth for revoke", async () => {
     const env = await tempEnv();
     const profile = makeProfile();
-    const stdout = memoryOutput();
-    const stderr = memoryOutput();
     await writeWalletProfile(profile, env);
 
-    await runWalletRevoke(
-      profile.keys[0]!.id,
-      { authFlow: "device", network: "mainnet", terse: true, timeoutMs: 1_000 },
-      {
-        env,
-        now: () => activeNow,
-        revokeDeviceKey: async (options) => {
-          expect(options.accountAddress).toBe(profile.accountAddress);
-          expect(options.accessAddress).toBe(profile.keys[0]!.accessAddress);
-          expect(options.walletApiUrl).toBe(profile.walletApiUrl);
-          options.onPrompt?.({
-            verificationUri: "https://wallet.example/cli-auth",
-            verificationUriComplete:
-              "https://wallet.example/cli-auth?code=REVK-0001",
-            userCode: "REVK-0001",
-            expiresAt: "2026-05-07T00:10:00.000Z",
-          });
-          return {
-            authUrl: "https://wallet.example/cli-auth?code=REVK-0001",
-            revokeTxHash:
-              "0x9999999999999999999999999999999999999999999999999999999999999999",
-          };
+    await expect(
+      runWalletRevoke(
+        profile.keys[0]!.id,
+        {
+          authFlow: "device",
+          network: "mainnet",
+          terse: true,
+          timeoutMs: 1_000,
         },
-        stderr,
-        stdout,
-      },
-    );
-
-    expect(stdout.text).toBe(
-      `mainnet\t${profile.keys[0]!.id}\trevoked\t0x9999999999999999999999999999999999999999999999999999999999999999\n`,
-    );
-    expect(stderr.text).toContain("Running headless?");
+        {
+          env,
+          now: () => activeNow,
+          revokeKey: async () => {
+            throw new Error("revokeKey should not be called");
+          },
+          stdout: memoryOutput(),
+        },
+      ),
+    ).rejects.toThrow("device-code auth is not supported right now");
   });
 
   it("removes the local profile on logout", async () => {

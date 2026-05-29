@@ -98,13 +98,7 @@ export async function resolveKeyPermissions(
           },
         };
 
-  const resolved = includeFeeTokenSpendCapacity(
-    merged,
-    options.network ?? defaultNetwork,
-  );
-
-  assertExecutableCallPermission(resolved);
-  return resolved;
+  return finalizeKeyPermissions(merged, options.network ?? defaultNetwork);
 }
 
 export function defaultKeyPermissions(
@@ -158,6 +152,15 @@ export function assertExecutableCallPermission(
       );
     }
   }
+}
+
+export function finalizeKeyPermissions(
+  request: CliPermissionRequest,
+  network: Network = defaultNetwork,
+): CliPermissionRequest {
+  const resolved = includeFeeTokenSpendCapacity(request, network);
+  assertExecutableCallPermission(resolved);
+  return resolved;
 }
 
 export function parsePermissionRequest(value: unknown): CliPermissionRequest {

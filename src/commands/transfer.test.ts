@@ -53,8 +53,6 @@ describe("wallet transfer", () => {
         },
       ],
       network: "mainnet",
-      pollIntervalMs: 25,
-      timeoutMs: 5_000,
     });
     expect(result.transfer).toEqual({
       amount: "0.1",
@@ -96,8 +94,6 @@ describe("wallet transfer", () => {
         },
       ],
       network: "mainnet",
-      pollIntervalMs: 1,
-      timeoutMs: 1_000,
     });
     expect(result.transfer).toEqual({
       amount: "100",
@@ -194,8 +190,6 @@ describe("wallet transfer", () => {
 
     expect(captured).toMatchObject({
       network: "testnet",
-      pollIntervalMs: 1,
-      timeoutMs: 1_000,
     });
   });
 

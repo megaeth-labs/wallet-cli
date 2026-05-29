@@ -4,11 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  profileExists,
-  readWalletProfile,
-  type AuthorizedKey,
-} from "../config/profile.js";
+import { profileExists, type AuthorizedKey } from "../config/profile.js";
 import { getChainConfig } from "../config/chains.js";
 import {
   authorizeLoopbackKey,
@@ -137,7 +133,7 @@ describe("loopback login", () => {
     );
   });
 
-  it("persists an account profile only after approved state validation", async () => {
+  it("returns an account profile only after approved state validation", async () => {
     const env = await tempEnv();
     let callbackUrl: URL | undefined;
 
@@ -171,10 +167,9 @@ describe("loopback login", () => {
       },
     });
 
-    const stored = await readWalletProfile("mainnet", env);
-    expect(stored).toEqual(result.profile);
-    expect(stored.activeKeyId).toBeUndefined();
-    expect(stored.keys).toEqual([]);
+    expect(result.profile.activeKeyId).toBeUndefined();
+    expect(result.profile.keys).toEqual([]);
+    await expect(profileExists("mainnet", env)).resolves.toBe(false);
     await expect(fetch(callbackUrl!)).rejects.toThrow();
   });
 
@@ -208,10 +203,7 @@ describe("loopback login", () => {
 
     expect(result.profile.walletUrl).toBe(chainConfig.walletUrl);
     expect(result.profile.relayUrl).toBe(chainConfig.relayUrl);
-    await expect(readWalletProfile("mainnet", env)).resolves.toMatchObject({
-      walletUrl: "https://account.megaeth.com",
-      relayUrl: "https://mainnet.megaeth.com/relay",
-    });
+    await expect(profileExists("mainnet", env)).resolves.toBe(false);
   });
 
   it("rejects state mismatch without writing a profile", async () => {

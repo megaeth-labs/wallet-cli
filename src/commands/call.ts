@@ -1,6 +1,7 @@
 import { Command } from "commander";
 
-import { defaultNetwork, isNetwork, type Network } from "../config/chains.js";
+import { normalizeNetwork, type OutputWriter } from "./common.js";
+import type { Network } from "../config/chains.js";
 import { readWalletProfile, type WalletProfile } from "../config/profile.js";
 import { CliError } from "../errors.js";
 import { encodeAbiCall, loadAbiFile, parseAbiArgs } from "../eth/abi.js";
@@ -44,10 +45,6 @@ export type CallCommandDependencies = {
     env: NodeJS.ProcessEnv,
   ) => Promise<WalletProfile>;
   stdout?: OutputWriter;
-};
-
-type OutputWriter = {
-  write(chunk: string): unknown;
 };
 
 export function registerCallCommand(
@@ -175,15 +172,6 @@ async function resolveCallData(
   const args = parseAbiArgs(options.args);
 
   return encodeAbiCall(abi, options.function, args);
-}
-
-function normalizeNetwork(value: string | undefined): Network {
-  const network = value ?? defaultNetwork;
-  if (!isNetwork(network)) {
-    throw new CliError(`unsupported network: ${network}`);
-  }
-
-  return network;
 }
 
 function renderCallResult(

@@ -1,8 +1,12 @@
 import { Command } from "commander";
 
-import { defaultNetwork, isNetwork, type Network } from "../config/chains.js";
+import {
+  assertHttpUrl,
+  normalizeNetwork,
+  type OutputWriter,
+} from "./common.js";
+import type { Network } from "../config/chains.js";
 import { readWalletProfile, type HexString } from "../config/profile.js";
-import { CliError } from "../errors.js";
 import { openSystemBrowser, type BrowserOpener } from "../auth/loopback.js";
 import { compactAddress, toJson } from "../output.js";
 
@@ -25,10 +29,6 @@ export type FundCommandDependencies = {
   env?: NodeJS.ProcessEnv;
   openBrowser?: BrowserOpener;
   stdout?: OutputWriter;
-};
-
-type OutputWriter = {
-  write(chunk: string): unknown;
 };
 
 export function registerFundCommand(
@@ -125,24 +125,4 @@ function renderFundResult(
       "",
     ].join("\n"),
   );
-}
-
-function normalizeNetwork(value: string | undefined): Network {
-  const network = value ?? defaultNetwork;
-  if (!isNetwork(network)) {
-    throw new CliError(`unsupported network: ${network}`);
-  }
-
-  return network;
-}
-
-function assertHttpUrl(value: string, message: string): void {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== "http:" && url.protocol !== "https:") {
-      throw new Error("unsupported protocol");
-    }
-  } catch {
-    throw new CliError(message);
-  }
 }

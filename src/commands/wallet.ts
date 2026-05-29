@@ -1,7 +1,13 @@
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import { zeroAddress } from "viem";
 
 import { registerCallCommand } from "./call.js";
+import {
+  assertHttpUrl,
+  normalizeNetwork,
+  parsePositiveInteger as parsePositiveIntegerValue,
+  type OutputWriter,
+} from "./common.js";
 import {
   registerDebugCommand,
   type DebugCommandDependencies,
@@ -13,13 +19,6 @@ import {
   type TransferCommandDependencies,
 } from "./transfer.js";
 import {
-  authorizeDeviceLogin,
-  authorizeDeviceKey,
-  authorizeDeviceRevoke,
-  type AuthorizationPrompt,
-  type DeviceAuthClient,
-} from "../auth/device.js";
-import {
   authorizeLoopbackKey,
   openSystemBrowser,
   runLoopbackLogin,
@@ -27,17 +26,12 @@ import {
   type BrowserOpener,
 } from "../auth/loopback.js";
 import {
-  assertExecutableCallPermission,
   defaultKeyPermissions,
+  finalizeKeyPermissions,
   resolveKeyPermissions,
   type CliPermissionRequest,
 } from "../auth/permissions.js";
-import {
-  defaultNetwork,
-  getChainConfig,
-  isNetwork,
-  type Network,
-} from "../config/chains.js";
+import { getChainConfig, type Network } from "../config/chains.js";
 import {
   formatTokenAmount,
   summarizeAuthorizedKey,
@@ -111,11 +105,7 @@ type KeyCommandOptions = StatusCommandOptions & {
 
 type LabelCommandOptions = StatusCommandOptions;
 
-type OutputWriter = {
-  write(chunk: string): unknown;
-};
-
-type AuthFlow = "loopback" | "device";
+type AuthFlow = "loopback";
 
 type TokenMetadataReader = (options: {
   network: Network;
@@ -123,16 +113,12 @@ type TokenMetadataReader = (options: {
 }) => Promise<TokenDisplayMetadataMap>;
 
 export type WalletCommandDependencies = {
-  authorizeDeviceLogin?: typeof authorizeDeviceLogin;
-  authorizeDeviceKey?: typeof authorizeDeviceKey;
   authorizeKey?: typeof authorizeLoopbackKey;
-  deviceClient?: DeviceAuthClient;
   env?: NodeJS.ProcessEnv;
   debug?: DebugCommandDependencies;
   fund?: FundCommandDependencies;
   now?: () => Date;
   openBrowser?: BrowserOpener;
-  revokeDeviceKey?: typeof authorizeDeviceRevoke;
   revokeKey?: typeof runLoopbackRevoke;
   readSpendInfos?: typeof readSpendInfos;
   readTokenMetadata?: TokenMetadataReader;
@@ -215,13 +201,13 @@ export function registerWalletSubcommands(
     .command("login")
     .description("Connect a wallet profile")
     .option("--network <network>", "wallet network: mainnet or testnet")
-    .option("--auth-flow <flow>", "authorization flow: loopback or device")
+    .addOption(authFlowOption())
     .option(
       "--no-browser",
       "print authorization instructions without opening a browser",
     )
     .option("--wallet-url <url>", "wallet UI URL")
-    .option("--wallet-api-url <url>", "wallet API URL for device authorization")
+    .addOption(walletApiUrlOption())
     .option("--relay-url <url>", "MegaETH relay URL")
     .option(
       "--timeout-ms <ms>",
@@ -283,13 +269,13 @@ export function registerWalletSubcommands(
     .command("create-key")
     .description("Authorize and store a new delegated key")
     .option("--network <network>", "wallet network: mainnet or testnet")
-    .option("--auth-flow <flow>", "authorization flow: loopback or device")
+    .addOption(authFlowOption())
     .option(
       "--no-browser",
       "print authorization instructions without opening a browser",
     )
     .option("--wallet-url <url>", "wallet UI URL")
-    .option("--wallet-api-url <url>", "wallet API URL for device authorization")
+    .addOption(walletApiUrlOption())
     .option("--relay-url <url>", "MegaETH relay URL")
     .option("--from <key>", "copy permissions from an existing key")
     .option("--label <label>", "human-readable key label")
@@ -338,13 +324,13 @@ export function registerWalletSubcommands(
     .description("Revoke a delegated key on-chain and keep an audit record")
     .argument("<key>", "delegated key id or access address")
     .option("--network <network>", "wallet network: mainnet or testnet")
-    .option("--auth-flow <flow>", "authorization flow: loopback or device")
+    .addOption(authFlowOption())
     .option(
       "--no-browser",
       "print authorization instructions without opening a browser",
     )
     .option("--wallet-url <url>", "wallet UI URL")
-    .option("--wallet-api-url <url>", "wallet API URL for device authorization")
+    .addOption(walletApiUrlOption())
     .option(
       "--timeout-ms <ms>",
       "loopback revocation timeout",
@@ -394,7 +380,7 @@ export async function login(
   options: LoginCommandOptions,
   dependencies: WalletCommandDependencies = {},
 ): Promise<WalletProfile> {
-  const network = parseNetwork(options.network);
+  const network = normalizeNetwork(options.network);
   if (await profileExists(network, dependencies.env)) {
     const profile = await readWalletProfile(network, dependencies.env);
     throw new CliError(
@@ -406,54 +392,25 @@ export async function login(
   const walletUrl = options.walletUrl ?? chainConfig.walletUrl;
   const walletApiUrl = options.walletApiUrl ?? chainConfig.walletApiUrl;
   const relayUrl = options.relayUrl ?? chainConfig.relayUrl;
-  const authFlow = parseAuthFlow(options.authFlow);
+  parseAuthFlow(options.authFlow);
 
   assertHttpUrl(walletUrl, "wallet-url must be an HTTP(S) URL");
   assertHttpUrl(walletApiUrl, "wallet-api-url must be an HTTP(S) URL");
   assertHttpUrl(relayUrl, "relay-url must be an HTTP(S) URL");
 
-  if (authFlow === "loopback") {
-    const result = await runLoopbackLogin({
-      network,
-      walletUrl,
-      relayUrl,
-      timeoutMs: options.timeoutMs,
-      env: dependencies.env,
-      openBrowser: makeBrowserOpener(options, dependencies),
-    });
-    const profile = parseWalletProfile({
-      ...result.profile,
-      walletApiUrl,
-    });
-    await writeWalletProfile(profile, dependencies.env);
-    return profile;
-  }
-
-  const authorization = await (
-    dependencies.authorizeDeviceLogin ?? authorizeDeviceLogin
-  )({
+  const result = await runLoopbackLogin({
     network,
     walletUrl,
-    walletApiUrl,
     relayUrl,
     timeoutMs: options.timeoutMs,
-    client: dependencies.deviceClient,
-    onPrompt: makeDevicePromptHandler(options, dependencies),
+    env: dependencies.env,
+    openBrowser: makeBrowserOpener(options, dependencies),
   });
-  const now = getNow(dependencies).toISOString();
   const profile = parseWalletProfile({
-    version: 1,
-    network,
-    accountAddress: authorization.accountAddress,
-    keys: [],
-    walletUrl,
+    ...result.profile,
     walletApiUrl,
-    relayUrl,
-    createdAt: now,
-    updatedAt: now,
   });
   await writeWalletProfile(profile, dependencies.env);
-
   return profile;
 }
 
@@ -461,11 +418,11 @@ export async function runWalletWhoami(
   options: StatusCommandOptions,
   dependencies: WalletCommandDependencies = {},
 ): Promise<WalletStatusResult> {
-  const network = parseNetwork(options.network);
+  const network = normalizeNetwork(options.network);
   const profile = await readWalletProfile(network, dependencies.env);
   const activeKey = getActiveWalletKey(profile);
   const tokenMetadata =
-    activeKey === undefined || options.terse
+    activeKey === undefined || options.terse || options.json
       ? {}
       : await loadTokenMetadata([activeKey], undefined, network, dependencies);
   const result = buildStatusResult(
@@ -483,7 +440,7 @@ export async function runWalletList(
   options: ListCommandOptions,
   dependencies: WalletCommandDependencies = {},
 ): Promise<WalletListResult> {
-  const network = parseNetwork(options.network);
+  const network = normalizeNetwork(options.network);
   const profile = await readWalletProfile(network, dependencies.env);
   const now = getNow(dependencies);
   const keys = sortKeysByRecency(profile.keys)
@@ -512,7 +469,7 @@ export async function runWalletPermissions(
   options: StatusCommandOptions,
   dependencies: WalletCommandDependencies = {},
 ): Promise<WalletPermissionsResult> {
-  const network = parseNetwork(options.network);
+  const network = normalizeNetwork(options.network);
   const profile = await readWalletProfile(network, dependencies.env);
   const key = requireWalletKey(profile, selector);
   const renderedKey = renderableKey(profile, key, getNow(dependencies));
@@ -642,7 +599,7 @@ export async function runWalletSwitch(
   options: StatusCommandOptions,
   dependencies: WalletCommandDependencies = {},
 ): Promise<WalletSwitchResult> {
-  const network = parseNetwork(options.network);
+  const network = normalizeNetwork(options.network);
   const profile = await readWalletProfile(network, dependencies.env);
   const key = requireWalletKey(profile, selector);
   const updated = setActiveWalletKey(profile, key.id, getNow(dependencies));
@@ -663,14 +620,14 @@ export async function runWalletCreateKey(
   options: CreateKeyCommandOptions,
   dependencies: WalletCommandDependencies = {},
 ): Promise<WalletCreateKeyResult> {
-  const network = parseNetwork(options.network);
+  const network = normalizeNetwork(options.network);
   const profile = await readWalletProfile(network, dependencies.env);
   const chainConfig = getChainConfig(network);
   const walletUrl = options.walletUrl ?? profile.walletUrl;
   const walletApiUrl =
     options.walletApiUrl ?? profile.walletApiUrl ?? chainConfig.walletApiUrl;
   const relayUrl = options.relayUrl ?? profile.relayUrl;
-  const authFlow = parseAuthFlow(options.authFlow);
+  parseAuthFlow(options.authFlow);
   assertHttpUrl(walletUrl, "wallet-url must be an HTTP(S) URL");
   assertHttpUrl(walletApiUrl, "wallet-api-url must be an HTTP(S) URL");
   assertHttpUrl(relayUrl, "relay-url must be an HTTP(S) URL");
@@ -681,27 +638,16 @@ export async function runWalletCreateKey(
     network,
     getNow(dependencies),
   );
-  const authorization =
-    authFlow === "device"
-      ? await (dependencies.authorizeDeviceKey ?? authorizeDeviceKey)({
-          network,
-          permissionRequest,
-          walletUrl,
-          walletApiUrl,
-          relayUrl,
-          existingAccountAddress: profile.accountAddress,
-          timeoutMs: options.timeoutMs,
-          client: dependencies.deviceClient,
-          onPrompt: makeDevicePromptHandler(options, dependencies),
-        })
-      : await (dependencies.authorizeKey ?? authorizeLoopbackKey)({
-          network,
-          permissionRequest,
-          walletUrl,
-          relayUrl,
-          timeoutMs: options.timeoutMs,
-          openBrowser: makeBrowserOpener(options, dependencies),
-        });
+  const authorization = await (
+    dependencies.authorizeKey ?? authorizeLoopbackKey
+  )({
+    network,
+    permissionRequest,
+    walletUrl,
+    relayUrl,
+    timeoutMs: options.timeoutMs,
+    openBrowser: makeBrowserOpener(options, dependencies),
+  });
 
   if (
     authorization.accountAddress.toLowerCase() !==
@@ -749,7 +695,7 @@ export async function runWalletLabel(
   options: LabelCommandOptions,
   dependencies: WalletCommandDependencies = {},
 ): Promise<WalletSwitchResult> {
-  const network = parseNetwork(options.network);
+  const network = normalizeNetwork(options.network);
   const profile = await readWalletProfile(network, dependencies.env);
   const key = requireWalletKey(profile, selector);
   if (label.trim().length === 0) {
@@ -787,40 +733,25 @@ export async function runWalletRevoke(
   options: KeyCommandOptions,
   dependencies: WalletCommandDependencies = {},
 ): Promise<WalletRevokeResult> {
-  const network = parseNetwork(options.network);
+  const network = normalizeNetwork(options.network);
   const profile = await readWalletProfile(network, dependencies.env);
   const key = requireWalletKey(profile, selector);
   if (key.status === "revoked") {
     throw new CliError("delegated key is already revoked");
   }
 
-  const chainConfig = getChainConfig(network);
   const walletUrl = options.walletUrl ?? profile.walletUrl;
-  const walletApiUrl =
-    options.walletApiUrl ?? profile.walletApiUrl ?? chainConfig.walletApiUrl;
-  const authFlow = parseAuthFlow(options.authFlow);
+  parseAuthFlow(options.authFlow);
   assertHttpUrl(walletUrl, "wallet-url must be an HTTP(S) URL");
-  assertHttpUrl(walletApiUrl, "wallet-api-url must be an HTTP(S) URL");
 
-  const revocation =
-    authFlow === "device"
-      ? await (dependencies.revokeDeviceKey ?? authorizeDeviceRevoke)({
-          network,
-          accountAddress: profile.accountAddress,
-          accessAddress: key.accessAddress,
-          walletApiUrl,
-          timeoutMs: options.timeoutMs,
-          client: dependencies.deviceClient,
-          onPrompt: makeDevicePromptHandler(options, dependencies),
-        })
-      : await (dependencies.revokeKey ?? runLoopbackRevoke)({
-          network,
-          accountAddress: profile.accountAddress,
-          accessAddress: key.accessAddress,
-          walletUrl,
-          timeoutMs: options.timeoutMs,
-          openBrowser: makeBrowserOpener(options, dependencies),
-        });
+  const revocation = await (dependencies.revokeKey ?? runLoopbackRevoke)({
+    network,
+    accountAddress: profile.accountAddress,
+    accessAddress: key.accessAddress,
+    walletUrl,
+    timeoutMs: options.timeoutMs,
+    openBrowser: makeBrowserOpener(options, dependencies),
+  });
   const updated = revokeWalletKeyLocal(profile, key.id, {
     revokeTxHash: revocation.revokeTxHash,
     now: getNow(dependencies),
@@ -849,7 +780,7 @@ export async function runWalletLogout(
   options: StatusCommandOptions,
   dependencies: WalletCommandDependencies = {},
 ): Promise<WalletLogoutResult> {
-  const network = parseNetwork(options.network);
+  const network = normalizeNetwork(options.network);
   const profile = await readWalletProfile(network, dependencies.env);
   await deleteWalletProfile(network, dependencies.env);
 
@@ -1217,13 +1148,14 @@ async function resolveCreateKeyPermissions(
     const source = requireWalletKey(profile, options.from);
     const fallback = defaultKeyPermissions(now, { network });
 
-    const request = {
-      expiry: fallback.expiry,
-      feeToken: source.authorizedKey.feeToken ?? fallback.feeToken,
-      permissions: source.authorizedKey.permissions,
-    };
-    assertExecutableCallPermission(request);
-    return request;
+    return finalizeKeyPermissions(
+      {
+        expiry: fallback.expiry,
+        feeToken: source.authorizedKey.feeToken ?? fallback.feeToken,
+        permissions: source.authorizedKey.permissions,
+      },
+      network,
+    );
   }
 
   return resolveKeyPermissions({
@@ -1293,68 +1225,37 @@ function sameKey(left: WalletKeyRecord, right: WalletKeyRecord): boolean {
   return left.id.toLowerCase() === right.id.toLowerCase();
 }
 
-function parseNetwork(value: string | undefined): Network {
-  const network = value ?? defaultNetwork;
-  if (!isNetwork(network)) {
-    throw new CliError(`unsupported network: ${network}`);
-  }
-
-  return network;
-}
-
 function parseAuthFlow(value: string | undefined): AuthFlow {
   const flow = value ?? "loopback";
-  if (flow !== "loopback" && flow !== "device") {
-    throw new CliError("auth-flow must be either loopback or device");
+  if (flow !== "loopback") {
+    throw new CliError(
+      "device-code auth is not supported right now; use same-machine loopback auth",
+    );
   }
 
   return flow;
 }
 
-function parsePositiveInteger(value: string): number {
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-    throw new CliError("timeout-ms must be a positive integer");
-  }
+function authFlowOption(): Option {
+  return new Option(
+    "--auth-flow <flow>",
+    "unsupported; only loopback auth is available",
+  ).hideHelp();
+}
 
-  return parsed;
+function walletApiUrlOption(): Option {
+  return new Option("--wallet-api-url <url>", "wallet API URL").hideHelp();
+}
+
+function parsePositiveInteger(value: string): number {
+  return parsePositiveIntegerValue(
+    value,
+    "timeout-ms must be a positive integer",
+  );
 }
 
 function collect(value: string, previous: string[]): string[] {
   return [...previous, value];
-}
-
-function assertHttpUrl(value: string, message: string): void {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== "http:" && url.protocol !== "https:") {
-      throw new Error("unsupported protocol");
-    }
-  } catch {
-    throw new CliError(message);
-  }
-}
-
-function makeDevicePromptHandler(
-  options: { noBrowser?: boolean },
-  dependencies: WalletCommandDependencies,
-): (prompt: AuthorizationPrompt) => void {
-  return (prompt) => {
-    getStderr(dependencies).write(renderDevicePrompt(prompt));
-    if (!shouldOpenBrowser(options)) {
-      return;
-    }
-
-    void Promise.resolve(
-      (dependencies.openBrowser ?? openSystemBrowser)(
-        prompt.verificationUriComplete,
-      ),
-    ).catch((error: unknown) => {
-      getStderr(dependencies).write(
-        `Warning: failed to open browser: ${formatUnknownError(error)}\n`,
-      );
-    });
-  };
 }
 
 function makeBrowserOpener(
@@ -1370,17 +1271,6 @@ function makeBrowserOpener(
 
     await opener(url);
   };
-}
-
-function renderDevicePrompt(prompt: AuthorizationPrompt): string {
-  return [
-    `Open this URL to authorize: ${prompt.verificationUriComplete}`,
-    `Verification code: ${prompt.userCode}`,
-    `Running headless? Go to ${prompt.verificationUri} and input this code - ${prompt.userCode}`,
-    `Expires: ${prompt.expiresAt}`,
-  ]
-    .join("\n")
-    .concat("\n");
 }
 
 function shouldOpenBrowser(options: {

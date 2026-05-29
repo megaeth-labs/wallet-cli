@@ -1,11 +1,7 @@
 import { Command } from "commander";
 
-import {
-  defaultNetwork,
-  getChainConfig,
-  isNetwork,
-  type Network,
-} from "../config/chains.js";
+import { normalizeNetwork, type OutputWriter } from "./common.js";
+import { getChainConfig, type Network } from "../config/chains.js";
 import { getProfilePath } from "../config/paths.js";
 import {
   getActiveWalletKey,
@@ -87,10 +83,6 @@ export type DebugCommandDependencies = {
   now?: () => Date;
   relayActions?: PortoRelayActions;
   stdout?: OutputWriter;
-};
-
-type OutputWriter = {
-  write(chunk: string): unknown;
 };
 
 export function registerDebugCommand(
@@ -377,15 +369,6 @@ function matchesHex(value: unknown, expected: HexString): boolean {
 
 function isHexString(value: unknown): value is HexString {
   return typeof value === "string" && /^0x[0-9a-fA-F]*$/u.test(value);
-}
-
-function normalizeNetwork(value: string | undefined): Network {
-  const network = value ?? defaultNetwork;
-  if (!isNetwork(network)) {
-    throw new CliError(`unsupported network: ${network}`);
-  }
-
-  return network;
 }
 
 function firstLine(value: string): string {
