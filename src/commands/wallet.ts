@@ -28,6 +28,7 @@ import {
 import {
   defaultKeyPermissions,
   finalizeKeyPermissions,
+  normalizeFeeTokenSymbol,
   resolveKeyPermissions,
   type CliPermissionRequest,
 } from "../auth/permissions.js";
@@ -79,9 +80,11 @@ type LoginCommandOptions = {
 type CreateKeyCommandOptions = LoginCommandOptions & {
   permissions?: string;
   allowCall: string[];
+  feeLimit?: string;
+  feeToken?: string;
   from?: string;
   label?: string;
-  spendLimit?: string;
+  spendLimit?: string[];
 };
 
 type StatusCommandOptions = {
@@ -97,6 +100,7 @@ type ListCommandOptions = StatusCommandOptions & {
 type KeyCommandOptions = StatusCommandOptions & {
   authFlow?: string;
   browser?: boolean;
+  feeToken?: string;
   noBrowser?: boolean;
   timeoutMs?: number;
   walletUrl?: string;
@@ -280,9 +284,12 @@ export function registerWalletSubcommands(
     .option("--from <key>", "copy permissions from an existing key")
     .option("--label <label>", "human-readable key label")
     .option(
-      "--spend-limit <amount>",
-      "USDM spend cap for the scoped permission request",
+      "--spend-limit <token:amount:period>",
+      `add spend row; token is a 20-byte address (${zeroAddress} for native ETH), period: minute|hour|day|week|month|year`,
+      collectOptional,
     )
+    .option("--fee-token <symbol>", "relay fee token for this key")
+    .option("--fee-limit <amount>", "fee-token spend buffer for relay fees")
     .option(
       "--permissions <file>",
       "JSON file containing requested permissions",
@@ -331,6 +338,7 @@ export function registerWalletSubcommands(
     )
     .option("--wallet-url <url>", "wallet UI URL")
     .addOption(walletApiUrlOption())
+    .option("--fee-token <symbol>", "relay fee token for this revocation")
     .option(
       "--timeout-ms <ms>",
       "loopback revocation timeout",
@@ -748,6 +756,12 @@ export async function runWalletRevoke(
     network,
     accountAddress: profile.accountAddress,
     accessAddress: key.accessAddress,
+    feeToken: normalizeFeeTokenSymbol(
+      options.feeToken ??
+        key.authorizedKey.feeToken?.symbol ??
+        getChainConfig(network).defaultFeeToken.symbol,
+      network,
+    ),
     walletUrl,
     timeoutMs: options.timeoutMs,
     openBrowser: makeBrowserOpener(options, dependencies),
@@ -1131,17 +1145,28 @@ async function resolveCreateKeyPermissions(
   network: Network,
   now: Date,
 ): Promise<CliPermissionRequest> {
+  const spendLimits = options.spendLimit ?? [];
   const usesExplicitPermissions =
     options.permissions !== undefined ||
     options.allowCall.length > 0 ||
-    options.spendLimit !== undefined;
+    options.feeLimit !== undefined ||
+    options.feeToken !== undefined ||
+    spendLimits.length > 0;
   if (options.from !== undefined && usesExplicitPermissions) {
     throw new CliError(
       "use either --from or explicit permission options, not both",
     );
   }
-  if (options.permissions !== undefined && options.spendLimit !== undefined) {
+  if (options.permissions !== undefined && spendLimits.length > 0) {
     throw new CliError("use either --permissions or --spend-limit, not both");
+  }
+  if (
+    options.permissions !== undefined &&
+    (options.feeLimit !== undefined || options.feeToken !== undefined)
+  ) {
+    throw new CliError(
+      "put custom spend and fee settings in the permissions file",
+    );
   }
 
   if (options.from !== undefined) {
@@ -1161,8 +1186,10 @@ async function resolveCreateKeyPermissions(
   return resolveKeyPermissions({
     permissionsFile: options.permissions,
     allowCalls: options.allowCall,
+    feeLimit: options.feeLimit,
+    feeToken: options.feeToken,
     network,
-    spendLimit: options.spendLimit,
+    spendLimits,
     now,
   });
 }
@@ -1256,6 +1283,13 @@ function parsePositiveInteger(value: string): number {
 
 function collect(value: string, previous: string[]): string[] {
   return [...previous, value];
+}
+
+function collectOptional(
+  value: string,
+  previous: string[] | undefined,
+): string[] {
+  return [...(previous ?? []), value];
 }
 
 function makeBrowserOpener(

@@ -2,14 +2,18 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { encodeFunctionResult } from "viem";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { profileExists, type AuthorizedKey } from "../config/profile.js";
 import { getChainConfig } from "../config/chains.js";
+import type { EthCallClient } from "../eth/client.js";
+import { erc20DecimalsAbi, erc20SymbolAbi } from "../eth/erc20.js";
 import {
   authorizeLoopbackKey,
   buildCliAuthUrl,
   buildCliLoginUrl,
+  buildCliRevokeUrl,
   deriveDelegatedKeyPair,
   keccak256,
   runLoopbackLogin,
@@ -346,10 +350,27 @@ describe("loopback login", () => {
     ).toEqual(permissions);
   });
 
+  it("includes a requested fee token in revoke auth URLs", () => {
+    const url = new URL(
+      buildCliRevokeUrl({
+        walletUrl: "https://wallet.example/base",
+        accessAddress: "0x1111111111111111111111111111111111111111",
+        feeToken: "USDm",
+        redirectUri: "http://127.0.0.1:49152/callback",
+        state: testState,
+        network: "mainnet",
+        clientName: "mega-cli",
+      }),
+    );
+
+    expect(url.pathname).toBe("/cli-auth/revoke");
+    expect(url.searchParams.get("feeToken")).toBe("USDm");
+  });
+
   it("applies a create-key spend limit to the default USDM spend request", async () => {
     const permissions = await resolveKeyPermissions({
       now: new Date("2026-05-07T00:00:00.000Z"),
-      spendLimit: "12.5",
+      spendLimits: ["0xfafddbb3fc7688494971a79cc65dca3ef82079e7:12.5:week"],
       allowCalls: [
         "0x3333333333333333333333333333333333333333:transfer(address,uint256)",
       ],
@@ -366,6 +387,114 @@ describe("loopback login", () => {
       {
         to: "0x3333333333333333333333333333333333333333",
         signature: "transfer(address,uint256)",
+      },
+    ]);
+  });
+
+  it("adds fee spend capacity for create-key fee-token overrides", async () => {
+    const permissions = await resolveKeyPermissions({
+      now: new Date("2026-05-07T00:00:00.000Z"),
+      feeToken: "USDT0",
+      feeLimit: "0.25",
+      spendLimits: ["0xfafddbb3fc7688494971a79cc65dca3ef82079e7:12.5:week"],
+      allowCalls: [
+        "0x3333333333333333333333333333333333333333:transfer(address,uint256)",
+      ],
+    });
+
+    expect(permissions.feeToken).toEqual({
+      limit: "0.25",
+      symbol: "USDT0",
+    });
+    expect(permissions.permissions.spend).toEqual([
+      {
+        limit: "250000",
+        period: "week",
+        token: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
+      },
+      {
+        limit: "12500000000000000000",
+        period: "week",
+        token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
+      },
+    ]);
+  });
+
+  it("applies custom spend token and period shorthand", async () => {
+    const permissions = await resolveKeyPermissions({
+      now: new Date("2026-05-07T00:00:00.000Z"),
+      feeLimit: "0",
+      spendLimits: ["0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb:0.25:day"],
+      allowCalls: [
+        "0x3333333333333333333333333333333333333333:transfer(address,uint256)",
+      ],
+    });
+
+    expect(permissions.permissions.spend).toEqual([
+      {
+        limit: "250000",
+        period: "day",
+        token: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
+      },
+    ]);
+  });
+
+  it("maps zero-address spend limits to native ETH spend", async () => {
+    const permissions = await resolveKeyPermissions({
+      now: new Date("2026-05-07T00:00:00.000Z"),
+      feeLimit: "0",
+      spendLimits: ["0x0000000000000000000000000000000000000000:0.001:week"],
+      allowCalls: [
+        "0x3333333333333333333333333333333333333333:transfer(address,uint256)",
+      ],
+    });
+
+    expect(permissions.permissions.spend).toEqual([
+      {
+        limit: "1000000000000000",
+        period: "week",
+        token: "0x0000000000000000000000000000000000000000",
+      },
+    ]);
+  });
+
+  it("infers custom spend token decimals from ERC20 metadata", async () => {
+    const token = "0x7777777777777777777777777777777777777777";
+    const tokenMetadataClient: EthCallClient = {
+      async call(request) {
+        if (request.data === "0x313ce567") {
+          return encodeFunctionResult({
+            abi: erc20DecimalsAbi,
+            functionName: "decimals",
+            result: 6,
+          });
+        }
+        if (request.data === "0x95d89b41") {
+          return encodeFunctionResult({
+            abi: erc20SymbolAbi,
+            functionName: "symbol",
+            result: "TOKEN",
+          });
+        }
+        throw new Error(`unexpected call ${request.data}`);
+      },
+    };
+
+    const permissions = await resolveKeyPermissions({
+      now: new Date("2026-05-07T00:00:00.000Z"),
+      feeLimit: "0",
+      spendLimits: [`${token}:1.5:month`],
+      tokenMetadataClient,
+      allowCalls: [
+        "0x3333333333333333333333333333333333333333:transfer(address,uint256)",
+      ],
+    });
+
+    expect(permissions.permissions.spend).toEqual([
+      {
+        limit: "1500000",
+        period: "month",
+        token,
       },
     ]);
   });
@@ -420,7 +549,7 @@ describe("loopback login", () => {
     await expect(
       resolveKeyPermissions({
         now: new Date("2026-05-07T00:00:00.000Z"),
-        spendLimit: "12.5",
+        spendLimits: ["0xfafddbb3fc7688494971a79cc65dca3ef82079e7:12.5:week"],
       }),
     ).rejects.toThrow("Use create-key --allow-call");
   });
@@ -525,7 +654,7 @@ describe("loopback login", () => {
     const permissions = await resolveKeyPermissions({
       network: "testnet",
       now: new Date("2026-05-07T00:00:00.000Z"),
-      spendLimit: "12.5",
+      spendLimits: ["0x15e9f2b0a747ac05c7446559306687085d161e5c:12.5:week"],
       allowCalls: [
         "0x3333333333333333333333333333333333333333:transfer(address,uint256)",
       ],

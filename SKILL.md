@@ -114,12 +114,19 @@ known-good key with `--from`, or pass a complete `--permissions
 authority. Use the narrowest call and spend scope that covers the requested
 workflow.
 
-Use `mega wallet create-key --spend-limit <amount> --allow-call ...` to
-override the default USDM spend cap while preserving the default fee token,
-expiry, spend token, and spend period. Custom permission files must include a
-non-empty `permissions.calls` array. Never omit `permissions.calls`; omitted
-calls have produced keys that the relay rejects for writes. Each call entry
-must include both `to` and `signature`.
+Use `mega wallet create-key --spend-limit <token_address>:<amount>:<period>
+--allow-call ...` to add explicit spend rows. Token must be a 20-byte address;
+use `0x0000000000000000000000000000000000000000` for native ETH. Amount is the
+human token amount, and period is `minute`, `hour`, `day`, `week`, `month`, or
+`year`. Repeat `--spend-limit` for multiple spend rows. Custom permission files
+must include a non-empty `permissions.calls` array. Never omit
+`permissions.calls`; omitted calls have produced keys that the relay rejects for
+writes. Each call entry must include both `to` and `signature`.
+
+Use `--fee-token <symbol>` and optional `--fee-limit <amount>` on `create-key`
+when the delegated key should pay relay fees with a token other than the default
+USDM. The CLI adds that fee buffer to `permissions.spend` for the selected fee
+token before requesting approval.
 
 Relay fees use the same spend accounting as token/native movement. The CLI does
 not implement `maxFeesUSD`, and `feeToken.limit` is not an on-chain permission
@@ -157,11 +164,12 @@ mega wallet create-key \
   --allow-call '0xfafddbb3fc7688494971a79cc65dca3ef82079e7:transfer(address,uint256)' \
   --label "usdm-transfer"
 mega wallet create-key \
-  --spend-limit 25 \
+  --spend-limit 0xfafddbb3fc7688494971a79cc65dca3ef82079e7:25:week \
   --allow-call '0xfafddbb3fc7688494971a79cc65dca3ef82079e7:transfer(address,uint256)' \
   --label "agent"
 mega wallet label 0xKEY_OR_ACCESS_ADDRESS "agent"
 mega wallet revoke 0xKEY_OR_ACCESS_ADDRESS
+mega wallet revoke 0xKEY_OR_ACCESS_ADDRESS --fee-token USDm
 ```
 
 Use `list` to inspect local keys. Revoked and expired keys are hidden unless
@@ -176,7 +184,9 @@ browser/passkey approval flow and requires explicit call scope unless using
 `--from` or `--permissions`. Device-code auth is not supported right now, so
 create-key and revoke authorization require same-machine loopback auth. Use
 `revoke` to revoke a key on-chain; the CLI keeps an inactive audit record but
-removes local private key material.
+removes local private key material. Revoke defaults to the key's stored fee
+token; pass `--fee-token` if the wallet needs to pay the revoke transaction
+with a different relay fee token.
 
 ## Custom Permission Files
 

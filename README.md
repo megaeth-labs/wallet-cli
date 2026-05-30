@@ -115,18 +115,21 @@ mega wallet create-key \
   --allow-call '0xfafddbb3fc7688494971a79cc65dca3ef82079e7:transfer(address,uint256)' \
   --label "usdm-transfer"
 mega wallet create-key \
-  --spend-limit 25 \
+  --spend-limit 0xfafddbb3fc7688494971a79cc65dca3ef82079e7:25:week \
   --allow-call '0xfafddbb3fc7688494971a79cc65dca3ef82079e7:transfer(address,uint256)'
 ```
 
 `create-key` requires an explicit call scope unless copying an existing key
 with `--from` or using a complete `--permissions ./permissions.json` file.
-`--spend-limit` accepts a human USDM workflow amount, preserves the default
-fee token, expiry, spend token, and spend period, and adds the default fee
-buffer to the requested spend cap. The `--allow-call` flags define what the key
-can execute. See [references/permissions.md](references/permissions.md) for
-custom expiry, fee token, spend token, spend period, no-spend, custom call
-scope, or multi-contract scopes.
+Each repeated `--spend-limit <token_address>:<amount>:<period>` adds one spend
+row. Token must be a 20-byte address; use
+`0x0000000000000000000000000000000000000000` for native ETH. Amount is a
+human token amount, and period is `minute`, `hour`, `day`, `week`, `month`, or
+`year`. The `--allow-call` flags define what the key can execute. Use
+`--fee-token <symbol>` and optional `--fee-limit <amount>` to choose a
+non-default relay fee token and fee buffer. See
+[references/permissions.md](references/permissions.md) for custom expiry,
+no-spend, custom call scope, or multi-contract scopes.
 
 Switch or label local keys:
 
@@ -139,11 +142,14 @@ Revoke a delegated key on-chain:
 
 ```bash
 mega wallet revoke 0xKEY_OR_ACCESS_ADDRESS
+mega wallet revoke 0xKEY_OR_ACCESS_ADDRESS --fee-token USDm
 ```
 
 `revoke` opens MegaETH Wallet for passkey confirmation. After success, the CLI
 removes local private key material for that key but keeps an inactive audit
-record. `logout` is local-only and does not revoke keys on-chain.
+record. By default revoke asks the wallet UI to pay with the key's stored fee
+token; override with `--fee-token` when that token has insufficient balance.
+`logout` is local-only and does not revoke keys on-chain.
 
 ## Reads
 

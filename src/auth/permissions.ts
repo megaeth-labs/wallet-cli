@@ -11,6 +11,8 @@ import {
   getChainConfig,
   type Network,
 } from "../config/chains.js";
+import { createEthCallClient, type EthCallClient } from "../eth/client.js";
+import { readErc20Metadata } from "../eth/erc20.js";
 
 export type CliPermissionRequest = {
   expiry: number;
@@ -24,17 +26,23 @@ export type CliPermissionRequest = {
 export type ResolvePermissionsOptions = {
   permissionsFile?: string;
   allowCalls?: string[];
+  feeLimit?: string;
+  feeToken?: string;
   network?: Network;
   now?: Date;
-  spendLimit?: string;
+  spendLimits?: string[];
+  tokenMetadataClient?: EthCallClient;
 };
 
 const defaultPermissionTtlSeconds = 7 * 24 * 60 * 60;
 const defaultFeeTokenLimit = "1";
+const defaultNativeFeeTokenLimit = "0.001";
 const defaultUsdmSpendLimit = "100000000000000000000";
-const usdmDecimals = 18;
+const nativeTokenAddress = "0x0000000000000000000000000000000000000000";
 const nativeDecimals = 18;
 const nativeFeeSymbols = new Set(["eth", "native"]);
+type SpendTarget = { decimals: number; symbol: string; token?: HexString };
+type SpendPermission = AuthorizedKey["permissions"]["spend"][number];
 const extraFeeTokensByNetwork: Partial<
   Record<
     Network,
@@ -64,19 +72,28 @@ const decimalAmountPattern = /^(?:0|[1-9]\d*)(?:\.\d+)?$/;
 export async function resolveKeyPermissions(
   options: ResolvePermissionsOptions = {},
 ): Promise<CliPermissionRequest> {
+  const spendLimits = options.spendLimits ?? [];
+  if (options.permissionsFile !== undefined && spendLimits.length > 0) {
+    throw new CliError("use either --permissions or --spend-limit, not both");
+  }
   if (
     options.permissionsFile !== undefined &&
-    options.spendLimit !== undefined
+    (options.feeLimit !== undefined || options.feeToken !== undefined)
   ) {
-    throw new CliError("use either --permissions or --spend-limit, not both");
+    throw new CliError(
+      "put custom spend and fee settings in the permissions file",
+    );
   }
 
   const allowCalls = options.allowCalls ?? [];
   const request =
     options.permissionsFile === undefined
-      ? defaultKeyPermissions(options.now, {
+      ? await resolveDefaultKeyPermissions(options.now, {
+          feeLimit: options.feeLimit,
+          feeToken: options.feeToken,
           network: options.network,
-          spendLimit: options.spendLimit,
+          spendLimits,
+          tokenMetadataClient: options.tokenMetadataClient,
         })
       : parsePermissionRequest(
           JSON.parse(await readFile(options.permissionsFile, "utf8")),
@@ -103,27 +120,102 @@ export async function resolveKeyPermissions(
 
 export function defaultKeyPermissions(
   now = new Date(),
-  options: Pick<ResolvePermissionsOptions, "network" | "spendLimit"> = {},
+  options: Pick<
+    ResolvePermissionsOptions,
+    "feeLimit" | "feeToken" | "network"
+  > = {},
 ): CliPermissionRequest {
-  const chainConfig = getChainConfig(options.network ?? defaultNetwork);
+  const network = options.network ?? defaultNetwork;
+  const chainConfig = getChainConfig(network);
+  const feeTokenSymbol = normalizeFeeTokenSymbol(
+    options.feeToken ?? chainConfig.defaultFeeToken.symbol,
+    network,
+  );
+  const spend = [defaultSpendPermission(network)];
 
+  return buildDefaultKeyPermissions(now, options, feeTokenSymbol, spend);
+}
+
+async function resolveDefaultKeyPermissions(
+  now = new Date(),
+  options: Pick<
+    ResolvePermissionsOptions,
+    "feeLimit" | "feeToken" | "network" | "spendLimits" | "tokenMetadataClient"
+  > = {},
+): Promise<CliPermissionRequest> {
+  const network = options.network ?? defaultNetwork;
+  const chainConfig = getChainConfig(network);
+  const feeTokenSymbol = normalizeFeeTokenSymbol(
+    options.feeToken ?? chainConfig.defaultFeeToken.symbol,
+    network,
+  );
+  const spend =
+    options.spendLimits === undefined || options.spendLimits.length === 0
+      ? [defaultSpendPermission(network)]
+      : await Promise.all(
+          options.spendLimits.map((value) =>
+            parseSpendLimitArgument(
+              value,
+              network,
+              options.tokenMetadataClient,
+            ),
+          ),
+        );
+
+  return buildDefaultKeyPermissions(now, options, feeTokenSymbol, spend);
+}
+
+function buildDefaultKeyPermissions(
+  now: Date,
+  options: Pick<ResolvePermissionsOptions, "feeLimit">,
+  feeTokenSymbol: string,
+  spend: SpendPermission[],
+): CliPermissionRequest {
   return {
     expiry: Math.floor(now.getTime() / 1000) + defaultPermissionTtlSeconds,
     feeToken: {
-      limit: defaultFeeTokenLimit,
-      symbol: chainConfig.defaultFeeToken.symbol,
+      limit:
+        options.feeLimit ??
+        (nativeFeeSymbols.has(feeTokenSymbol.toLowerCase())
+          ? defaultNativeFeeTokenLimit
+          : defaultFeeTokenLimit),
+      symbol: feeTokenSymbol,
     },
     permissions: {
       calls: [],
-      spend: [
-        {
-          limit: normalizeDefaultUsdmSpendLimit(options.spendLimit),
-          period: "week",
-          token: chainConfig.defaultFeeToken.address,
-        },
-      ],
+      spend,
     },
   };
+}
+
+export function normalizeFeeTokenSymbol(
+  value: string,
+  network: Network = defaultNetwork,
+): string {
+  const symbol = value.trim();
+  if (symbol.length === 0) {
+    throw new CliError("fee token must be a non-empty symbol");
+  }
+
+  if (nativeFeeSymbols.has(symbol.toLowerCase())) {
+    return "ETH";
+  }
+
+  const chainConfig = getChainConfig(network);
+  if (
+    symbol.toLowerCase() === chainConfig.defaultFeeToken.symbol.toLowerCase()
+  ) {
+    return chainConfig.defaultFeeToken.symbol;
+  }
+
+  const extra = extraFeeTokensByNetwork[network]?.[symbol.toLowerCase()];
+  if (extra !== undefined) {
+    return extra.symbol;
+  }
+
+  throw new CliError(
+    `unsupported fee token ${symbol}; use ETH, ${chainConfig.defaultFeeToken.symbol}, or another relay-supported fee token for ${chainConfig.name}`,
+  );
 }
 
 export function encodePermissions(request: CliPermissionRequest): string {
@@ -338,32 +430,106 @@ function normalizeIntegerString(value: unknown, message: string): string {
   throw new CliError(message);
 }
 
-function normalizeDefaultUsdmSpendLimit(value: string | undefined): string {
-  if (value === undefined) {
-    return defaultUsdmSpendLimit;
-  }
+function defaultSpendPermission(network: Network): SpendPermission {
+  return {
+    limit: defaultUsdmSpendLimit,
+    period: "week",
+    token: getChainConfig(network).defaultFeeToken.address,
+  };
+}
 
-  const amount = value.trim();
-  if (!decimalAmountPattern.test(amount)) {
-    throw new CliError("--spend-limit must be a positive decimal USDM amount");
-  }
-
-  const [whole = "", fraction = ""] = amount.split(".", 2);
-  if (fraction.length > usdmDecimals) {
+async function parseSpendLimitArgument(
+  value: string,
+  network: Network,
+  client = createEthCallClient(network),
+): Promise<SpendPermission> {
+  const [token, amount, period, extra] = value.split(":");
+  if (
+    token === undefined ||
+    amount === undefined ||
+    period === undefined ||
+    extra !== undefined
+  ) {
     throw new CliError(
-      "--spend-limit must use at most 18 decimal places for USDM",
+      "--spend-limit must use <token_address>:<amount>:<period>",
     );
   }
 
-  const scale = 10n ** BigInt(usdmDecimals);
-  const fractionalUnits =
-    fraction.length === 0 ? 0n : BigInt(fraction.padEnd(usdmDecimals, "0"));
-  const units = BigInt(whole) * scale + fractionalUnits;
-  if (units <= 0n) {
+  assertAddress(token, "spend-limit token must be a 20-byte hex address");
+
+  const target = await resolveSpendLimitTarget(
+    token as HexString,
+    network,
+    client,
+  );
+
+  return {
+    limit: normalizeSpendLimitAmount(amount, target),
+    period: normalizeSpendPeriod(period),
+    ...(target.token === undefined ? {} : { token: target.token }),
+  };
+}
+
+function normalizeSpendLimitAmount(value: string, target: SpendTarget): string {
+  const amount = value.trim();
+  if (!decimalAmountPattern.test(amount)) {
+    throw new CliError(
+      `--spend-limit must be a positive decimal ${target.symbol} amount`,
+    );
+  }
+
+  const units = decimalToBaseUnits(
+    amount,
+    target.decimals,
+    `--spend-limit must use at most ${target.decimals} decimal places for ${target.symbol}`,
+  );
+  if (BigInt(units) <= 0n) {
     throw new CliError("--spend-limit must be greater than zero");
   }
 
-  return units.toString();
+  return units;
+}
+
+function normalizeSpendPeriod(
+  value: string,
+): AuthorizedKey["permissions"]["spend"][number]["period"] {
+  const period = value.trim();
+  if (!periods.has(period)) {
+    throw new CliError(
+      "spend-limit period must be one of minute, hour, day, week, month, year",
+    );
+  }
+
+  return period as AuthorizedKey["permissions"]["spend"][number]["period"];
+}
+
+async function resolveSpendLimitTarget(
+  token: HexString,
+  network: Network,
+  client = createEthCallClient(network),
+): Promise<SpendTarget> {
+  const chainConfig = getChainConfig(network);
+  if (token.toLowerCase() === nativeTokenAddress) {
+    return {
+      decimals: nativeDecimals,
+      symbol: chainConfig.nativeCurrency.symbol,
+      token,
+    };
+  }
+
+  try {
+    const metadata = await readErc20Metadata(client, token);
+    return {
+      decimals: metadata.decimals,
+      symbol: metadata.symbol ?? token,
+      token,
+    };
+  } catch (error) {
+    const reason = error instanceof Error ? ` (${error.message})` : "";
+    throw new CliError(
+      `could not read spend-limit token ${token} on ${chainConfig.name}${reason}`,
+    );
+  }
 }
 
 function includeFeeTokenSpendCapacity(
@@ -423,17 +589,34 @@ function includeFeeTokenSpendCapacity(
 function resolveFeeTokenSpendTarget(
   symbol: string | undefined,
   network: Network,
-): { token?: HexString; decimals: number } | undefined {
-  if (symbol === undefined || nativeFeeSymbols.has(symbol.toLowerCase())) {
-    return { decimals: nativeDecimals };
+): SpendTarget | undefined {
+  if (symbol === undefined) {
+    return {
+      decimals: nativeDecimals,
+      symbol: "ETH",
+    };
   }
 
+  return resolveKnownSpendTarget(symbol, network);
+}
+
+function resolveKnownSpendTarget(
+  symbol: string,
+  network: Network,
+): SpendTarget | undefined {
+  if (nativeFeeSymbols.has(symbol.toLowerCase())) {
+    return {
+      decimals: nativeDecimals,
+      symbol: "ETH",
+    };
+  }
   const chainConfig = getChainConfig(network);
   if (
     symbol.toLowerCase() === chainConfig.defaultFeeToken.symbol.toLowerCase()
   ) {
     return {
       decimals: chainConfig.defaultFeeToken.decimals,
+      symbol: chainConfig.defaultFeeToken.symbol,
       token: chainConfig.defaultFeeToken.address,
     };
   }
@@ -466,7 +649,15 @@ function addIntegerStrings(a: string, b: string): string {
 }
 
 function sameSpendToken(a: HexString | undefined, b: HexString | undefined) {
-  return (a ?? "").toLowerCase() === (b ?? "").toLowerCase();
+  return normalizeSpendToken(a) === normalizeSpendToken(b);
+}
+
+function normalizeSpendToken(token: HexString | undefined): string {
+  if (token === undefined || token.toLowerCase() === nativeTokenAddress) {
+    return "";
+  }
+
+  return token.toLowerCase();
 }
 
 function normalizeDecimalString(value: unknown, message: string): string {

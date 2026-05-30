@@ -5,8 +5,13 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { Key } from "porto";
 import { chromium } from "playwright";
-import { encodeAbiParameters, parseAbiParameters } from "viem";
+import {
+  decodeAbiParameters,
+  encodeAbiParameters,
+  parseAbiParameters,
+} from "viem";
 
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const defaultE2eDir = resolve(repoRoot, ".e2e");
@@ -676,7 +681,9 @@ async function handleShimRequest(
     const id = normalizeAddress(body.id ?? body.accessAddress);
     state.mockKeys[id] = {
       chainId: chainConfig.chainIdHex,
-      hash: body.hash ?? mockKeyHash(id),
+      hash:
+        body.hash ??
+        mockKeyHashFromPublicKey(body.publicKey ?? body.accessAddress),
       key: toRelayMockKey({
         expiry: body.expiry ?? 0,
         permissions: body.permissions,
@@ -971,7 +978,7 @@ function mockRelayResult(entry, state, chainConfig) {
         },
       };
     case "wallet_sendCalls":
-      return mockSendCalls(entry, chainConfig);
+      return mockSendCalls(entry, state, chainConfig);
     case "wallet_getCallsStatus": {
       const callId = entry?.params?.[0]?.id ?? `0x${"11".repeat(32)}`;
       return {
@@ -1117,8 +1124,26 @@ function mockGetPaymentPerGas(entry, chainConfig) {
   };
 }
 
-function mockSendCalls(entry, chainConfig) {
+function mockSendCalls(entry, state, chainConfig) {
   const id = entry?.id ?? null;
+  const revokedHashes = extractRevokeKeyHashes(entry);
+
+  for (const hash of revokedHashes) {
+    const keyEntry = Object.entries(state.mockKeys).find(
+      ([, value]) => value.hash.toLowerCase() === hash.toLowerCase(),
+    );
+    if (!keyEntry) {
+      return {
+        jsonrpc: "2.0",
+        id,
+        error: {
+          code: -32000,
+          message: `mock relay cannot revoke unknown key hash ${hash}`,
+        },
+      };
+    }
+    delete state.mockKeys[keyEntry[0]];
+  }
 
   return {
     jsonrpc: "2.0",
@@ -1133,6 +1158,37 @@ function mockSendCalls(entry, chainConfig) {
       transactionHash: `0x${randomBytes(32).toString("hex")}`,
     },
   };
+}
+
+function extractRevokeKeyHashes(entry) {
+  const executionData = entry?.params?.[0]?.context?.intent?.executionData;
+  if (typeof executionData !== "string" || !executionData.startsWith("0x")) {
+    return [];
+  }
+
+  let calls;
+  try {
+    [calls] = decodeAbiParameters(
+      parseAbiParameters("(address,uint256,bytes)[]"),
+      executionData,
+    );
+  } catch {
+    return [];
+  }
+
+  const revokeSelector = "0xb75c7dc6";
+  const hashes = [];
+  for (const call of calls) {
+    const data = Array.isArray(call) ? call[2] : call.data;
+    if (
+      typeof data === "string" &&
+      data.toLowerCase().startsWith(revokeSelector) &&
+      data.length >= 74
+    ) {
+      hashes.push(`0x${data.slice(10, 74)}`);
+    }
+  }
+  return hashes;
 }
 
 function mockEthCall(entry, chainConfig) {
@@ -1246,15 +1302,15 @@ function toHexQuantity(value) {
   throw new Error("expected bigint-compatible permission limit");
 }
 
-function mockKeyHash(id) {
-  return `0x${id.slice(2).padStart(64, "0")}`;
-}
-
 function mockKeyHashFromPublicKey(publicKey) {
   if (typeof publicKey !== "string" || !/^0x[0-9a-fA-F]+$/.test(publicKey)) {
     return `0x${"00".repeat(32)}`;
   }
-  return `0x${publicKey.slice(2).padStart(64, "0").slice(-64)}`;
+  return Key.from({
+    publicKey,
+    role: "session",
+    type: "secp256k1",
+  }).hash;
 }
 
 function applyCors(request, response) {
@@ -1735,34 +1791,40 @@ async function runCliLogin(page, runOptions) {
     return runDeviceCliLogin(page, runOptions);
   }
 
-  const { runLoopbackLogin } = await import(
-    pathToFileURL(resolve(repoRoot, "dist/auth/loopback.js")).href
+  const walletCommands = await import(
+    pathToFileURL(resolve(repoRoot, "dist/commands/wallet.js")).href
   );
+  const env = {
+    ...process.env,
+    MEGA_WALLET_CLI_CONFIG_DIR: runOptions.configDir,
+  };
 
   try {
-    const result = await runLoopbackLogin({
-      network: runOptions.network,
-      relayUrl: runOptions.relayUrl,
-      walletUrl: runOptions.walletUrl,
-      timeoutMs: runOptions.timeoutMs,
-      env: {
-        ...process.env,
-        MEGA_WALLET_CLI_CONFIG_DIR: runOptions.configDir,
+    const profile = await walletCommands.login(
+      {
+        network: runOptions.network,
+        relayUrl: runOptions.relayUrl,
+        walletApiUrl: shimApiUrl(runOptions),
+        walletUrl: runOptions.walletUrl,
+        timeoutMs: runOptions.timeoutMs,
       },
-      openBrowser: async (authUrl) => {
-        await gotoWalletAuth(page, authUrl);
-        await assertLoginScreen(page, runOptions.timeoutMs);
+      {
+        env,
+        openBrowser: async (authUrl) => {
+          await gotoWalletAuth(page, authUrl);
+          await assertLoginScreen(page, runOptions.timeoutMs);
 
-        if (runOptions.screenOnly) {
-          throw new ScreenOnlyComplete();
-        }
+          if (runOptions.screenOnly) {
+            throw new ScreenOnlyComplete();
+          }
 
-        await approveLoopback(page, "Approve", runOptions.timeoutMs);
+          await approveLoopback(page, "Approve", runOptions.timeoutMs);
+        },
       },
-    });
+    );
     return {
       screenOnly: false,
-      profile: result.profile,
+      profile,
     };
   } catch (error) {
     if (runOptions.screenOnly && error instanceof ScreenOnlyComplete) {
@@ -2198,6 +2260,10 @@ async function runKeyManagementE2E(page, runOptions, initialProfile) {
     "revoked key retained privateKey material",
   );
 
+  if (runOptions.mockRelay) {
+    await assertMockRelayKeyRevoked(runOptions, secondKey);
+  }
+
   await withOutput((stdout) =>
     walletCommands.runWalletSwitch(
       firstKey.id,
@@ -2209,6 +2275,31 @@ async function runKeyManagementE2E(page, runOptions, initialProfile) {
   console.log("Delegated-key management E2E completed.");
   console.log(`Created/revoked key: ${secondKey.accessAddress}`);
   console.log(`Restored active key: ${firstKey.accessAddress}`);
+}
+
+async function assertMockRelayKeyRevoked(runOptions, key) {
+  const response = await fetch(`http://127.0.0.1:${runOptions.shimPort}/rpc`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "wallet_getKeys",
+      params: [],
+    }),
+  });
+  const payload = await response.json();
+  const keysByChain = payload.result ?? {};
+  const stillPresent = Object.values(keysByChain)
+    .flat()
+    .some(
+      (entry) =>
+        entry?.publicKey?.toLowerCase() === key.accessAddress.toLowerCase(),
+    );
+
+  assert(!stillPresent, "revoked key is still present in mock relay keys");
 }
 
 async function withOutput(action) {

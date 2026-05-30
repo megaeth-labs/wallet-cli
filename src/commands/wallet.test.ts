@@ -507,7 +507,7 @@ describe("wallet status commands", () => {
         {
           allowCall: [],
           network: "mainnet",
-          spendLimit: "25",
+          spendLimit: ["0xfafddbb3fc7688494971a79cc65dca3ef82079e7:25:week"],
           timeoutMs: 1_000,
         },
         {
@@ -680,7 +680,7 @@ describe("wallet status commands", () => {
       "wallet",
       "create-key",
       "--spend-limit",
-      "12.5",
+      "0xfafddbb3fc7688494971a79cc65dca3ef82079e7:12.5:week",
       "--allow-call",
       "0x4444444444444444444444444444444444444444:transfer(address,uint256)",
       "-t",
@@ -689,6 +689,115 @@ describe("wallet status commands", () => {
     expect(stdout.text).toBe(
       `mainnet\t${created.id}\t${created.accessAddress}\n`,
     );
+  });
+
+  it("passes create-key spend token and period overrides into the authorization request", async () => {
+    const env = await tempEnv();
+    const profile = makeProfile();
+    const created = makeKey({
+      id: "0x8888888888888888888888888888888888888888",
+      accessAddress: "0x8888888888888888888888888888888888888888",
+      privateKey:
+        "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    });
+    await writeWalletProfile(profile, env);
+
+    const program = new Command();
+    program.exitOverride();
+    registerWalletCommands(program, {
+      authorizeKey: async (options) => {
+        expect(options.permissionRequest.permissions.spend).toEqual([
+          {
+            limit: "250000",
+            period: "day",
+            token: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
+          },
+        ]);
+        return {
+          accountAddress: profile.accountAddress,
+          authUrl: "https://wallet.example/cli-auth/loopback",
+          key: created,
+          relayUrl: profile.relayUrl,
+          walletUrl: profile.walletUrl,
+        };
+      },
+      env,
+      now: () => activeNow,
+      stdout: memoryOutput(),
+    });
+
+    await program.parseAsync([
+      "node",
+      "mega",
+      "wallet",
+      "create-key",
+      "--spend-limit",
+      "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb:0.25:day",
+      "--fee-limit",
+      "0",
+      "--allow-call",
+      "0x4444444444444444444444444444444444444444:transfer(address,uint256)",
+    ]);
+  });
+
+  it("passes create-key fee-token overrides into the authorization request", async () => {
+    const env = await tempEnv();
+    const profile = makeProfile();
+    const created = makeKey({
+      id: "0x8888888888888888888888888888888888888888",
+      accessAddress: "0x8888888888888888888888888888888888888888",
+      privateKey:
+        "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    });
+    await writeWalletProfile(profile, env);
+
+    const program = new Command();
+    program.exitOverride();
+    registerWalletCommands(program, {
+      authorizeKey: async (options) => {
+        expect(options.permissionRequest.feeToken).toEqual({
+          limit: "0.25",
+          symbol: "USDT0",
+        });
+        expect(options.permissionRequest.permissions.spend).toEqual([
+          {
+            limit: "250000",
+            period: "week",
+            token: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
+          },
+          {
+            limit: "12500000000000000000",
+            period: "week",
+            token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
+          },
+        ]);
+        return {
+          accountAddress: profile.accountAddress,
+          authUrl: "https://wallet.example/cli-auth/loopback",
+          key: created,
+          relayUrl: profile.relayUrl,
+          walletUrl: profile.walletUrl,
+        };
+      },
+      env,
+      now: () => activeNow,
+      stdout: memoryOutput(),
+    });
+
+    await program.parseAsync([
+      "node",
+      "mega",
+      "wallet",
+      "create-key",
+      "--spend-limit",
+      "0xfafddbb3fc7688494971a79cc65dca3ef82079e7:12.5:week",
+      "--fee-token",
+      "USDT0",
+      "--fee-limit",
+      "0.25",
+      "--allow-call",
+      "0x4444444444444444444444444444444444444444:transfer(address,uint256)",
+    ]);
   });
 
   it("creates keys against a testnet profile with testnet default spend token", async () => {
@@ -736,7 +845,7 @@ describe("wallet status commands", () => {
       "--network",
       "testnet",
       "--spend-limit",
-      "25",
+      "0x15e9f2b0a747ac05c7446559306687085d161e5c:25:week",
       "--allow-call",
       "0x4444444444444444444444444444444444444444:transfer(address,uint256)",
       "-t",
@@ -850,6 +959,7 @@ describe("wallet status commands", () => {
         revokeKey: async (options) => {
           expect(options.accountAddress).toBe(profile.accountAddress);
           expect(options.accessAddress).toBe(profile.keys[0]!.accessAddress);
+          expect(options.feeToken).toBe("ETH");
           return {
             authUrl: "https://wallet.example/cli-auth/revoke",
             revokeTxHash:
@@ -872,6 +982,30 @@ describe("wallet status commands", () => {
       revokedAt: activeNow.toISOString(),
     });
     expect(stored.keys[0]).not.toHaveProperty("privateKey");
+  });
+
+  it("passes revoke fee-token overrides to wallet authorization", async () => {
+    const env = await tempEnv();
+    const profile = makeProfile();
+    await writeWalletProfile(profile, env);
+
+    await runWalletRevoke(
+      profile.keys[0]!.id,
+      { feeToken: "eth", network: "mainnet", timeoutMs: 1_000 },
+      {
+        env,
+        now: () => activeNow,
+        revokeKey: async (options) => {
+          expect(options.feeToken).toBe("ETH");
+          return {
+            authUrl: "https://wallet.example/cli-auth/revoke",
+            revokeTxHash:
+              "0x9999999999999999999999999999999999999999999999999999999999999999",
+          };
+        },
+        stdout: memoryOutput(),
+      },
+    );
   });
 
   it("rejects device auth for revoke", async () => {

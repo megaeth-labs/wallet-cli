@@ -161,8 +161,9 @@ and `transfer(address,uint256)`. CLI-created call scopes must include both
 `to` and `signature`; do not create broad or partial call entries.
 
 `permissions.spend` scopes how much native/token value can leave the account for
-a period. Native token spend is represented without a token address in the CLI
-profile and as the native/zero-address token in Porto/relay internals.
+a period. Native token spend uses the zero address in CLI spend-limit args and
+may appear as zero-address or omitted native token data in stored profiles and
+Porto/relay internals.
 
 `feeToken.symbol` is local routing metadata for selecting the preferred relay
 payment token on later delegated writes. `feeToken.limit` is not an on-chain
@@ -186,12 +187,19 @@ explicit in prompt/UI copy, avoid ambiguous empty or omitted permissions, and
 update `README.md`, `SKILL.md`, tests, and this file together when changing the
 default.
 
-`mega wallet create-key --spend-limit <amount>` is a shorthand for overriding
-the default network-specific USDM spend cap on the new key request. It accepts a
-human USDM amount and preserves the default fee token, expiry, spend token, and
-spend period; it still requires `--allow-call`, `--from`, or `--permissions` to
-define executable call scope. Use a full `--permissions` file for anything
-outside that narrow override.
+`mega wallet create-key --spend-limit <token_address>:<amount>:<period>` adds a
+workflow spend row to the new key request. It accepts only 20-byte token
+addresses; use `0x0000000000000000000000000000000000000000` for native ETH.
+Amount is a human token amount, and period must be `minute`, `hour`, `day`,
+`week`, `month`, or `year`. The flow still requires `--allow-call`, `--from`,
+or `--permissions` to define executable call scope. Use a full `--permissions`
+file for custom expiry or no-spend requests.
+
+`mega wallet create-key --fee-token <symbol> [--fee-limit <amount>]` changes
+the preferred relay fee token for the new key and adds the fee buffer to the
+matching spend permission. `mega wallet revoke` should pass the stored key fee
+token to the wallet UI by default and support `--fee-token <symbol>` for
+explicit revocation payment-token overrides.
 
 ## Commands
 

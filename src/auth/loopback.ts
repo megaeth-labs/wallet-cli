@@ -46,6 +46,7 @@ export type CliAuthUrlParams = {
 export type CliRevokeUrlParams = {
   walletUrl: string;
   accessAddress: HexString;
+  feeToken?: string;
   redirectUri: LoopbackRedirectUri;
   state: string;
   network: Network;
@@ -128,6 +129,7 @@ export type LoopbackRevokeOptions = {
   network: Network;
   accountAddress: HexString;
   accessAddress: HexString;
+  feeToken?: string;
   walletUrl?: string;
   timeoutMs?: number;
   state?: string;
@@ -428,6 +430,7 @@ export async function runLoopbackRevoke(
   const authUrl = buildCliRevokeUrl({
     walletUrl,
     accessAddress: options.accessAddress,
+    feeToken: options.feeToken,
     redirectUri: callbackServer.redirectUri,
     state,
     network: options.network,
@@ -480,6 +483,9 @@ export function buildCliRevokeUrl(params: CliRevokeUrlParams): string {
 
   const url = new URL("/cli-auth/revoke", params.walletUrl);
   url.searchParams.set("accessAddress", params.accessAddress);
+  if (params.feeToken !== undefined) {
+    url.searchParams.set("feeToken", params.feeToken);
+  }
   url.searchParams.set("redirectUri", params.redirectUri);
   url.searchParams.set("state", params.state);
   url.searchParams.set("network", params.network);

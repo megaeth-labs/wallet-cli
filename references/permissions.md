@@ -8,9 +8,15 @@ workflow's explicit call scope:
 
 ```bash
 mega wallet create-key \
-  --spend-limit 25 \
+  --spend-limit 0xfafddbb3fc7688494971a79cc65dca3ef82079e7:25:week \
   --allow-call '0xfafddbb3fc7688494971a79cc65dca3ef82079e7:transfer(address,uint256)'
 ```
+
+Each repeated `--spend-limit <token_address>:<amount>:<period>` adds one
+`permissions.spend` row. Token must be a 20-byte address; use
+`0x0000000000000000000000000000000000000000` for native ETH. Amount is the
+human token amount. Period must be `minute`, `hour`, `day`, `week`, `month`, or
+`year`.
 
 Add `--network testnet` when creating a testnet key. The default USDM token
 address is network-specific; custom permission files must use token and target
@@ -19,8 +25,10 @@ addresses for the selected network. The built-in defaults use:
 - mainnet USDM: `0xfafddbb3fc7688494971a79cc65dca3ef82079e7`
 - testnet USDM: `0x15e9f2b0a747ac05c7446559306687085d161e5c`
 
-Use a full permission file when the user needs custom expiry, fee token, spend
-token, spend period, multi-contract call scope, or no spend.
+Use a full permission file when the user needs custom expiry or no-spend
+permissions. Repeat `--spend-limit` for multi-row spend.
+For a non-default fee token with the shorthand flow, use `--fee-token <symbol>`
+and optional `--fee-limit <amount>` instead of a full file.
 
 ## File Shape
 
@@ -72,8 +80,8 @@ the inner `permissions` object:
 - Spend `limit` values are integer base units, not human decimals. For an
   18-decimal token, `"1000000000000000000"` means 1 token.
 - Spend `period` must be `minute`, `hour`, `day`, `week`, `month`, or `year`.
-- Omit `token` for native ETH spend. Use a 20-byte token address for ERC20
-  spend.
+- Use `0x0000000000000000000000000000000000000000` or omit `token` for native
+  ETH spend. Use a 20-byte token address for ERC20 spend.
 - Custom permission files must include spend capacity for relay fees in the
   selected fee token. If the fee token is also the workflow token, increase that
   token's spend limit enough to cover both the workflow amount and fees. If the
