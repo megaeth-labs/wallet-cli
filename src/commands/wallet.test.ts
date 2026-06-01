@@ -109,6 +109,8 @@ describe("wallet status commands", () => {
   it("renders redacted JSON profile output for whoami", async () => {
     const env = await tempEnv();
     const profile = makeProfile();
+    profile.keys[0]!.grantTxHash =
+      "0x6666666666666666666666666666666666666666666666666666666666666666";
     const stdout = memoryOutput();
     await writeWalletProfile(profile, env);
 
@@ -133,6 +135,9 @@ describe("wallet status commands", () => {
     });
     expect((parsed.activeKey as Record<string, unknown>).accessAddress).toBe(
       profile.keys[0]!.accessAddress,
+    );
+    expect((parsed.activeKey as Record<string, unknown>).grantTxHash).toBe(
+      profile.keys[0]!.grantTxHash,
     );
   });
 
@@ -177,6 +182,9 @@ describe("wallet status commands", () => {
     expect(stdout.text).toContain("Can spend up to 0.1 0x5555...5555 per day");
     expect(stdout.text).toContain("Uses ETH for relay fees");
     expect(stdout.text).toContain("Approved scope (stored request):");
+    expect(stdout.text).toContain(
+      "  - Can call transfer(address,uint256) on 0x4444...4444",
+    );
   });
 
   it("renders delegated key remaining spend from on-chain spend info", async () => {
@@ -347,9 +355,8 @@ describe("wallet status commands", () => {
 
     expect(result.spendInfoError).toBe("RPC unavailable");
     expect(stdout.text).toContain("Can spend up to 0.1 0x5555...5555 per day");
-    expect(stdout.text).toContain(
-      "Live on-chain spend remaining: unavailable (RPC unavailable)",
-    );
+    expect(stdout.text).toContain("Live on-chain spend remaining:");
+    expect(stdout.text).toContain("  - unavailable (RPC unavailable)");
   });
 
   it("renders USDm consistently in delegated key permission summaries", async () => {

@@ -61,7 +61,7 @@ import {
 import { createEthCallClient } from "../eth/client.js";
 import { readErc20Metadata } from "../eth/erc20.js";
 import { CliError } from "../errors.js";
-import { compactAddress, toJson } from "../output.js";
+import { compactAddress, formatBulletLines, toJson } from "../output.js";
 import { readSpendInfos, type DelegatedSpendInfo } from "../relay/spendInfo.js";
 
 type LoginCommandOptions = {
@@ -308,6 +308,19 @@ export function registerWalletSubcommands(
     )
     .option("--json", "render JSON output")
     .option("-t, --terse", "render compact text output")
+    .addHelpText(
+      "afterAll",
+      `
+Examples:
+  mega wallet create-key \\
+    --spend-limit 0xfafddbb3fc7688494971a79cc65dca3ef82079e7:25:week \\
+    --allow-call 0xfafddbb3fc7688494971a79cc65dca3ef82079e7:transfer(address,uint256)
+
+  mega wallet create-key \\
+    --spend-limit 0x0000000000000000000000000000000000000000:0.01:week \\
+    --allow-call 0x4200000000000000000000000000000000000006:deposit()
+`,
+    )
     .action(async (options: CreateKeyCommandOptions) => {
       await runWalletCreateKey(options, dependencies);
     });
@@ -954,7 +967,8 @@ function renderPermissions(
     `Status: ${result.key.effectiveStatus}`,
     `Expires: ${result.key.expiresAt}`,
     "Approved scope (stored request):",
-    ...result.permissionLines,
+    ...formatBulletLines(result.permissionLines),
+    "",
     ...renderSpendInfoLines(result),
   ]
     .join("\n")
@@ -964,7 +978,8 @@ function renderPermissions(
 function renderSpendInfoLines(result: WalletPermissionsResult): string[] {
   if (result.spendInfoError !== undefined) {
     return [
-      `Live on-chain spend remaining: unavailable (${result.spendInfoError})`,
+      "Live on-chain spend remaining:",
+      ...formatBulletLines([`unavailable (${result.spendInfoError})`]),
     ];
   }
 
@@ -973,31 +988,36 @@ function renderSpendInfoLines(result: WalletPermissionsResult): string[] {
   }
 
   if (result.spendInfos.length === 0) {
-    return ["Live on-chain spend remaining: no spend limits found"];
+    return [
+      "Live on-chain spend remaining:",
+      ...formatBulletLines(["no spend limits found"]),
+    ];
   }
 
   return [
     "Live on-chain spend remaining:",
-    ...result.spendInfos.map((info) => {
-      const token = spendInfoTokenLabel(info, result.tokenMetadata);
-      const remaining = formatSpendInfoAmount(
-        info.remaining,
-        info,
-        result.tokenMetadata,
-      );
-      const currentSpent = formatSpendInfoAmount(
-        info.currentSpent,
-        info,
-        result.tokenMetadata,
-      );
-      const limit = formatSpendInfoAmount(
-        info.limit,
-        info,
-        result.tokenMetadata,
-      );
+    ...formatBulletLines(
+      result.spendInfos.map((info) => {
+        const token = spendInfoTokenLabel(info, result.tokenMetadata);
+        const remaining = formatSpendInfoAmount(
+          info.remaining,
+          info,
+          result.tokenMetadata,
+        );
+        const currentSpent = formatSpendInfoAmount(
+          info.currentSpent,
+          info,
+          result.tokenMetadata,
+        );
+        const limit = formatSpendInfoAmount(
+          info.limit,
+          info,
+          result.tokenMetadata,
+        );
 
-      return `- ${remaining} ${token} remaining for current ${info.period} (${currentSpent} of ${limit} spent)`;
-    }),
+        return `${remaining} ${token} remaining for current ${info.period} (${currentSpent} of ${limit} spent)`;
+      }),
+    ),
   ];
 }
 

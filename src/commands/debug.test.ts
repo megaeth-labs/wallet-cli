@@ -71,9 +71,36 @@ describe("wallet debug", () => {
     expect(parsed).toMatchObject({
       accessAddress,
       accountAddress,
+      grantTxHash:
+        "0x3333333333333333333333333333333333333333333333333333333333333333",
       network: "mainnet",
       profileMode: "0600",
     });
+  });
+
+  it("formats human balance output with wei and ETH units", async () => {
+    const env = await tempEnv();
+    const profile = makeProfile();
+    const stdout = memoryOutput();
+    await writeWalletProfile(profile, env);
+
+    await runWalletDebug(
+      { network: "mainnet" },
+      {
+        createReadClient: () => fakeReadClient(123n),
+        createRelayClient: () => ({}),
+        env,
+        now: () => new Date("2026-05-07T00:00:00.000Z"),
+        relayActions: {
+          getKeys: vi.fn(async () => []),
+        } as unknown as PortoRelayActions,
+        stdout,
+      },
+    );
+
+    expect(stdout.text).toContain(
+      "Native balance: 123 wei (0.000000000000000123 ETH)",
+    );
   });
 
   it("can skip chain probes for offline diagnostics", async () => {

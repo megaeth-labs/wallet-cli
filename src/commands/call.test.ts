@@ -89,6 +89,33 @@ describe("wallet call", () => {
     expect(stdout.text).toBe("0x1234\n");
   });
 
+  it("formats default output with consistent field labels", async () => {
+    const env = await tempEnv();
+    const client = {
+      call: vi.fn().mockResolvedValue("0x1234"),
+    };
+    const stdout = memoryOutput();
+
+    await runWalletCall(
+      {
+        data: "0x70a08231",
+        network: "mainnet",
+        rpcUrl,
+        to: target,
+      },
+      {
+        createClient: () => client,
+        env,
+        stdout,
+      },
+    );
+
+    expect(stdout.text).toContain("Result: 0x1234");
+    expect(stdout.text).toContain("Network: mainnet");
+    expect(stdout.text).toContain(`RPC URL: ${rpcUrl}/`);
+    expect(stdout.text).toContain(`To: ${target}`);
+  });
+
   it("encodes ABI function calls before eth_call", async () => {
     const env = await tempEnv();
     const abiPath = await writeTempAbi([

@@ -14,6 +14,7 @@ import {
   type EthCallClient,
   type HexString,
 } from "../eth/client.js";
+import { formatFieldLines } from "../output.js";
 
 export type CallCommandOptions = {
   abi?: string;
@@ -190,14 +191,15 @@ function renderCallResult(
   }
 
   stdout.write(
-    [
-      `eth_call result: ${result.result}`,
-      `network: ${result.network}`,
-      `rpc: ${result.rpcUrl}`,
-      `to: ${result.to}`,
-      ...(result.from === undefined ? [] : [`from: ${result.from}`]),
-      "",
-    ].join("\n"),
+    formatFieldLines([
+      ["Result", result.result],
+      ["Network", result.network],
+      ["RPC URL", result.rpcUrl],
+      ["To", result.to],
+      result.from === undefined ? undefined : ["From", result.from],
+    ])
+      .concat("")
+      .join("\n"),
   );
 }
 

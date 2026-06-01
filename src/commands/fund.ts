@@ -8,7 +8,7 @@ import {
 import type { Network } from "../config/chains.js";
 import { readWalletProfile, type HexString } from "../config/profile.js";
 import { openSystemBrowser, type BrowserOpener } from "../auth/loopback.js";
-import { compactAddress, toJson } from "../output.js";
+import { compactAddress, formatFieldLines, toJson } from "../output.js";
 
 export type FundCommandOptions = {
   json?: boolean;
@@ -119,9 +119,11 @@ function renderFundResult(
   stdout.write(
     [
       result.opened ? "Funding page opened." : "Funding page ready.",
-      `Account: ${compactAddress(result.accountAddress)}`,
-      `Network: ${result.network}`,
-      `URL: ${result.fundingUrl}`,
+      ...formatFieldLines([
+        ["Account", compactAddress(result.accountAddress)],
+        ["Network", result.network],
+        ["URL", result.fundingUrl],
+      ]),
       "",
     ].join("\n"),
   );

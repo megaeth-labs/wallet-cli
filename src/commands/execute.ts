@@ -19,7 +19,12 @@ import {
 } from "../config/profile.js";
 import { CliError } from "../errors.js";
 import { normalizeAddress, normalizeHexResult } from "../eth/client.js";
-import { compactAddress, redactString, toJson } from "../output.js";
+import {
+  compactAddress,
+  formatFieldLines,
+  redactString,
+  toJson,
+} from "../output.js";
 import {
   createPortoRelayClient,
   relayErrorToCliError,
@@ -343,10 +348,12 @@ function renderExecuteResult(
 
   const lines = [
     "Relay transaction submitted.",
-    `Status: ${result.status}`,
-    `Network: ${result.network}`,
-    `Account: ${compactAddress(result.accountAddress)}`,
-    `Delegated key: ${compactAddress(result.accessAddress)}`,
+    ...formatFieldLines([
+      ["Status", result.status],
+      ["Network", result.network],
+      ["Account", compactAddress(result.accountAddress)],
+      ["Delegated key", compactAddress(result.accessAddress)],
+    ]),
   ];
   if (transactionHash !== undefined) {
     lines.push(`Transaction: ${transactionHash}`);

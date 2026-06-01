@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { normalizeNetwork, type OutputWriter } from "./common.js";
 import { getChainConfig, type Network } from "../config/chains.js";
 import { getProfilePath } from "../config/paths.js";
+import { formatTokenAmount } from "../config/permissionSummary.js";
 import {
   getActiveWalletKey,
   getProfileMode,
@@ -19,7 +20,12 @@ import {
   normalizeRpcUrl,
   type EthReadClient,
 } from "../eth/client.js";
-import { compactAddress, redactString, toJson } from "../output.js";
+import {
+  compactAddress,
+  formatFieldLines,
+  redactString,
+  toJson,
+} from "../output.js";
 import {
   createPortoRelayClient,
   portoRelayActions,
@@ -299,16 +305,18 @@ function renderDebugResult(
 
   const lines = [
     "Wallet debug diagnostics:",
-    `Network: ${result.network}`,
-    `Account: ${compactAddress(result.accountAddress)}`,
-    `Access key: ${compactAddress(result.accessAddress)}`,
-    `Local key: ${result.delegatedKey.localStatus}`,
-    `Relay key: ${result.delegatedKey.chainStatus}`,
-    `Expires: ${result.delegatedKey.expiresAt}`,
-    `Wallet URL: ${result.walletUrl}`,
-    `Relay URL: ${result.relayUrl}`,
-    `RPC URL: ${result.rpcUrl}`,
-    `Profile: ${result.profilePath}`,
+    ...formatFieldLines([
+      ["Network", result.network],
+      ["Account", compactAddress(result.accountAddress)],
+      ["Access key", compactAddress(result.accessAddress)],
+      ["Local key", result.delegatedKey.localStatus],
+      ["Relay key", result.delegatedKey.chainStatus],
+      ["Expires", result.delegatedKey.expiresAt],
+      ["Wallet URL", result.walletUrl],
+      ["Relay URL", result.relayUrl],
+      ["RPC URL", result.rpcUrl],
+      ["Profile", result.profilePath],
+    ]),
   ];
 
   if (result.profileMode !== undefined) {
@@ -316,7 +324,12 @@ function renderDebugResult(
   }
 
   if (result.nativeBalance.status === "available") {
-    lines.push(`Native balance: ${result.nativeBalance.wei} ETH wei`);
+    lines.push(
+      `Native balance: ${result.nativeBalance.wei} wei (${formatTokenAmount(
+        result.nativeBalance.wei,
+        undefined,
+      )} ETH)`,
+    );
   } else {
     lines.push(`Native balance: ${result.nativeBalance.status}`);
   }

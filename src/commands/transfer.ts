@@ -26,7 +26,7 @@ import {
   readErc20Metadata,
   type Erc20Metadata,
 } from "../eth/erc20.js";
-import { compactAddress, toJson } from "../output.js";
+import { compactAddress, formatFieldLines, toJson } from "../output.js";
 
 export type TransferCommandOptions = {
   amount?: string;
@@ -267,11 +267,13 @@ function renderTransferResult(
       : `${result.transfer.symbol ?? "ERC20"} ${compactAddress(result.transfer.token)}`;
   const lines = [
     "Transfer submitted.",
-    `Asset: ${asset}`,
-    `Amount: ${result.transfer.amount}`,
-    `To: ${compactAddress(result.transfer.to)}`,
-    `Status: ${result.status}`,
-    `Network: ${result.network}`,
+    ...formatFieldLines([
+      ["Asset", asset],
+      ["Amount", result.transfer.amount],
+      ["To", compactAddress(result.transfer.to)],
+      ["Status", result.status],
+      ["Network", result.network],
+    ]),
   ];
 
   if (transactionHash !== undefined) {

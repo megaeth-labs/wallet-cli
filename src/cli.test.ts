@@ -16,10 +16,39 @@ describe("mega cli", () => {
     expect(help).toContain("wallet");
   });
 
-  it("runs compiled mega --help", async () => {
-    const { stdout } = await execFileAsync("npm", ["exec", "--package", ".", "--", "mega", "--help"], {
-      cwd: process.cwd()
+  it("renders create-key examples in help", () => {
+    const program = createCli();
+    const wallet = program.commands.find(
+      (command) => command.name() === "wallet",
+    );
+    const createKey = wallet?.commands.find(
+      (command) => command.name() === "create-key",
+    );
+
+    let help = "";
+    createKey?.configureOutput({
+      writeOut: (chunk) => {
+        help += chunk;
+      },
     });
+    createKey?.outputHelp();
+
+    expect(help).toContain("Examples:");
+    expect(help).toContain("--spend-limit");
+    expect(help).toContain("--allow-call");
+    expect(help).toContain(
+      "0x0000000000000000000000000000000000000000:0.01:week",
+    );
+  });
+
+  it("runs compiled mega --help", async () => {
+    const { stdout } = await execFileAsync(
+      "npm",
+      ["exec", "--package", ".", "--", "mega", "--help"],
+      {
+        cwd: process.cwd(),
+      },
+    );
 
     expect(stdout).toContain("Usage: mega");
     expect(stdout).toContain("MegaETH wallet CLI");
