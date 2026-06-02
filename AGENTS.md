@@ -213,9 +213,11 @@ file for custom expiry or no-spend requests.
 
 `mega wallet create-key --fee-token <symbol> [--fee-limit <amount>]` changes
 the preferred relay fee token for the new key and adds the fee buffer to the
-matching spend permission. `mega wallet revoke` should pass the stored key fee
-token to the wallet UI by default and support `--fee-token <symbol>` for
-explicit revocation payment-token overrides.
+matching spend permission. If either fee option is present and no
+`--spend-limit` is supplied, the CLI does not add the default USDM workflow
+spend row; add explicit spend rows for workflow token movement. Revoke should
+pass the stored key fee token to the wallet UI by default and support
+`--fee-token <symbol>` for explicit revocation payment-token overrides.
 
 ## Commands
 

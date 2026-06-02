@@ -127,7 +127,9 @@ row. Token must be a 20-byte address; use
 human token amount, and period is `minute`, `hour`, `day`, `week`, `month`, or
 `year`. The `--allow-call` flags define what the key can execute. Use
 `--fee-token <symbol>` and optional `--fee-limit <amount>` to choose a
-non-default relay fee token and fee buffer. See
+non-default relay fee token and fee buffer. If either fee option is present and
+no `--spend-limit` is supplied, the request includes only the selected fee-token
+spend capacity; add explicit spend rows for workflow token movement. See
 [references/permissions.md](references/permissions.md) for custom expiry,
 no-spend, custom call scope, or multi-contract scopes.
 

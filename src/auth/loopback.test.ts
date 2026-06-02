@@ -465,6 +465,29 @@ describe("loopback login", () => {
     ]);
   });
 
+  it("does not add default USDM spend when create-key only overrides fees", async () => {
+    const permissions = await resolveKeyPermissions({
+      now: new Date("2026-05-07T00:00:00.000Z"),
+      feeToken: "USDT0",
+      feeLimit: "0.05",
+      allowCalls: [
+        "0x3333333333333333333333333333333333333333:withdraw(address,uint256,address)",
+      ],
+    });
+
+    expect(permissions.feeToken).toEqual({
+      limit: "0.05",
+      symbol: "USDT0",
+    });
+    expect(permissions.permissions.spend).toEqual([
+      {
+        limit: "50000",
+        period: "week",
+        token: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
+      },
+    ]);
+  });
+
   it("applies custom spend token and period shorthand", async () => {
     const permissions = await resolveKeyPermissions({
       now: new Date("2026-05-07T00:00:00.000Z"),

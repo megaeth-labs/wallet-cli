@@ -807,6 +807,59 @@ describe("wallet status commands", () => {
     ]);
   });
 
+  it("does not add default USDM spend when create-key only overrides fees", async () => {
+    const env = await tempEnv();
+    const profile = makeProfile();
+    const created = makeKey({
+      id: "0x8888888888888888888888888888888888888888",
+      accessAddress: "0x8888888888888888888888888888888888888888",
+      privateKey:
+        "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    });
+    await writeWalletProfile(profile, env);
+
+    const program = new Command();
+    program.exitOverride();
+    registerWalletCommands(program, {
+      authorizeKey: async (options) => {
+        expect(options.permissionRequest.feeToken).toEqual({
+          limit: "0.05",
+          symbol: "USDT0",
+        });
+        expect(options.permissionRequest.permissions.spend).toEqual([
+          {
+            limit: "50000",
+            period: "week",
+            token: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
+          },
+        ]);
+        return {
+          accountAddress: profile.accountAddress,
+          authUrl: "https://wallet.example/cli-auth/loopback",
+          key: created,
+          relayUrl: profile.relayUrl,
+          walletUrl: profile.walletUrl,
+        };
+      },
+      env,
+      now: () => activeNow,
+      stdout: memoryOutput(),
+    });
+
+    await program.parseAsync([
+      "node",
+      "mega",
+      "wallet",
+      "create-key",
+      "--fee-token",
+      "USDT0",
+      "--fee-limit",
+      "0.05",
+      "--allow-call",
+      "0x4444444444444444444444444444444444444444:withdraw(address,uint256,address)",
+    ]);
+  });
+
   it("creates keys against a testnet profile with testnet default spend token", async () => {
     const env = await tempEnv();
     const profile = makeProfile({ network: "testnet" });

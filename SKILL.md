@@ -130,7 +130,9 @@ writes. Each call entry must include both `to` and `signature`.
 Use `--fee-token <symbol>` and optional `--fee-limit <amount>` on `create-key`
 when the delegated key should pay relay fees with a token other than the default
 USDM. The CLI adds that fee buffer to `permissions.spend` for the selected fee
-token before requesting approval.
+token before requesting approval. If `--fee-token` or `--fee-limit` is present
+and no `--spend-limit` is supplied, the CLI requests only fee-token spend
+capacity; add explicit `--spend-limit` rows for workflow token movement.
 
 Relay fees use the same spend accounting as token/native movement. The CLI does
 not implement `maxFeesUSD`, and `feeToken.limit` is not an on-chain permission

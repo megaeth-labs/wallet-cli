@@ -150,9 +150,8 @@ async function resolveDefaultKeyPermissions(
     network,
   );
   const spend =
-    options.spendLimits === undefined || options.spendLimits.length === 0
-      ? [defaultSpendPermission(network)]
-      : await Promise.all(
+    options.spendLimits !== undefined && options.spendLimits.length > 0
+      ? await Promise.all(
           options.spendLimits.map((value) =>
             parseSpendLimitArgument(
               value,
@@ -160,7 +159,10 @@ async function resolveDefaultKeyPermissions(
               options.tokenMetadataClient,
             ),
           ),
-        );
+        )
+      : options.feeLimit !== undefined || options.feeToken !== undefined
+        ? []
+        : [defaultSpendPermission(network)];
 
   return buildDefaultKeyPermissions(now, options, feeTokenSymbol, spend);
 }
