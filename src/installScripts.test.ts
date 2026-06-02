@@ -210,6 +210,16 @@ describe("installer scripts", () => {
     expect(stdout).toContain("skip missing config:");
   });
 
+  it("keeps relay-smoke state outside install-owned wallet-cli directories", async () => {
+    const script = await readFile("scripts/loopback-e2e.mjs", "utf8");
+
+    expect(script).toContain(
+      'const defaultRelaySmokeE2eDir = resolve(defaultE2eDir, "relay-smoke");',
+    );
+    expect(script).not.toContain('".mega",');
+    expect(script).not.toContain('"wallet-cli",');
+  });
+
   it("supports pnpm-style argument separators for skill dry-runs", async () => {
     const dir = await tempDir();
 

@@ -2,7 +2,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -16,12 +15,7 @@ import {
 
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const defaultE2eDir = resolve(repoRoot, ".e2e");
-const defaultRelaySmokeE2eDir = resolve(
-  homedir(),
-  ".mega",
-  "wallet-cli",
-  "e2e-relay-smoke",
-);
+const defaultRelaySmokeE2eDir = resolve(defaultE2eDir, "relay-smoke");
 const chainConfigs = {
   mainnet: {
     chainIdHex: "0x10e6",
@@ -297,7 +291,7 @@ function parseArgs(args) {
   }
   if (parsed.relaySmoke && parsed.reset) {
     throw new Error(
-      `--reset is disabled for --relay-smoke because it would delete persistent funded wallet credentials. Delete ${parsed.e2eDir} manually if you intentionally need a new relay-smoke wallet.`,
+      `--reset is disabled for --relay-smoke because it would delete persistent development smoke-test credentials. Delete ${parsed.e2eDir} manually if you intentionally need a new relay-smoke wallet.`,
     );
   }
   parsePositiveDecimal(parsed.smokeAmount, "--smoke-amount");
@@ -349,7 +343,7 @@ Options:
   --hold                 Keep the browser open after the check
   --management           Run live delegated-key management checks after login
   --mock-relay           Mock relay send/status/key RPCs in the local shim
-  --relay-smoke          Create/reuse a persistent scoped key and submit a real 0.0001 USDM self-transfer
+  --relay-smoke          Create/reuse a persistent development key under .e2e/relay-smoke and submit a real 0.0001 USDM self-transfer
   --network <network>    CLI wallet network: mainnet or testnet (default: mainnet)
   --reset                Delete transient .e2e state before starting (not allowed with --relay-smoke)
   --wallet-url <url>     Wallet UI URL (default: http://localhost:4000)

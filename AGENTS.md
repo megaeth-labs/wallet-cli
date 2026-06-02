@@ -138,13 +138,15 @@ create-key, list, permissions, label, switch, and revoke. Use the local
 relay calls with the generated profile; it keeps those calls on the shim rather
 than production.
 
-The relay-smoke run uses a persistent virtual WebAuthn profile under
-`~/.mega/wallet-cli/e2e-relay-smoke`, creates or reuses a scoped
+The relay-smoke run uses a persistent development-only virtual WebAuthn profile
+under this checkout's `.e2e/relay-smoke`, creates or reuses a scoped
 `e2e-relay-smoke` key, and submits a real 0.0001 USDM self-transfer. It must
 not be run with `--mock-relay`; the cached wallet needs enough USDM for the
-transfer and relay fee. Do not pass `--reset` to relay-smoke runs. Delete that
-external directory manually only when intentionally replacing the funded smoke
-wallet.
+transfer and relay fee. Do not pass `--reset` to relay-smoke runs. This state
+is intentionally separate from local wallet-cli installs and profiles, so
+`scripts/install.sh` and `scripts/uninstall.sh --config` must not remove it.
+Delete `.e2e/relay-smoke` manually only when intentionally replacing the funded
+smoke wallet.
 
 `pnpm e2e:device:relay-smoke` uses the same persistent funded wallet but
 creates or reuses a separate `e2e-relay-smoke-device` delegated key through the
