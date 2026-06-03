@@ -1441,11 +1441,7 @@ function makeBrowserOpener(
 ): BrowserOpener {
   const opener = dependencies.openBrowser ?? openSystemBrowser;
   return async (url) => {
-    if (!shouldOpenBrowser(options)) {
-      getStderr(dependencies).write(`Open this URL to authorize: ${url}\n`);
-      return;
-    }
-
+    const shouldOpen = shouldOpenBrowser(options);
     if (renderOptions.loginIntro && !options.json && !options.terse) {
       const stderr = getStderr(dependencies);
       const style = stderrStyle(options, dependencies);
@@ -1453,11 +1449,14 @@ function makeBrowserOpener(
         env: dependencies.env,
         stream: stderr,
       });
-      stderr.write(`${style.success("Opening MegaETH Wallet...")}\n\n`);
-      stderr.write(
-        `${style.warning("Browser didn't open?")} Use the URL below to sign in:\n`,
-      );
-      stderr.write(`${style.accent(url)}\n`);
+      if (shouldOpen) {
+        stderr.write(`${style.success("Opening MegaETH Wallet...")}\n\n`);
+      }
+    }
+
+    if (!shouldOpen) {
+      getStderr(dependencies).write(`Open this URL to authorize: ${url}\n`);
+      return;
     }
 
     await opener(url);

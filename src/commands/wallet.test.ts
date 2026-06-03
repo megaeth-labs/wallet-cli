@@ -1045,7 +1045,7 @@ describe("wallet status commands", () => {
     });
   });
 
-  it("prints a headed login intro and fallback URL on stderr", async () => {
+  it("prints a headed login intro without exposing the auth URL", async () => {
     const env = await tempEnv();
     const stdout = memoryOutput();
     const stderr = memoryOutput({ columns: 80, isTTY: true });
@@ -1093,13 +1093,74 @@ describe("wallet status commands", () => {
     expect(opened).toHaveLength(1);
     expect(stderr.text).toContain("\x1b[");
     expect(stderr.text).toContain("Opening MegaETH Wallet...");
-    expect(stripAnsi(stderr.text)).toContain(
-      "Browser didn't open? Use the URL below to sign in:",
-    );
+    expect(stripAnsi(stderr.text)).not.toContain("Open this URL to authorize:");
+    expect(stripAnsi(stderr.text)).not.toContain("Browser didn't open?");
     expect(stripAnsi(stderr.text)).toContain("boot system initialized");
     expect(stripAnsi(stderr.text)).toContain("__  __");
     expect(stripAnsi(stderr.text)).not.toContain("[ok] MOSS wallet connected");
-    expect(stderr.text).toContain(opened[0]);
+    expect(stderr.text).not.toContain(opened[0]);
+    expect(stdout.text).toContain("[ok] MOSS wallet connected");
+    expect(stdout.text).toContain("Network: mainnet");
+  });
+
+  it("prints the login intro and auth URL in no-browser mode", async () => {
+    const env = await tempEnv();
+    const stdout = memoryOutput();
+    const stderr = memoryOutput({ columns: 80, isTTY: true });
+    const program = new Command();
+    program.exitOverride();
+    registerWalletCommands(program, {
+      env,
+      now: () => activeNow,
+      openBrowser: async () => {
+        throw new Error("openBrowser should not be called");
+      },
+      stderr,
+      stdout,
+    });
+
+    const pending = program.parseAsync([
+      "node",
+      "mega",
+      "wallet",
+      "login",
+      "--wallet-url",
+      "https://wallet.example",
+      "--wallet-api-url",
+      "https://wallet-api.example",
+      "--relay-url",
+      "https://relay.example",
+      "--timeout-ms",
+      "5000",
+      "--no-browser",
+    ]);
+
+    await waitForOutput(stderr, "Open this URL to authorize:");
+    const plainStderr = stripAnsi(stderr.text);
+    expect(plainStderr).toContain("boot system initialized");
+    expect(plainStderr).toContain("__  __");
+    expect(plainStderr).not.toContain("Opening MegaETH Wallet...");
+    expect(plainStderr).toContain("Open this URL to authorize:");
+
+    const match = plainStderr.match(
+      /Open this URL to authorize: (https?:\/\/\S+)/,
+    );
+    expect(match?.[1]).toBeDefined();
+    const authUrl = new URL(match![1]!);
+    const redirectUri = authUrl.searchParams.get("redirectUri");
+    expect(redirectUri).not.toBeNull();
+    const callbackUrl = new URL(redirectUri!);
+    callbackUrl.searchParams.set("state", authUrl.searchParams.get("state")!);
+    callbackUrl.searchParams.set("status", "approved");
+    callbackUrl.searchParams.set(
+      "accountAddress",
+      "0x1111111111111111111111111111111111111111",
+    );
+    const response = await fetch(callbackUrl);
+    expect(response.status).toBe(200);
+
+    await pending;
+
     expect(stdout.text).toContain("[ok] MOSS wallet connected");
     expect(stdout.text).toContain("Network: mainnet");
   });
@@ -1363,4 +1424,17 @@ function memoryOutput(options: { columns?: number; isTTY?: boolean } = {}): {
 
 function stripAnsi(value: string): string {
   return value.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+}
+
+async function waitForOutput(
+  output: { readonly text: string },
+  expected: string,
+): Promise<void> {
+  const deadline = Date.now() + 3_000;
+  while (!output.text.includes(expected)) {
+    if (Date.now() > deadline) {
+      throw new Error(`timed out waiting for output: ${expected}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
 }
