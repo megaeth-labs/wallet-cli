@@ -52,6 +52,7 @@ After install, make sure the install directory printed by the installer is on
 - Use `mega wallet execute` or `mega wallet transfer` only when the user asked
   for a state-changing operation.
 - Prefer `--json` for machine-readable output and `-t` only for compact text.
+  Human mode may include TTY-only color or login stderr helpers.
 
 ## Login And Browser Authorization
 

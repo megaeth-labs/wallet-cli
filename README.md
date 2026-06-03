@@ -8,6 +8,12 @@ approved private key material on the same machine.
 
 Use `mega wallet <command>` as the command shape.
 
+Human output is formatted for terminal use and may include color when attached
+to a TTY. Login may also print a short terminal intro and browser fallback URL
+to stderr. Use `--json` for structured output or `-t, --terse` for compact
+tab-delimited output in scripts and agent workflows; those modes stay plain.
+Non-TTY, CI, `NO_COLOR`, and dumb terminals also receive plain output.
+
 ## Install
 
 From this checkout:

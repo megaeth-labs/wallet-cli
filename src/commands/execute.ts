@@ -19,12 +19,7 @@ import {
 } from "../config/profile.js";
 import { CliError } from "../errors.js";
 import { normalizeAddress, normalizeHexResult } from "../eth/client.js";
-import {
-  compactAddress,
-  formatFieldLines,
-  redactString,
-  toJson,
-} from "../output.js";
+import { redactString, toJson } from "../output.js";
 import {
   createPortoRelayClient,
   relayErrorToCliError,
@@ -36,6 +31,10 @@ import {
 } from "../relay/sendCalls.js";
 import { sessionKeyFromWalletKey } from "../relay/sessionKey.js";
 import type { RelayCallsStatus } from "../relay/status.js";
+import {
+  createTerminalStyle,
+  formatTerminalFieldLines,
+} from "../terminal/style.js";
 
 export type ExecuteCommandOptions = {
   calls?: string;
@@ -134,7 +133,12 @@ export async function runWalletExecute(
     dependencies,
   );
 
-  renderExecuteResult(result, options, dependencies.stdout ?? process.stdout);
+  renderExecuteResult(
+    result,
+    options,
+    dependencies.stdout ?? process.stdout,
+    dependencies.env,
+  );
 
   return result;
 }
@@ -327,6 +331,7 @@ function renderExecuteResult(
   result: ExecuteCommandResult,
   options: Pick<ExecuteCommandOptions, "json" | "terse">,
   stdout: OutputWriter,
+  env?: NodeJS.ProcessEnv,
 ): void {
   if (options.json) {
     stdout.write(toJson(result, { preserveKeys: ["transactionHash"] }));
@@ -346,17 +351,27 @@ function renderExecuteResult(
     return;
   }
 
+  const style = createTerminalStyle({
+    env,
+    json: options.json,
+    stream: stdout,
+    terse: options.terse,
+  });
   const lines = [
-    "Relay transaction submitted.",
-    ...formatFieldLines([
-      ["Status", result.status],
-      ["Network", result.network],
-      ["Account", compactAddress(result.accountAddress)],
-      ["Delegated key", compactAddress(result.accessAddress)],
-    ]),
+    style.success("Relay transaction submitted."),
+    "",
+    ...formatTerminalFieldLines(
+      [
+        ["Relay status", result.status],
+        ["Network", result.network],
+        ["Account", style.accent(result.accountAddress)],
+        ["Delegated key", style.accent(result.accessAddress)],
+      ],
+      style,
+    ),
   ];
   if (transactionHash !== undefined) {
-    lines.push(`Transaction: ${transactionHash}`);
+    lines.push(`${style.dim("Transaction")}: ${style.accent(transactionHash)}`);
   }
 
   stdout.write(lines.join("\n").concat("\n"));

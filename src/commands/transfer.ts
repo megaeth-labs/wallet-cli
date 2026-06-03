@@ -26,7 +26,11 @@ import {
   readErc20Metadata,
   type Erc20Metadata,
 } from "../eth/erc20.js";
-import { compactAddress, formatFieldLines, toJson } from "../output.js";
+import { toJson } from "../output.js";
+import {
+  createTerminalStyle,
+  formatTerminalFieldLines,
+} from "../terminal/style.js";
 
 export type TransferCommandOptions = {
   amount?: string;
@@ -137,7 +141,12 @@ export async function runWalletTransfer(
     transfer: transfer.details,
   };
 
-  renderTransferResult(result, options, dependencies.stdout ?? process.stdout);
+  renderTransferResult(
+    result,
+    options,
+    dependencies.stdout ?? process.stdout,
+    dependencies.env,
+  );
 
   return result;
 }
@@ -242,6 +251,7 @@ function renderTransferResult(
   result: TransferCommandResult,
   options: Pick<TransferCommandOptions, "json" | "terse">,
   stdout: OutputWriter,
+  env?: NodeJS.ProcessEnv,
 ): void {
   if (options.json) {
     stdout.write(toJson(result, { preserveKeys: ["transactionHash"] }));
@@ -264,20 +274,30 @@ function renderTransferResult(
   const asset =
     result.transfer.asset === "native"
       ? "ETH"
-      : `${result.transfer.symbol ?? "ERC20"} ${compactAddress(result.transfer.token)}`;
+      : `${result.transfer.symbol ?? "ERC20"} ${result.transfer.token}`;
+  const style = createTerminalStyle({
+    env,
+    json: options.json,
+    stream: stdout,
+    terse: options.terse,
+  });
   const lines = [
-    "Transfer submitted.",
-    ...formatFieldLines([
-      ["Asset", asset],
-      ["Amount", result.transfer.amount],
-      ["To", compactAddress(result.transfer.to)],
-      ["Status", result.status],
-      ["Network", result.network],
-    ]),
+    style.success("Transfer submitted."),
+    "",
+    ...formatTerminalFieldLines(
+      [
+        ["Asset", asset],
+        ["Amount", result.transfer.amount],
+        ["To", style.accent(result.transfer.to)],
+        ["Relay status", result.status],
+        ["Network", result.network],
+      ],
+      style,
+    ),
   ];
 
   if (transactionHash !== undefined) {
-    lines.push(`Transaction: ${transactionHash}`);
+    lines.push(`${style.dim("Transaction")}: ${style.accent(transactionHash)}`);
   }
 
   stdout.write(lines.join("\n").concat("\n"));

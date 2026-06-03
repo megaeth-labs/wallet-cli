@@ -14,7 +14,10 @@ import {
   type EthCallClient,
   type HexString,
 } from "../eth/client.js";
-import { formatFieldLines } from "../output.js";
+import {
+  createTerminalStyle,
+  formatTerminalFieldLines,
+} from "../terminal/style.js";
 
 export type CallCommandOptions = {
   abi?: string;
@@ -96,6 +99,7 @@ export async function runWalletCall(
     commandResult,
     options,
     dependencies.stdout ?? process.stdout,
+    dependencies.env,
   );
 
   return commandResult;
@@ -179,6 +183,7 @@ function renderCallResult(
   result: CallCommandResult,
   options: CallCommandOptions,
   stdout: OutputWriter,
+  env?: NodeJS.ProcessEnv,
 ): void {
   if (options.json) {
     stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -190,14 +195,26 @@ function renderCallResult(
     return;
   }
 
+  const style = createTerminalStyle({
+    env,
+    json: options.json,
+    stream: stdout,
+    terse: options.terse,
+  });
+
   stdout.write(
-    formatFieldLines([
-      ["Result", result.result],
-      ["Network", result.network],
-      ["RPC URL", result.rpcUrl],
-      ["To", result.to],
-      result.from === undefined ? undefined : ["From", result.from],
-    ])
+    formatTerminalFieldLines(
+      [
+        ["Result", style.accent(result.result)],
+        ["Network", result.network],
+        ["RPC URL", result.rpcUrl],
+        ["To", style.accent(result.to)],
+        result.from === undefined
+          ? undefined
+          : ["From", style.accent(result.from)],
+      ],
+      style,
+    )
       .concat("")
       .join("\n"),
   );

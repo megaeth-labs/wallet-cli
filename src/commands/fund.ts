@@ -8,7 +8,11 @@ import {
 import type { Network } from "../config/chains.js";
 import { readWalletProfile, type HexString } from "../config/profile.js";
 import { openSystemBrowser, type BrowserOpener } from "../auth/loopback.js";
-import { compactAddress, formatFieldLines, toJson } from "../output.js";
+import { toJson } from "../output.js";
+import {
+  createTerminalStyle,
+  formatTerminalFieldLines,
+} from "../terminal/style.js";
 
 export type FundCommandOptions = {
   json?: boolean;
@@ -74,7 +78,12 @@ export async function runWalletFund(
     opened: shouldOpen,
   };
 
-  renderFundResult(result, options, dependencies.stdout ?? process.stdout);
+  renderFundResult(
+    result,
+    options,
+    dependencies.stdout ?? process.stdout,
+    dependencies.env,
+  );
 
   return result;
 }
@@ -96,6 +105,7 @@ function renderFundResult(
   result: FundCommandResult,
   options: Pick<FundCommandOptions, "json" | "terse">,
   stdout: OutputWriter,
+  env?: NodeJS.ProcessEnv,
 ): void {
   if (options.json) {
     stdout.write(toJson(result));
@@ -116,14 +126,27 @@ function renderFundResult(
     return;
   }
 
+  const style = createTerminalStyle({
+    env,
+    json: options.json,
+    stream: stdout,
+    terse: options.terse,
+  });
+
   stdout.write(
     [
-      result.opened ? "Funding page opened." : "Funding page ready.",
-      ...formatFieldLines([
-        ["Account", compactAddress(result.accountAddress)],
-        ["Network", result.network],
-        ["URL", result.fundingUrl],
-      ]),
+      style.success(
+        result.opened ? "Funding page opened." : "Funding page ready.",
+      ),
+      "",
+      ...formatTerminalFieldLines(
+        [
+          ["Account", style.accent(result.accountAddress)],
+          ["Network", result.network],
+          ["URL", result.fundingUrl],
+        ],
+        style,
+      ),
       "",
     ].join("\n"),
   );

@@ -20,12 +20,11 @@ import {
   normalizeRpcUrl,
   type EthReadClient,
 } from "../eth/client.js";
+import { redactString, toJson } from "../output.js";
 import {
-  compactAddress,
-  formatFieldLines,
-  redactString,
-  toJson,
-} from "../output.js";
+  createTerminalStyle,
+  formatTerminalFieldLines,
+} from "../terminal/style.js";
 import {
   createPortoRelayClient,
   portoRelayActions,
@@ -157,7 +156,12 @@ export async function runWalletDebug(
     result.profileMode = mode;
   }
 
-  renderDebugResult(result, options, dependencies.stdout ?? process.stdout);
+  renderDebugResult(
+    result,
+    options,
+    dependencies.stdout ?? process.stdout,
+    dependencies.env,
+  );
 
   return result;
 }
@@ -277,6 +281,7 @@ function renderDebugResult(
   result: DebugCommandResult,
   options: Pick<DebugCommandOptions, "json" | "terse">,
   stdout: OutputWriter,
+  env?: NodeJS.ProcessEnv,
 ): void {
   if (options.json) {
     stdout.write(toJson(result));
@@ -303,39 +308,53 @@ function renderDebugResult(
     return;
   }
 
+  const style = createTerminalStyle({
+    env,
+    json: options.json,
+    stream: stdout,
+    terse: options.terse,
+  });
   const lines = [
-    "Wallet debug diagnostics:",
-    ...formatFieldLines([
-      ["Network", result.network],
-      ["Account", compactAddress(result.accountAddress)],
-      ["Access key", compactAddress(result.accessAddress)],
-      ["Local key", result.delegatedKey.localStatus],
-      ["Relay key", result.delegatedKey.chainStatus],
-      ["Expires", result.delegatedKey.expiresAt],
-      ["Wallet URL", result.walletUrl],
-      ["Relay URL", result.relayUrl],
-      ["RPC URL", result.rpcUrl],
-      ["Profile", result.profilePath],
-    ]),
+    style.strong("Wallet debug diagnostics:"),
+    "",
+    ...formatTerminalFieldLines(
+      [
+        ["Network", result.network],
+        ["Account", style.accent(result.accountAddress)],
+        ["Access key", style.accent(result.accessAddress)],
+        ["Local key", result.delegatedKey.localStatus],
+        ["Relay key", result.delegatedKey.chainStatus],
+        ["Expires", result.delegatedKey.expiresAt],
+        ["Wallet URL", result.walletUrl],
+        ["Relay URL", result.relayUrl],
+        ["RPC URL", result.rpcUrl],
+        ["Profile", result.profilePath],
+      ],
+      style,
+    ),
   ];
 
   if (result.profileMode !== undefined) {
-    lines.push(`Profile mode: ${result.profileMode}`);
+    lines.push(`${style.dim("Profile mode")}: ${result.profileMode}`);
   }
 
   if (result.nativeBalance.status === "available") {
     lines.push(
-      `Native balance: ${result.nativeBalance.wei} wei (${formatTokenAmount(
+      `${style.dim("Native balance")}: ${result.nativeBalance.wei} wei (${formatTokenAmount(
         result.nativeBalance.wei,
         undefined,
       )} ETH)`,
     );
   } else {
-    lines.push(`Native balance: ${result.nativeBalance.status}`);
+    lines.push(
+      `${style.dim("Native balance")}: ${result.nativeBalance.status}`,
+    );
   }
 
   if (result.delegatedKey.chainError !== undefined) {
-    lines.push(`Relay key error: ${result.delegatedKey.chainError}`);
+    lines.push(
+      style.error(`Relay key error: ${result.delegatedKey.chainError}`),
+    );
   }
 
   stdout.write(lines.concat("").join("\n"));

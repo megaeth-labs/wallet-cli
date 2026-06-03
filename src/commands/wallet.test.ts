@@ -60,8 +60,32 @@ describe("wallet status commands", () => {
     );
 
     expect(stdout.text).toBe(
-      "No delegated keys for mainnet. Run mega wallet create-key to authorize one.\n",
+      [
+        "No delegated keys for mainnet.",
+        "",
+        "Network: mainnet",
+        "Account: 0x1111111111111111111111111111111111111111",
+        "",
+        "Next: mega wallet create-key",
+        "",
+      ].join("\n"),
     );
+  });
+
+  it("colorizes human output only when stdout is a TTY", async () => {
+    const env = await tempEnv();
+    const profile = makeProfile();
+    const stdout = memoryOutput({ columns: 100, isTTY: true });
+    await writeWalletProfile(profile, env);
+
+    await runWalletWhoami(
+      { network: "mainnet" },
+      { env, now: () => activeNow, stdout },
+    );
+
+    expect(stdout.text).toContain("\x1b[");
+    expect(stdout.text).toContain("Network");
+    expect(stdout.text).toContain("0x1111111111111111111111111111111111111111");
   });
 
   it("refuses login when a wallet profile already exists", async () => {
@@ -698,6 +722,47 @@ describe("wallet status commands", () => {
     );
   });
 
+  it("prints the full access address after creating a key", async () => {
+    const env = await tempEnv();
+    const profile = makeProfile();
+    const stdout = memoryOutput();
+    const created = makeKey({
+      id: "0x8888888888888888888888888888888888888888",
+      accessAddress: "0x8888888888888888888888888888888888888888",
+      privateKey:
+        "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    });
+    await writeWalletProfile(profile, env);
+
+    await runWalletCreateKey(
+      {
+        allowCall: [
+          "0x4444444444444444444444444444444444444444:transfer(address,uint256)",
+        ],
+        label: "agent",
+        network: "mainnet",
+        timeoutMs: 1_000,
+      },
+      {
+        authorizeKey: async () => ({
+          accountAddress: profile.accountAddress,
+          authUrl: "https://wallet.example/cli-auth/loopback",
+          key: created,
+          relayUrl: profile.relayUrl,
+          walletUrl: profile.walletUrl,
+        }),
+        env,
+        now: () => activeNow,
+        stdout,
+      },
+    );
+
+    expect(stdout.text).toContain(`Access address: ${created.accessAddress}`);
+    expect(stdout.text).toContain(
+      `Next: mega wallet permissions ${created.accessAddress}`,
+    );
+  });
+
   it("passes create-key spend token and period overrides into the authorization request", async () => {
     const env = await tempEnv();
     const profile = makeProfile();
@@ -923,6 +988,7 @@ describe("wallet status commands", () => {
   it("logs in with loopback auth while keeping JSON stdout parseable", async () => {
     const env = await tempEnv();
     const stdout = memoryOutput();
+    const stderr = memoryOutput({ columns: 80, isTTY: true });
     const opened: string[] = [];
     const program = new Command();
     program.exitOverride();
@@ -947,6 +1013,7 @@ describe("wallet status commands", () => {
         const response = await fetch(callbackUrl);
         expect(response.status).toBe(200);
       },
+      stderr,
       stdout,
     });
 
@@ -971,10 +1038,70 @@ describe("wallet status commands", () => {
     expect(rendered.activeKeyId).toBeUndefined();
     expect(rendered.keys).toEqual([]);
     expect(opened).toHaveLength(1);
+    expect(stderr.text).toBe("");
     await expect(readWalletProfile("mainnet", env)).resolves.toMatchObject({
       walletApiUrl: "https://wallet-api.example",
       keys: [],
     });
+  });
+
+  it("prints a headed login intro and fallback URL on stderr", async () => {
+    const env = await tempEnv();
+    const stdout = memoryOutput();
+    const stderr = memoryOutput({ columns: 80, isTTY: true });
+    const opened: string[] = [];
+    const program = new Command();
+    program.exitOverride();
+    registerWalletCommands(program, {
+      env,
+      now: () => activeNow,
+      openBrowser: async (url) => {
+        opened.push(url);
+        const authUrl = new URL(url);
+        const redirectUri = authUrl.searchParams.get("redirectUri");
+        expect(redirectUri).not.toBeNull();
+        const callbackUrl = new URL(redirectUri!);
+        callbackUrl.searchParams.set(
+          "state",
+          authUrl.searchParams.get("state")!,
+        );
+        callbackUrl.searchParams.set("status", "approved");
+        callbackUrl.searchParams.set(
+          "accountAddress",
+          "0x1111111111111111111111111111111111111111",
+        );
+        const response = await fetch(callbackUrl);
+        expect(response.status).toBe(200);
+      },
+      stderr,
+      stdout,
+    });
+
+    await program.parseAsync([
+      "node",
+      "mega",
+      "wallet",
+      "login",
+      "--wallet-url",
+      "https://wallet.example",
+      "--wallet-api-url",
+      "https://wallet-api.example",
+      "--relay-url",
+      "https://relay.example",
+    ]);
+
+    expect(opened).toHaveLength(1);
+    expect(stderr.text).toContain("\x1b[");
+    expect(stderr.text).toContain("Opening MegaETH Wallet...");
+    expect(stripAnsi(stderr.text)).toContain(
+      "Browser didn't open? Use the URL below to sign in:",
+    );
+    expect(stripAnsi(stderr.text)).toContain("boot system initialized");
+    expect(stripAnsi(stderr.text)).toContain("__  __");
+    expect(stripAnsi(stderr.text)).not.toContain("[ok] MOSS wallet connected");
+    expect(stderr.text).toContain(opened[0]);
+    expect(stdout.text).toContain("[ok] MOSS wallet connected");
+    expect(stdout.text).toContain("Network: mainnet");
   });
 
   it("rejects device auth for create-key", async () => {
@@ -1215,10 +1342,16 @@ function makeKey(
   };
 }
 
-function memoryOutput(): { readonly text: string; write(chunk: string): void } {
+function memoryOutput(options: { columns?: number; isTTY?: boolean } = {}): {
+  columns?: number;
+  isTTY?: boolean;
+  readonly text: string;
+  write(chunk: string): void;
+} {
   let text = "";
 
   return {
+    ...options,
     get text(): string {
       return text;
     },
@@ -1226,4 +1359,8 @@ function memoryOutput(): { readonly text: string; write(chunk: string): void } {
       text += chunk;
     },
   };
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
 }

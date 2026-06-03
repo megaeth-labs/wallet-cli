@@ -26,6 +26,12 @@ Core commands:
 Mainnet is the default network. Testnet is supported with `--network testnet`
 and uses a separate local profile path plus testnet chain/token defaults.
 
+Human command output may use color or lightweight terminal animation only when
+the relevant stream is a TTY and the environment is not CI, `NO_COLOR`, or a
+dumb terminal. Keep `--json` and `--terse` stdout plain and stable. Auth
+progress, browser fallback URLs, and terminal animation belong on stderr; final
+command results belong on stdout.
+
 ## Distribution
 
 The local install path is repo-owned and deterministic:

@@ -63,6 +63,12 @@ import { readErc20Metadata } from "../eth/erc20.js";
 import { CliError } from "../errors.js";
 import { compactAddress, formatBulletLines, toJson } from "../output.js";
 import { readSpendInfos, type DelegatedSpendInfo } from "../relay/spendInfo.js";
+import { renderLoginLogo } from "../terminal/logo.js";
+import {
+  createTerminalStyle,
+  formatTerminalFieldLines,
+  type TerminalStyle,
+} from "../terminal/style.js";
 
 type LoginCommandOptions = {
   authFlow?: string;
@@ -223,7 +229,10 @@ export function registerWalletSubcommands(
     .option("-t, --terse", "render compact text output")
     .action(async (options: LoginCommandOptions) => {
       const profile = await login(options, dependencies);
-      getStdout(dependencies).write(renderLogin(profile, options));
+      const stdout = getStdout(dependencies);
+      stdout.write(
+        renderLogin(profile, options, stdoutStyle(options, dependencies)),
+      );
     });
 
   wallet
@@ -425,7 +434,7 @@ export async function login(
     relayUrl,
     timeoutMs: options.timeoutMs,
     env: dependencies.env,
-    openBrowser: makeBrowserOpener(options, dependencies),
+    openBrowser: makeBrowserOpener(options, dependencies, { loginIntro: true }),
   });
   const profile = parseWalletProfile({
     ...result.profile,
@@ -452,7 +461,9 @@ export async function runWalletWhoami(
     tokenMetadata,
   );
 
-  getStdout(dependencies).write(renderWhoami(result, options));
+  getStdout(dependencies).write(
+    renderWhoami(result, options, stdoutStyle(options, dependencies)),
+  );
 
   return result;
 }
@@ -480,7 +491,9 @@ export async function runWalletList(
     network,
   };
 
-  getStdout(dependencies).write(renderList(result, options));
+  getStdout(dependencies).write(
+    renderList(result, options, stdoutStyle(options, dependencies)),
+  );
 
   return result;
 }
@@ -515,7 +528,9 @@ export async function runWalletPermissions(
     ...(Object.keys(tokenMetadata).length === 0 ? {} : { tokenMetadata }),
   };
 
-  getStdout(dependencies).write(renderPermissions(result, options));
+  getStdout(dependencies).write(
+    renderPermissions(result, options, stdoutStyle(options, dependencies)),
+  );
 
   return result;
 }
@@ -632,7 +647,9 @@ export async function runWalletSwitch(
     network,
   };
 
-  getStdout(dependencies).write(renderSwitch(result, options));
+  getStdout(dependencies).write(
+    renderSwitch(result, options, stdoutStyle(options, dependencies)),
+  );
 
   return result;
 }
@@ -705,7 +722,9 @@ export async function runWalletCreateKey(
     network,
   };
 
-  getStdout(dependencies).write(renderCreateKey(result, options));
+  getStdout(dependencies).write(
+    renderCreateKey(result, options, stdoutStyle(options, dependencies)),
+  );
 
   return result;
 }
@@ -744,7 +763,9 @@ export async function runWalletLabel(
     network,
   };
 
-  getStdout(dependencies).write(renderLabel(result, options));
+  getStdout(dependencies).write(
+    renderLabel(result, options, stdoutStyle(options, dependencies)),
+  );
 
   return result;
 }
@@ -798,7 +819,9 @@ export async function runWalletRevoke(
       : { revokeTxHash: revocation.revokeTxHash }),
   };
 
-  getStdout(dependencies).write(renderRevoke(result, options));
+  getStdout(dependencies).write(
+    renderRevoke(result, options, stdoutStyle(options, dependencies)),
+  );
 
   return result;
 }
@@ -817,7 +840,9 @@ export async function runWalletLogout(
     removed: true,
   };
 
-  getStdout(dependencies).write(renderLogout(result, options));
+  getStdout(dependencies).write(
+    renderLogout(result, options, stdoutStyle(options, dependencies)),
+  );
 
   return result;
 }
@@ -825,6 +850,7 @@ export async function runWalletLogout(
 function renderLogin(
   profile: WalletProfile,
   options: LoginCommandOptions,
+  style: TerminalStyle,
 ): string {
   if (options.json) {
     return toJson(summarizeProfile(profile));
@@ -835,8 +861,16 @@ function renderLogin(
   }
 
   return [
-    `Logged in to ${profile.network}.`,
-    `Account: ${compactAddress(profile.accountAddress)}`,
+    style.success("[ok] MOSS wallet connected"),
+    "",
+    ...formatTerminalFieldLines(
+      [
+        ["Network", profile.network],
+        ["Account", style.accent(profile.accountAddress)],
+      ],
+      style,
+    ),
+    "",
     "No delegated key was created. Run mega wallet create-key with explicit call scopes before write operations.",
   ]
     .join("\n")
@@ -846,6 +880,7 @@ function renderLogin(
 function renderWhoami(
   result: WalletStatusResult,
   options: StatusCommandOptions,
+  style: TerminalStyle,
 ): string {
   if (options.json) {
     const {
@@ -858,10 +893,38 @@ function renderWhoami(
 
   if (result.activeKey === undefined) {
     if (result.keys.length === 0) {
-      return `No delegated keys for ${result.network}. Run mega wallet create-key to authorize one.\n`;
+      return [
+        style.warning(`No delegated keys for ${result.network}.`),
+        "",
+        ...formatTerminalFieldLines(
+          [
+            ["Network", result.network],
+            ["Account", style.accent(result.accountAddress)],
+          ],
+          style,
+        ),
+        "",
+        "Next: mega wallet create-key",
+      ]
+        .join("\n")
+        .concat("\n");
     }
 
-    return `No usable default delegated key for ${result.network}. Run mega wallet list --show-inactive, then mega wallet switch <key> or mega wallet create-key.\n`;
+    return [
+      style.warning(`No usable default delegated key for ${result.network}.`),
+      "",
+      ...formatTerminalFieldLines(
+        [
+          ["Network", result.network],
+          ["Account", style.accent(result.accountAddress)],
+        ],
+        style,
+      ),
+      "",
+      "Next: mega wallet list --show-inactive, then mega wallet switch <key> or mega wallet create-key",
+    ]
+      .join("\n")
+      .concat("\n");
   }
 
   if (options.terse) {
@@ -877,11 +940,17 @@ function renderWhoami(
   }
 
   const lines = [
-    `Network: ${result.network}`,
-    `Account: ${compactAddress(result.accountAddress)}`,
-    `Delegated key: ${formatKeyLabel(result.activeKey)}`,
-    `Status: ${result.activeKey.effectiveStatus}`,
-    `Expires: ${result.activeKey.expiresAt}`,
+    ...formatTerminalFieldLines(
+      [
+        ["Network", result.network],
+        ["Account", style.accent(result.accountAddress)],
+        ["Delegated key", style.accent(formatKeyLabel(result.activeKey))],
+        ["Status", result.activeKey.effectiveStatus],
+        ["Expires", result.activeKey.expiresAt],
+      ],
+      style,
+    ),
+    "",
     ...(result.permissionLines ??
       summarizeAuthorizedKey(
         result.activeKey.authorizedKey,
@@ -891,7 +960,9 @@ function renderWhoami(
 
   if (result.activeKey.expired) {
     lines.unshift(
-      `Warning: delegated key expired at ${result.activeKey.expiresAt}`,
+      style.warning(
+        `Warning: delegated key expired at ${result.activeKey.expiresAt}`,
+      ),
     );
   }
 
@@ -901,6 +972,7 @@ function renderWhoami(
 function renderList(
   result: WalletListResult,
   options: ListCommandOptions,
+  style: TerminalStyle,
 ): string {
   if (options.json) {
     return toJson(result);
@@ -923,7 +995,7 @@ function renderList(
       .concat(result.keys.length > 0 ? "\n" : "");
   }
 
-  const lines = [`Delegated keys for ${result.network}:`];
+  const lines = [style.strong(`Delegated keys for ${result.network}:`), ""];
   if (result.keys.length === 0) {
     lines.push(
       "No active delegated keys. Use --show-inactive to include expired or revoked keys.",
@@ -937,7 +1009,9 @@ function renderList(
       key.active ? "default" : undefined,
       `expires ${key.expiresAt}`,
     ].filter(Boolean);
-    lines.push(`- ${formatKeyLabel(key)} (${details.join(", ")})`);
+    lines.push(
+      `- ${style.accent(formatKeyLabel(key))} (${details.join(", ")})`,
+    );
   }
 
   return lines.join("\n").concat("\n");
@@ -946,6 +1020,7 @@ function renderList(
 function renderPermissions(
   result: WalletPermissionsResult,
   options: StatusCommandOptions,
+  style: TerminalStyle,
 ): string {
   if (options.json) {
     return toJson(result);
@@ -963,22 +1038,34 @@ function renderPermissions(
   }
 
   return [
-    `Permissions for ${formatKeyLabel(result.key)}:`,
-    `Status: ${result.key.effectiveStatus}`,
-    `Expires: ${result.key.expiresAt}`,
-    "Approved scope (stored request):",
+    style.strong(
+      `Permissions for ${style.accent(formatKeyLabel(result.key))}:`,
+    ),
+    "",
+    ...formatTerminalFieldLines(
+      [
+        ["Status", result.key.effectiveStatus],
+        ["Expires", result.key.expiresAt],
+      ],
+      style,
+    ),
+    "",
+    style.strong("Approved scope (stored request):"),
     ...formatBulletLines(result.permissionLines),
     "",
-    ...renderSpendInfoLines(result),
+    ...renderSpendInfoLines(result, style),
   ]
     .join("\n")
     .concat("\n");
 }
 
-function renderSpendInfoLines(result: WalletPermissionsResult): string[] {
+function renderSpendInfoLines(
+  result: WalletPermissionsResult,
+  style: TerminalStyle,
+): string[] {
   if (result.spendInfoError !== undefined) {
     return [
-      "Live on-chain spend remaining:",
+      style.strong("Live on-chain spend remaining:"),
       ...formatBulletLines([`unavailable (${result.spendInfoError})`]),
     ];
   }
@@ -989,13 +1076,13 @@ function renderSpendInfoLines(result: WalletPermissionsResult): string[] {
 
   if (result.spendInfos.length === 0) {
     return [
-      "Live on-chain spend remaining:",
+      style.strong("Live on-chain spend remaining:"),
       ...formatBulletLines(["no spend limits found"]),
     ];
   }
 
   return [
-    "Live on-chain spend remaining:",
+    style.strong("Live on-chain spend remaining:"),
     ...formatBulletLines(
       result.spendInfos.map((info) => {
         const token = spendInfoTokenLabel(info, result.tokenMetadata);
@@ -1045,6 +1132,7 @@ function spendInfoToken(info: DelegatedSpendInfo): HexString | undefined {
 function renderSwitch(
   result: WalletSwitchResult,
   options: StatusCommandOptions,
+  style: TerminalStyle,
 ): string {
   if (options.json) {
     return toJson(result);
@@ -1053,12 +1141,18 @@ function renderSwitch(
     return [result.network, result.key.id].join("\t").concat("\n");
   }
 
-  return `Default delegated key set to ${formatKeyLabel(result.key)}.\n`;
+  return [
+    style.success("Default delegated key set."),
+    "",
+    `${style.dim("Delegated key")}: ${style.accent(formatKeyLabel(result.key))}`,
+    "",
+  ].join("\n");
 }
 
 function renderCreateKey(
   result: WalletCreateKeyResult,
   options: CreateKeyCommandOptions,
+  style: TerminalStyle,
 ): string {
   if (options.json) {
     return toJson(result);
@@ -1070,8 +1164,18 @@ function renderCreateKey(
   }
 
   return [
-    `Created delegated key ${formatKeyLabel(result.key)}.`,
+    style.success(`Created delegated key ${formatKeyLabel(result.key)}.`),
+    "",
+    ...formatTerminalFieldLines(
+      [
+        ["Access address", style.accent(result.key.accessAddress)],
+        ["Network", result.network],
+      ],
+      style,
+    ),
+    "",
     "This key is now the default for write operations.",
+    `Next: mega wallet permissions ${result.key.accessAddress}`,
   ]
     .join("\n")
     .concat("\n");
@@ -1080,6 +1184,7 @@ function renderCreateKey(
 function renderLabel(
   result: WalletSwitchResult,
   options: StatusCommandOptions,
+  style: TerminalStyle,
 ): string {
   if (options.json) {
     return toJson(result);
@@ -1090,12 +1195,18 @@ function renderLabel(
       .concat("\n");
   }
 
-  return `Updated label for ${formatKeyLabel(result.key)}.\n`;
+  return [
+    style.success("Updated delegated key label."),
+    "",
+    `${style.dim("Delegated key")}: ${style.accent(formatKeyLabel(result.key))}`,
+    "",
+  ].join("\n");
 }
 
 function renderRevoke(
   result: WalletRevokeResult,
   options: KeyCommandOptions,
+  style: TerminalStyle,
 ): string {
   if (options.json) {
     return toJson(result);
@@ -1106,9 +1217,14 @@ function renderRevoke(
       .concat("\n");
   }
 
-  const lines = [`Revoked delegated key ${formatKeyLabel(result.key)}.`];
+  const lines = [
+    style.success(`Revoked delegated key ${formatKeyLabel(result.key)}.`),
+  ];
   if (result.revokeTxHash !== undefined) {
-    lines.push(`Transaction: ${result.revokeTxHash}`);
+    lines.push("");
+    lines.push(
+      `${style.dim("Transaction")}: ${style.accent(result.revokeTxHash)}`,
+    );
   }
 
   return lines.join("\n").concat("\n");
@@ -1117,6 +1233,7 @@ function renderRevoke(
 function renderLogout(
   result: WalletLogoutResult,
   options: StatusCommandOptions,
+  style: TerminalStyle,
 ): string {
   if (options.json) {
     return toJson(result);
@@ -1127,8 +1244,13 @@ function renderLogout(
   }
 
   return [
-    `Removed ${result.network} wallet profile.`,
-    `Account: ${compactAddress(result.accountAddress)}`,
+    style.warning(`Removed ${result.network} wallet profile.`),
+    "",
+    ...formatTerminalFieldLines(
+      [["Account", style.accent(result.accountAddress)]],
+      style,
+    ),
+    "",
     "Deleted local delegated key material.",
     "Delegated keys were not revoked on-chain.",
   ]
@@ -1265,7 +1387,7 @@ function keyTimestamp(key: WalletKeyRecord): number {
 function formatKeyLabel(key: RenderedWalletKey): string {
   const label = key.label === undefined ? "" : ` "${key.label}"`;
 
-  return `${compactAddress(key.accessAddress)}${label}`;
+  return `${key.accessAddress}${label}`;
 }
 
 function sameKey(left: WalletKeyRecord, right: WalletKeyRecord): boolean {
@@ -1313,14 +1435,29 @@ function collectOptional(
 }
 
 function makeBrowserOpener(
-  options: { noBrowser?: boolean },
+  options: { json?: boolean; noBrowser?: boolean; terse?: boolean },
   dependencies: WalletCommandDependencies,
+  renderOptions: { loginIntro?: boolean } = {},
 ): BrowserOpener {
   const opener = dependencies.openBrowser ?? openSystemBrowser;
   return async (url) => {
     if (!shouldOpenBrowser(options)) {
       getStderr(dependencies).write(`Open this URL to authorize: ${url}\n`);
       return;
+    }
+
+    if (renderOptions.loginIntro && !options.json && !options.terse) {
+      const stderr = getStderr(dependencies);
+      const style = stderrStyle(options, dependencies);
+      await renderLoginLogo({
+        env: dependencies.env,
+        stream: stderr,
+      });
+      stderr.write(`${style.success("Opening MegaETH Wallet...")}\n\n`);
+      stderr.write(
+        `${style.warning("Browser didn't open?")} Use the URL below to sign in:\n`,
+      );
+      stderr.write(`${style.accent(url)}\n`);
     }
 
     await opener(url);
@@ -1340,6 +1477,30 @@ function getStdout(dependencies: WalletCommandDependencies): OutputWriter {
 
 function getStderr(dependencies: WalletCommandDependencies): OutputWriter {
   return dependencies.stderr ?? process.stderr;
+}
+
+function stdoutStyle(
+  options: { json?: boolean; terse?: boolean },
+  dependencies: WalletCommandDependencies,
+): TerminalStyle {
+  return createTerminalStyle({
+    env: dependencies.env,
+    json: options.json,
+    stream: getStdout(dependencies),
+    terse: options.terse,
+  });
+}
+
+function stderrStyle(
+  options: { json?: boolean; terse?: boolean },
+  dependencies: WalletCommandDependencies,
+): TerminalStyle {
+  return createTerminalStyle({
+    env: dependencies.env,
+    json: options.json,
+    stream: getStderr(dependencies),
+    terse: options.terse,
+  });
 }
 
 function getNow(dependencies: WalletCommandDependencies): Date {

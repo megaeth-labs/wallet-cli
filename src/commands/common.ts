@@ -2,6 +2,8 @@ import { defaultNetwork, isNetwork, type Network } from "../config/chains.js";
 import { CliError } from "../errors.js";
 
 export type OutputWriter = {
+  columns?: number;
+  isTTY?: boolean;
   write(chunk: string): unknown;
 };
 
