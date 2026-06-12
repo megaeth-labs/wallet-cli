@@ -178,3 +178,35 @@ async function readPermissionTokenMetadata(options: {
 
   return Object.fromEntries(entries.filter((entry) => entry !== undefined));
 }
+
+
+export type WalletAggregateStatus = {
+  network: "mainnet" | "testnet";
+  accountAddress: `0x${string}`;
+  hasDelegatedKeys: boolean;
+  hasActiveKey: boolean;
+  readiness: "needs_login" | "needs_key" | "ready";
+  activeKey?: RenderedWalletKey;
+  keyCount: number;
+};
+
+export async function getWalletAggregateStatus(
+  options: StatusCommandOptions,
+  dependencies: WalletCommandDependencies = {},
+): Promise<WalletAggregateStatus> {
+  const status = await getWalletStatus(options, dependencies);
+  return {
+    network: status.network,
+    accountAddress: status.accountAddress,
+    hasDelegatedKeys: status.keys.length > 0,
+    hasActiveKey: status.activeKey !== undefined,
+    readiness:
+      status.keys.length === 0
+        ? "needs_key"
+        : status.activeKey === undefined
+          ? "needs_key"
+          : "ready",
+    ...(status.activeKey === undefined ? {} : { activeKey: status.activeKey }),
+    keyCount: status.keys.length,
+  };
+}

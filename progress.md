@@ -15,3 +15,4 @@
 - Updated MCP registry to consume shared runtime for those operations instead of command wrappers.
 - Moved delegated-key permissions inspection onto shared runtime (`src/core/wallet-permissions.ts`).
 - Updated MCP registry to consume shared runtime for `permissions` as well.
+- Added first agent-oriented aggregate tool: `moss_wallet_status`, built from shared runtime state.

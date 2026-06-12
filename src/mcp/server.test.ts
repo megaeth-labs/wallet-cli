@@ -9,6 +9,7 @@ describe("wallet MCP registry", () => {
       "moss_whoami",
       "moss_list_keys",
       "moss_permissions",
+      "moss_wallet_status",
       "moss_debug",
     ]);
   });

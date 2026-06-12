@@ -69,3 +69,19 @@ export const debugSchema: OperationSchema = {
   },
   output: { type: "object", description: "Wallet debug diagnostics." },
 };
+
+export const walletStatusSchema: OperationSchema = {
+  id: "moss_wallet_status",
+  title: "Aggregate wallet status",
+  description: "Return the connected account, delegated key state, and whether the wallet is ready for delegated operations.",
+  safety: "read",
+  exposedIn: { cli: false, mcp: true },
+  input: {
+    type: "object",
+    properties: {
+      network: { type: "string", enum: ["mainnet", "testnet"] },
+    },
+    additionalProperties: false,
+  },
+  output: { type: "object", description: "Aggregate wallet readiness and capability summary." },
+};
