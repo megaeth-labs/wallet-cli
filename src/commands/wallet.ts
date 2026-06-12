@@ -1,6 +1,5 @@
 import { Command, Option } from "commander";
 import { zeroAddress } from "viem";
-
 import { registerCallCommand } from "./call.js";
 import {
   assertHttpUrl,
@@ -39,6 +38,7 @@ import {
   tokenLabel,
   type TokenDisplayMetadataMap,
 } from "../config/permissionSummary.js";
+import { getWalletList, getWalletStatus, renderableKey as renderableKeyShared, loadTokenMetadataForStatus } from "../core/wallet-status.js";
 import {
   addWalletKey,
   deleteWalletProfile,
@@ -93,13 +93,13 @@ type CreateKeyCommandOptions = LoginCommandOptions & {
   spendLimit?: string[];
 };
 
-type StatusCommandOptions = {
+export type StatusCommandOptions = {
   network?: string;
   json?: boolean;
   terse?: boolean;
 };
 
-type ListCommandOptions = StatusCommandOptions & {
+export type ListCommandOptions = StatusCommandOptions & {
   showInactive?: boolean;
 };
 
@@ -448,18 +448,7 @@ export async function runWalletWhoami(
   options: StatusCommandOptions,
   dependencies: WalletCommandDependencies = {},
 ): Promise<WalletStatusResult> {
-  const network = normalizeNetwork(options.network);
-  const profile = await readWalletProfile(network, dependencies.env);
-  const activeKey = getActiveWalletKey(profile);
-  const tokenMetadata =
-    activeKey === undefined || options.terse || options.json
-      ? {}
-      : await loadTokenMetadata([activeKey], undefined, network, dependencies);
-  const result = buildStatusResult(
-    profile,
-    getNow(dependencies),
-    tokenMetadata,
-  );
+  const result = await getWalletStatus(options, dependencies);
 
   getStdout(dependencies).write(
     renderWhoami(result, options, stdoutStyle(options, dependencies)),
@@ -472,24 +461,7 @@ export async function runWalletList(
   options: ListCommandOptions,
   dependencies: WalletCommandDependencies = {},
 ): Promise<WalletListResult> {
-  const network = normalizeNetwork(options.network);
-  const profile = await readWalletProfile(network, dependencies.env);
-  const now = getNow(dependencies);
-  const keys = sortKeysByRecency(profile.keys)
-    .map((key) => renderableKey(profile, key, now))
-    .filter(
-      (key) =>
-        options.showInactive ||
-        (key.effectiveStatus === "active" && key.status === "active"),
-    );
-  const result: WalletListResult = {
-    accountAddress: profile.accountAddress,
-    ...(profile.activeKeyId === undefined
-      ? {}
-      : { activeKeyId: profile.activeKeyId }),
-    keys,
-    network,
-  };
+  const result = await getWalletList(options, dependencies);
 
   getStdout(dependencies).write(
     renderList(result, options, stdoutStyle(options, dependencies)),
@@ -506,13 +478,13 @@ export async function runWalletPermissions(
   const network = normalizeNetwork(options.network);
   const profile = await readWalletProfile(network, dependencies.env);
   const key = requireWalletKey(profile, selector);
-  const renderedKey = renderableKey(profile, key, getNow(dependencies));
+  const renderedKey = renderableKeyShared(profile, key, getNow(dependencies));
   const spendInfoResult = options.terse
     ? {}
     : await loadSpendInfos(profile, key, network, dependencies);
   const tokenMetadata = options.terse
     ? {}
-    : await loadTokenMetadata(
+    : await loadTokenMetadataForStatus(
         [key],
         spendInfoResult.spendInfos,
         network,
@@ -558,77 +530,6 @@ function formatSpendInfoError(error: unknown): string {
   return formatUnknownError(error).split("\n", 1)[0] ?? "unknown error";
 }
 
-async function loadTokenMetadata(
-  keys: readonly WalletKeyRecord[],
-  spendInfos: readonly DelegatedSpendInfo[] | undefined,
-  network: Network,
-  dependencies: WalletCommandDependencies,
-): Promise<TokenDisplayMetadataMap> {
-  const tokens = collectSpendTokens(keys, spendInfos);
-  if (tokens.length === 0) {
-    return {};
-  }
-
-  try {
-    return await (
-      dependencies.readTokenMetadata ?? readPermissionTokenMetadata
-    )({
-      network,
-      tokens,
-    });
-  } catch {
-    return {};
-  }
-}
-
-function collectSpendTokens(
-  keys: readonly WalletKeyRecord[],
-  spendInfos: readonly DelegatedSpendInfo[] | undefined,
-): HexString[] {
-  const tokens = new Set<HexString>();
-  for (const key of keys) {
-    for (const spend of key.authorizedKey.permissions.spend) {
-      addMetadataToken(tokens, spend.token);
-    }
-  }
-  for (const info of spendInfos ?? []) {
-    addMetadataToken(tokens, info.token);
-  }
-
-  return [...tokens];
-}
-
-function addMetadataToken(
-  tokens: Set<HexString>,
-  token: HexString | undefined,
-): void {
-  if (token === undefined || token.toLowerCase() === zeroAddress) {
-    return;
-  }
-
-  tokens.add(token.toLowerCase() as HexString);
-}
-
-async function readPermissionTokenMetadata(options: {
-  network: Network;
-  tokens: readonly HexString[];
-}): Promise<TokenDisplayMetadataMap> {
-  const client = createEthCallClient(options.network);
-  const entries = await Promise.all(
-    options.tokens.map(async (token) => {
-      try {
-        return [
-          token.toLowerCase(),
-          await readErc20Metadata(client, token),
-        ] as const;
-      } catch {
-        return undefined;
-      }
-    }),
-  );
-
-  return Object.fromEntries(entries.filter((entry) => entry !== undefined));
-}
 
 export async function runWalletSwitch(
   selector: string,
@@ -643,7 +544,7 @@ export async function runWalletSwitch(
   const active = requireWalletKey(updated, key.id);
   const result: WalletSwitchResult = {
     accountAddress: updated.accountAddress,
-    key: renderableKey(updated, active, getNow(dependencies)),
+    key: renderableKeyShared(updated, active, getNow(dependencies)),
     network,
   };
 
@@ -714,7 +615,7 @@ export async function runWalletCreateKey(
 
   const result: WalletCreateKeyResult = {
     accountAddress: updated.accountAddress,
-    key: renderableKey(
+    key: renderableKeyShared(
       updated,
       requireWalletKey(updated, key.id),
       getNow(dependencies),
@@ -755,7 +656,7 @@ export async function runWalletLabel(
   await writeWalletProfile(updated, dependencies.env);
   const result: WalletSwitchResult = {
     accountAddress: updated.accountAddress,
-    key: renderableKey(
+    key: renderableKeyShared(
       updated,
       requireWalletKey(updated, key.id),
       getNow(dependencies),
@@ -808,7 +709,7 @@ export async function runWalletRevoke(
 
   const result: WalletRevokeResult = {
     accountAddress: updated.accountAddress,
-    key: renderableKey(
+    key: renderableKeyShared(
       updated,
       requireWalletKey(updated, key.id),
       getNow(dependencies),
@@ -1258,28 +1159,6 @@ function renderLogout(
     .concat("\n");
 }
 
-function buildStatusResult(
-  profile: WalletProfile,
-  now: Date,
-  tokenMetadata: TokenDisplayMetadataMap = {},
-): WalletStatusResult {
-  const activeKey = getActiveWalletKey(profile);
-  const summary = summarizeProfile(profile);
-
-  return {
-    ...summary,
-    ...(activeKey === undefined
-      ? {}
-      : {
-          activeKey: renderableKey(profile, activeKey, now),
-          permissionLines: summarizeAuthorizedKey(
-            activeKey.authorizedKey,
-            tokenMetadata,
-          ).lines,
-        }),
-    ...(Object.keys(tokenMetadata).length === 0 ? {} : { tokenMetadata }),
-  };
-}
 
 async function resolveCreateKeyPermissions(
   profile: WalletProfile,
@@ -1348,7 +1227,7 @@ function requireWalletKey(
   return key;
 }
 
-function renderableKey(
+function renderableKeyLocal(
   profile: WalletProfile,
   key: WalletKeyRecord,
   now: Date,

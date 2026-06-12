@@ -1,7 +1,8 @@
 import type { WalletOperation } from "../core/operations.js";
 import { whoamiSchema, listSchema, permissionsSchema, debugSchema } from "../schemas/wallet.js";
-import { runWalletWhoami, runWalletList, runWalletPermissions } from "../commands/wallet.js";
+import { runWalletPermissions } from "../commands/wallet.js";
 import { runWalletDebug } from "../commands/debug.js";
+import { getWalletList, getWalletStatus } from "../core/wallet-status.js";
 
 type McpInput = Record<string, unknown>;
 
@@ -10,7 +11,7 @@ export function createWalletMcpRegistry(): Array<WalletOperation<McpInput, unkno
     {
       schema: whoamiSchema,
       run: async (input) =>
-        runWalletWhoami(
+        getWalletStatus(
           { network: asString(input.network), json: true },
           { stdout: sinkWriter },
         ),
@@ -18,7 +19,7 @@ export function createWalletMcpRegistry(): Array<WalletOperation<McpInput, unkno
     {
       schema: listSchema,
       run: async (input) =>
-        runWalletList(
+        getWalletList(
           {
             network: asString(input.network),
             showInactive: asBoolean(input.showInactive),
