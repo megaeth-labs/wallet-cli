@@ -154,3 +154,82 @@ export function evaluateTransferAuthority(options: {
 
   return issues;
 }
+
+
+export function evaluateExecuteAuthority(options: {
+  calls: Array<{ to: `0x${string}`; data: `0x${string}`; value: string }>;
+  key: WalletKeyRecord | undefined;
+  requestedKey?: string;
+  profile: WalletProfile;
+}): CapabilityIssue[] {
+  const issues: CapabilityIssue[] = [];
+  const key = options.key;
+
+  if (options.requestedKey !== undefined && key === undefined) {
+    issues.push({
+      code: "requested_key_not_found",
+      message: `Requested delegated key not found: ${options.requestedKey}.`,
+      suggestedAction: "Run `mega moss list --show-inactive` to inspect available keys.",
+    });
+    return issues;
+  }
+
+  if (key === undefined) {
+    return issues;
+  }
+
+  if (key.privateKey === undefined) {
+    issues.push({
+      code: "requested_key_unusable",
+      message: "The selected delegated key has no local private key material on this machine.",
+      suggestedAction: "Switch to a local key or create a new delegated key on this machine.",
+    });
+  }
+
+  const missingCalls: Array<{ to: `0x${string}`; signature: string }> = [];
+  const missingSpend: Array<{ token: `0x${string}`; suggestedLimit: string; suggestedPeriod: string }> = [];
+
+  for (const call of options.calls) {
+    const selector = call.data.length >= 10 ? `selector:${call.data.slice(0, 10)}` : "selector:0x";
+    const hasCall = (key.authorizedKey.permissions.calls ?? []).some(
+      (perm) => perm.to?.toLowerCase() === call.to.toLowerCase(),
+    );
+    if (!hasCall && !missingCalls.some((entry) => entry.to.toLowerCase() === call.to.toLowerCase())) {
+      missingCalls.push({ to: call.to, signature: selector });
+    }
+
+    if (call.value !== "0") {
+      missingSpend.push({
+        token: "0x0000000000000000000000000000000000000000",
+        suggestedLimit: call.value,
+        suggestedPeriod: "week",
+      });
+    }
+  }
+
+  if (missingCalls.length > 0) {
+    issues.push({
+      code: "missing_call_permission",
+      message: "The selected delegated key is missing one or more call permissions required by the requested execution plan.",
+      suggestedAction: "Create or switch to a delegated key with the required call permissions.",
+      delta: {
+        missingCalls,
+        suggestedCommand: "mega moss create-key --allow-call '<contract>:<functionSignature>'",
+      },
+    });
+  }
+
+  if (missingSpend.length > 0) {
+    issues.push({
+      code: "missing_spend_permission",
+      message: "The selected delegated key may require additional spend authority for calls that transfer native value.",
+      suggestedAction: "Create or switch to a delegated key with sufficient spend allowance.",
+      delta: {
+        missingSpend,
+        suggestedCommand: "mega moss create-key --spend-limit 0x0000000000000000000000000000000000000000:<amount>:week",
+      },
+    });
+  }
+
+  return issues;
+}

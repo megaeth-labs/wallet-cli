@@ -2,7 +2,7 @@ import { normalizeNetwork } from "../commands/common.js";
 import type { ExecuteCallInput } from "../commands/execute.js";
 import type { WalletCommandDependencies } from "../commands/wallet.js";
 import { getActiveWalletKey, readWalletProfile } from "../config/profile.js";
-import { evaluateDelegatedKeyCapability, type CapabilityIssue } from "./capability.js";
+import { evaluateDelegatedKeyCapability, evaluateExecuteAuthority, type CapabilityIssue } from "./capability.js";
 import { normalizeExecuteCalls } from "./execute-shared.js";
 
 export type ExecutePreviewInput = {
@@ -37,12 +37,19 @@ export async function previewExecute(
     ...call,
     value: call.value.toString(),
   }));
-  const capability = evaluateDelegatedKeyCapability({ profile, activeKey });
+  const baseCapability = evaluateDelegatedKeyCapability({ profile, activeKey });
+  const executeIssues = evaluateExecuteAuthority({
+    calls,
+    key: activeKey,
+    ...(input.key === undefined ? {} : { requestedKey: input.key }),
+    profile,
+  });
+  const issues = [...baseCapability.issues, ...executeIssues];
 
   return {
     network,
     accountAddress: profile.accountAddress,
-    readiness: capability.readiness,
+    readiness: issues.length === 0 ? "ready" : "needs_key",
     ...(activeKey === undefined
       ? {}
       : {
@@ -54,8 +61,8 @@ export async function previewExecute(
         }),
     ...(input.key === undefined ? {} : { requestedKey: input.key }),
     calls,
-    issues: capability.issues,
-    warnings: capability.issues.map((issue) => issue.message),
+    issues,
+    warnings: issues.map((issue) => issue.message),
   };
 }
 

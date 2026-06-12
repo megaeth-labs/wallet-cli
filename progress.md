@@ -30,3 +30,4 @@
 - Added permission delta payloads and suggested commands for missing ERC20 call/spend permissions.
 - Added `moss_execute_preview` to generalize preview-first planning beyond transfers.
 - Added generic write-capable `moss_execute` plus safety tests mirroring preview readiness semantics.
+- Generalized permission deltas into `moss_execute_preview`, including missing call permissions by target/selector and native-value spend guidance.

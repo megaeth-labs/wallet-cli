@@ -14,6 +14,26 @@ afterEach(async () => {
 });
 
 describe("execute preview", () => {
+  it("surfaces permission deltas for missing execute authority", async () => {
+    const env = await tempEnv();
+    await writeWalletProfile(makeProfile(), env);
+    const result = await previewExecute(
+      {
+        network: "mainnet",
+        calls: [{ to: "0x9999999999999999999999999999999999999999", data: "0xa9059cbb", value: "10" }],
+      },
+      { env },
+    );
+
+    expect(result.readiness).toBe("needs_key");
+    expect(result.issues.map((issue) => issue.code)).toContain("missing_call_permission");
+    expect(result.issues.map((issue) => issue.code)).toContain("missing_spend_permission");
+    expect(result.issues.find((issue) => issue.code === "missing_call_permission")?.delta?.missingCalls?.[0]).toEqual({
+      to: "0x9999999999999999999999999999999999999999",
+      signature: "selector:0xa9059cbb",
+    });
+  });
+
   it("normalizes calls and reports readiness", async () => {
     const env = await tempEnv();
     await writeWalletProfile(makeProfile(), env);
@@ -52,7 +72,7 @@ function makeProfile() {
           publicKey: "0x2222222222222222222222222222222222222222",
           expiry: 1_900_000_000,
           feeToken: { symbol: "ETH", limit: "1000000000000000" },
-          permissions: { calls: [], spend: [] },
+          permissions: { calls: [{ to: "0x1111111111111111111111111111111111111111", signature: "selector:0x" }], spend: [] },
         },
         createdAt: "2026-05-07T00:00:00.000Z",
         id: "0x3333333333333333333333333333333333333333333333333333333333333333" as const,
