@@ -23,3 +23,5 @@
 - Added delegated capability evaluation helpers (`src/core/capability.ts`).
 - Transfer preview and wallet status now surface structured issues + suggested next-step guidance.
 - Added focused tests for transfer preview capability diagnostics and readiness states.
+- Added transfer authority diagnostics for requested-key mismatch and missing ERC20 call/spend permissions.
+- Added targeted capability tests to pin the new issue semantics.

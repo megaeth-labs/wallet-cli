@@ -15,7 +15,7 @@ import {
   type Erc20Metadata,
 } from "../eth/erc20.js";
 import { normalizeNetwork } from "../commands/common.js";
-import { evaluateDelegatedKeyCapability, type CapabilityIssue } from "./capability.js";
+import { evaluateDelegatedKeyCapability, evaluateTransferAuthority, type CapabilityIssue } from "./capability.js";
 import type { TransferCommandDependencies, TransferDetails } from "../commands/transfer.js";
 import type { WalletCommandDependencies } from "../commands/wallet.js";
 
@@ -55,15 +55,22 @@ export async function buildTransferPlan(
 ): Promise<TransferPreviewResult> {
   const network = normalizeNetwork(options.network);
   const profile = await readWalletProfile(network, dependencies.env);
-  const activeKey = getActiveWalletKey(profile);
+  const activeKey = selectKey(profile, options.key);
   const transfer = await buildTransfer(options, network, dependencies as TransferCommandDependencies);
 
-  const capability = evaluateDelegatedKeyCapability({ profile, activeKey });
+  const baseCapability = evaluateDelegatedKeyCapability({ profile, activeKey });
+  const transferIssues = evaluateTransferAuthority({
+    key: activeKey,
+    ...(transfer.details.asset === "erc20" ? { token: transfer.details.token } : {}),
+    ...(options.key === undefined ? {} : { requestedKey: options.key }),
+    profile,
+  });
+  const issues = [...baseCapability.issues, ...transferIssues];
 
   return {
     network,
     accountAddress: profile.accountAddress,
-    readiness: capability.readiness,
+    readiness: issues.length === 0 ? "ready" : "needs_key",
     ...(activeKey === undefined
       ? {}
       : {
@@ -80,8 +87,8 @@ export async function buildTransferPlan(
       value: transfer.call.value.toString(),
       data: transfer.call.data,
     },
-    warnings: capability.issues.map((issue) => issue.message),
-    issues: capability.issues,
+    warnings: issues.map((issue) => issue.message),
+    issues,
   };
 }
 
@@ -166,6 +173,18 @@ async function resolveTokenMetadata(
     const suffix = error instanceof Error && error.message.length > 0 ? `: ${firstLine(error.message)}` : "";
     throw new CliError(`failed to read ERC20 decimals; pass --decimals or --rpc-url${suffix}`);
   }
+}
+
+function selectKey(profile: Awaited<ReturnType<typeof readWalletProfile>>, selector: string | undefined) {
+  if (selector === undefined) {
+    return getActiveWalletKey(profile);
+  }
+
+  return profile.keys.find((key) =>
+    key.id.toLowerCase() === selector.toLowerCase() ||
+    key.accessAddress.toLowerCase() === selector.toLowerCase() ||
+    key.label?.toLowerCase() === selector.toLowerCase(),
+  );
 }
 
 function normalizeAmount(value: string | undefined): string {

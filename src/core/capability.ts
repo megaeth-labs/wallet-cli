@@ -5,7 +5,11 @@ export type CapabilityIssueCode =
   | "no_active_key"
   | "active_key_expired"
   | "active_key_revoked"
-  | "local_key_missing";
+  | "local_key_missing"
+  | "requested_key_not_found"
+  | "requested_key_unusable"
+  | "missing_call_permission"
+  | "missing_spend_permission";
 
 export type CapabilityIssue = {
   code: CapabilityIssueCode;
@@ -74,4 +78,64 @@ export function evaluateDelegatedKeyCapability(options: {
     readiness: issues.length === 0 ? "ready" : "needs_key",
     issues,
   };
+}
+
+
+export function evaluateTransferAuthority(options: {
+  key: WalletKeyRecord | undefined;
+  token?: `0x${string}`;
+  requestedKey?: string;
+  profile: WalletProfile;
+}): CapabilityIssue[] {
+  const issues: CapabilityIssue[] = [];
+  const key = options.key;
+
+  if (options.requestedKey !== undefined && key === undefined) {
+    issues.push({
+      code: "requested_key_not_found",
+      message: `Requested delegated key not found: ${options.requestedKey}.`,
+      suggestedAction: "Run `mega moss list --show-inactive` to inspect available keys.",
+    });
+    return issues;
+  }
+
+  if (key === undefined) {
+    return issues;
+  }
+
+  if (key.privateKey === undefined) {
+    issues.push({
+      code: "requested_key_unusable",
+      message: "The selected delegated key has no local private key material on this machine.",
+      suggestedAction: "Switch to a local key or create a new delegated key on this machine.",
+    });
+  }
+
+  if (options.token !== undefined) {
+    const hasCall = (key.authorizedKey.permissions.calls ?? []).some(
+      (call) =>
+        call.to?.toLowerCase() === options.token?.toLowerCase() &&
+        call.signature === "transfer(address,uint256)",
+    );
+    if (!hasCall) {
+      issues.push({
+        code: "missing_call_permission",
+        message: `The selected delegated key does not include transfer(address,uint256) call permission for ${options.token}.`,
+        suggestedAction: `Create a key with --allow-call '${options.token}:transfer(address,uint256)'`,
+      });
+    }
+
+    const hasSpend = key.authorizedKey.permissions.spend.some(
+      (spend) => spend.token?.toLowerCase() === options.token?.toLowerCase(),
+    );
+    if (!hasSpend) {
+      issues.push({
+        code: "missing_spend_permission",
+        message: `The selected delegated key does not include spend permission for ${options.token}.`,
+        suggestedAction: `Create a key with --spend-limit ${options.token}:<amount>:<period>`,
+      });
+    }
+  }
+
+  return issues;
 }
