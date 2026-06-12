@@ -31,3 +31,4 @@
 - Added `moss_execute_preview` to generalize preview-first planning beyond transfers.
 - Added generic write-capable `moss_execute` plus safety tests mirroring preview readiness semantics.
 - Generalized permission deltas into `moss_execute_preview`, including missing call permissions by target/selector and native-value spend guidance.
+- Added MCP end-to-end stream tests for tool discovery and wallet_status invocation.
