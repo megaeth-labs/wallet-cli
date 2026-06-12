@@ -1,11 +1,12 @@
 import type { WalletOperation } from "../core/operations.js";
-import { whoamiSchema, listSchema, permissionsSchema, debugSchema, walletStatusSchema, transferPreviewSchema, transferExecuteSchema, executePreviewSchema } from "../schemas/wallet.js";
+import { whoamiSchema, listSchema, permissionsSchema, debugSchema, walletStatusSchema, transferPreviewSchema, transferExecuteSchema, executePreviewSchema, executeSchema } from "../schemas/wallet.js";
 import { runWalletPermissions } from "../commands/wallet.js";
 import { getWalletPermissions } from "../core/wallet-permissions.js";
 import { getWalletDebug } from "../core/wallet-debug.js";
 import { previewTransfer } from "../core/transfer-preview.js";
 import { executeTransfer } from "../core/transfer-execute.js";
 import { previewExecute } from "../core/execute-preview.js";
+import { executePlannedCalls } from "../core/execute-execute.js";
 import { getWalletAggregateStatus, getWalletList, getWalletStatus } from "../core/wallet-status.js";
 
 type McpInput = Record<string, unknown>;
@@ -91,6 +92,21 @@ export function createWalletMcpRegistry(): Array<WalletOperation<McpInput, unkno
       run: async (input) => {
         const calls = asCalls(input.calls);
         return previewExecute(
+          {
+            calls,
+            key: asString(input.key),
+            network: asString(input.network),
+          },
+          { stdout: sinkWriter },
+        );
+      },
+    },
+
+    {
+      schema: executeSchema,
+      run: async (input) => {
+        const calls = asCalls(input.calls);
+        return executePlannedCalls(
           {
             calls,
             key: asString(input.key),

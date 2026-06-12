@@ -153,3 +153,23 @@ export const executePreviewSchema: OperationSchema = {
   },
   output: { type: "object", description: "Execute preview result." },
 };
+
+
+export const executeSchema: OperationSchema = {
+  id: "moss_execute",
+  title: "Execute arbitrary relay-backed calls",
+  description: "Execute one or more calls using existing delegated authority.",
+  safety: "write",
+  exposedIn: { cli: false, mcp: true },
+  input: {
+    type: "object",
+    properties: {
+      calls: { type: "array" },
+      key: { type: "string" },
+      network: { type: "string", enum: ["mainnet", "testnet"] },
+    },
+    required: ["calls"],
+    additionalProperties: false,
+  },
+  output: { type: "object", description: "Execute result." },
+};
