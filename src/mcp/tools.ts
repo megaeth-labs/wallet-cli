@@ -2,7 +2,7 @@ import type { WalletOperation } from "../core/operations.js";
 import { whoamiSchema, listSchema, permissionsSchema, debugSchema, walletStatusSchema } from "../schemas/wallet.js";
 import { runWalletPermissions } from "../commands/wallet.js";
 import { getWalletPermissions } from "../core/wallet-permissions.js";
-import { runWalletDebug } from "../commands/debug.js";
+import { getWalletDebug } from "../core/wallet-debug.js";
 import { getWalletAggregateStatus, getWalletList, getWalletStatus } from "../core/wallet-status.js";
 
 type McpInput = Record<string, unknown>;
@@ -52,7 +52,7 @@ export function createWalletMcpRegistry(): Array<WalletOperation<McpInput, unkno
     {
       schema: debugSchema,
       run: async (input) =>
-        runWalletDebug(
+        getWalletDebug(
           { network: asString(input.network), json: true },
           { stdout: sinkWriter },
         ),
