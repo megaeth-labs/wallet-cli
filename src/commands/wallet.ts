@@ -39,6 +39,7 @@ import {
   type TokenDisplayMetadataMap,
 } from "../config/permissionSummary.js";
 import { getWalletList, getWalletStatus, renderableKey as renderableKeyShared, loadTokenMetadataForStatus } from "../core/wallet-status.js";
+import { getWalletPermissions } from "../core/wallet-permissions.js";
 import {
   addWalletKey,
   deleteWalletProfile,
@@ -475,30 +476,7 @@ export async function runWalletPermissions(
   options: StatusCommandOptions,
   dependencies: WalletCommandDependencies = {},
 ): Promise<WalletPermissionsResult> {
-  const network = normalizeNetwork(options.network);
-  const profile = await readWalletProfile(network, dependencies.env);
-  const key = requireWalletKey(profile, selector);
-  const renderedKey = renderableKeyShared(profile, key, getNow(dependencies));
-  const spendInfoResult = options.terse
-    ? {}
-    : await loadSpendInfos(profile, key, network, dependencies);
-  const tokenMetadata = options.terse
-    ? {}
-    : await loadTokenMetadataForStatus(
-        [key],
-        spendInfoResult.spendInfos,
-        network,
-        dependencies,
-      );
-  const result: WalletPermissionsResult = {
-    accountAddress: profile.accountAddress,
-    key: renderedKey,
-    network,
-    permissionLines: summarizeAuthorizedKey(key.authorizedKey, tokenMetadata)
-      .lines,
-    ...spendInfoResult,
-    ...(Object.keys(tokenMetadata).length === 0 ? {} : { tokenMetadata }),
-  };
+  const result = await getWalletPermissions(selector, options, dependencies);
 
   getStdout(dependencies).write(
     renderPermissions(result, options, stdoutStyle(options, dependencies)),

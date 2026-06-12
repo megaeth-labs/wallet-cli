@@ -1,6 +1,7 @@
 import type { WalletOperation } from "../core/operations.js";
 import { whoamiSchema, listSchema, permissionsSchema, debugSchema } from "../schemas/wallet.js";
 import { runWalletPermissions } from "../commands/wallet.js";
+import { getWalletPermissions } from "../core/wallet-permissions.js";
 import { runWalletDebug } from "../commands/debug.js";
 import { getWalletList, getWalletStatus } from "../core/wallet-status.js";
 
@@ -33,7 +34,7 @@ export function createWalletMcpRegistry(): Array<WalletOperation<McpInput, unkno
       run: async (input) => {
         const key = asString(input.key);
         if (key === undefined) throw new Error("key is required");
-        return runWalletPermissions(
+        return getWalletPermissions(
           key,
           { network: asString(input.network), json: true },
           { stdout: sinkWriter },

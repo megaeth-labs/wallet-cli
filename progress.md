@@ -13,3 +13,5 @@
 - Validated with lint + targeted tests.
 - Refactored `whoami` and `list` to run through shared core helpers (`src/core/wallet-status.ts`).
 - Updated MCP registry to consume shared runtime for those operations instead of command wrappers.
+- Moved delegated-key permissions inspection onto shared runtime (`src/core/wallet-permissions.ts`).
+- Updated MCP registry to consume shared runtime for `permissions` as well.
