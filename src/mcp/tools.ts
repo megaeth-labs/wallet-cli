@@ -1,10 +1,11 @@
 import type { WalletOperation } from "../core/operations.js";
-import { whoamiSchema, listSchema, permissionsSchema, debugSchema, walletStatusSchema, transferPreviewSchema, transferExecuteSchema } from "../schemas/wallet.js";
+import { whoamiSchema, listSchema, permissionsSchema, debugSchema, walletStatusSchema, transferPreviewSchema, transferExecuteSchema, executePreviewSchema } from "../schemas/wallet.js";
 import { runWalletPermissions } from "../commands/wallet.js";
 import { getWalletPermissions } from "../core/wallet-permissions.js";
 import { getWalletDebug } from "../core/wallet-debug.js";
 import { previewTransfer } from "../core/transfer-preview.js";
 import { executeTransfer } from "../core/transfer-execute.js";
+import { previewExecute } from "../core/execute-preview.js";
 import { getWalletAggregateStatus, getWalletList, getWalletStatus } from "../core/wallet-status.js";
 
 type McpInput = Record<string, unknown>;
@@ -84,6 +85,21 @@ export function createWalletMcpRegistry(): Array<WalletOperation<McpInput, unkno
           { stdout: sinkWriter },
         ),
     },
+
+    {
+      schema: executePreviewSchema,
+      run: async (input) => {
+        const calls = asCalls(input.calls);
+        return previewExecute(
+          {
+            calls,
+            key: asString(input.key),
+            network: asString(input.network),
+          },
+          { stdout: sinkWriter },
+        );
+      },
+    },
     {
       schema: debugSchema,
       run: async (input) =>
@@ -111,4 +127,20 @@ function asBoolean(value: unknown): boolean | undefined {
 
 function asNumber(value: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
+}
+
+function asCalls(value: unknown): Array<{ to: unknown; data?: unknown; value?: unknown }> {
+  if (!Array.isArray(value)) {
+    throw new Error("calls must be an array");
+  }
+  return value.map((entry) => {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      throw new Error("each call must be an object");
+    }
+    return {
+      to: (entry as Record<string, unknown>).to,
+      data: (entry as Record<string, unknown>).data,
+      value: (entry as Record<string, unknown>).value,
+    };
+  });
 }

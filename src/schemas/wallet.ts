@@ -133,3 +133,23 @@ export const transferExecuteSchema: OperationSchema = {
   },
   output: { type: "object", description: "Transfer execution result." },
 };
+
+
+export const executePreviewSchema: OperationSchema = {
+  id: "moss_execute_preview",
+  title: "Preview arbitrary relay-backed calls",
+  description: "Normalize one or more calls and inspect delegated-key readiness without executing.",
+  safety: "preview-write",
+  exposedIn: { cli: false, mcp: true },
+  input: {
+    type: "object",
+    properties: {
+      calls: { type: "array" },
+      key: { type: "string" },
+      network: { type: "string", enum: ["mainnet", "testnet"] },
+    },
+    required: ["calls"],
+    additionalProperties: false,
+  },
+  output: { type: "object", description: "Execute preview result." },
+};

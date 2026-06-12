@@ -12,6 +12,7 @@ describe("wallet MCP registry", () => {
       "moss_wallet_status",
       "moss_transfer_preview",
       "moss_transfer_execute",
+      "moss_execute_preview",
       "moss_debug",
     ]);
   });
