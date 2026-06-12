@@ -1,13 +1,19 @@
-import { executeWalletCalls, type ExecuteCommandDependencies, type ExecuteCommandResult } from "../commands/execute.js";
+import { executeWalletCalls, type ExecuteCommandDependencies } from "../commands/execute.js";
 import type { TransferCommandDependencies, TransferCommandResult } from "../commands/transfer.js";
+import { CliError } from "../errors.js";
 import { buildTransferPlan, type TransferPreviewInput } from "./transfer-shared.js";
 
 export async function executeTransfer(
   input: TransferPreviewInput,
-  dependencies: TransferCommandDependencies & ExecuteCommandDependencies = {},
+  dependencies: (TransferCommandDependencies & ExecuteCommandDependencies) & {
+    executeWalletCalls?: typeof executeWalletCalls;
+  } = {},
 ): Promise<TransferCommandResult & { previewWarnings: string[] }> {
   const preview = await buildTransferPlan(input, dependencies);
-  const execution = await executeWalletCalls(
+  if (preview.readiness !== "ready") {
+    throw new CliError(preview.warnings.join(" "));
+  }
+  const execution = await (dependencies.executeWalletCalls ?? executeWalletCalls)(
     {
       calls: [
         {
