@@ -109,3 +109,27 @@ export const transferPreviewSchema: OperationSchema = {
   },
   output: { type: "object", description: "Transfer execution preview." },
 };
+
+
+export const transferExecuteSchema: OperationSchema = {
+  id: "moss_transfer_execute",
+  title: "Execute a wallet transfer",
+  description: "Execute a transfer through the delegated-key relay path.",
+  safety: "write",
+  exposedIn: { cli: false, mcp: true },
+  input: {
+    type: "object",
+    properties: {
+      amount: { type: "string" },
+      decimals: { type: "number" },
+      key: { type: "string" },
+      network: { type: "string", enum: ["mainnet", "testnet"] },
+      rpcUrl: { type: "string" },
+      to: { type: "string" },
+      token: { type: "string" },
+    },
+    required: ["to", "amount"],
+    additionalProperties: false,
+  },
+  output: { type: "object", description: "Transfer execution result." },
+};

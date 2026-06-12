@@ -1,9 +1,10 @@
 import type { WalletOperation } from "../core/operations.js";
-import { whoamiSchema, listSchema, permissionsSchema, debugSchema, walletStatusSchema, transferPreviewSchema } from "../schemas/wallet.js";
+import { whoamiSchema, listSchema, permissionsSchema, debugSchema, walletStatusSchema, transferPreviewSchema, transferExecuteSchema } from "../schemas/wallet.js";
 import { runWalletPermissions } from "../commands/wallet.js";
 import { getWalletPermissions } from "../core/wallet-permissions.js";
 import { getWalletDebug } from "../core/wallet-debug.js";
 import { previewTransfer } from "../core/transfer-preview.js";
+import { executeTransfer } from "../core/transfer-execute.js";
 import { getWalletAggregateStatus, getWalletList, getWalletStatus } from "../core/wallet-status.js";
 
 type McpInput = Record<string, unknown>;
@@ -54,6 +55,23 @@ export function createWalletMcpRegistry(): Array<WalletOperation<McpInput, unkno
       schema: transferPreviewSchema,
       run: async (input) =>
         previewTransfer(
+          {
+            amount: asString(input.amount),
+            decimals: asNumber(input.decimals),
+            key: asString(input.key),
+            network: asString(input.network),
+            rpcUrl: asString(input.rpcUrl),
+            to: asString(input.to),
+            token: asString(input.token),
+          },
+          { stdout: sinkWriter },
+        ),
+    },
+
+    {
+      schema: transferExecuteSchema,
+      run: async (input) =>
+        executeTransfer(
           {
             amount: asString(input.amount),
             decimals: asNumber(input.decimals),
