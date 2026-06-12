@@ -289,6 +289,7 @@ operation registry. The v1 MCP surface is intentionally read-focused and exposes
 - `moss_list_keys`
 - `moss_permissions`
 - `moss_wallet_status`
+- `moss_transfer_preview`
 - `moss_debug`
 
 The long-term direction is a shared runtime architecture where CLI commands and

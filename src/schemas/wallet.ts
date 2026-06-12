@@ -85,3 +85,27 @@ export const walletStatusSchema: OperationSchema = {
   },
   output: { type: "object", description: "Aggregate wallet readiness and capability summary." },
 };
+
+
+export const transferPreviewSchema: OperationSchema = {
+  id: "moss_transfer_preview",
+  title: "Preview a wallet transfer",
+  description: "Build and inspect a transfer plan without executing it.",
+  safety: "preview-write",
+  exposedIn: { cli: false, mcp: true },
+  input: {
+    type: "object",
+    properties: {
+      amount: { type: "string" },
+      decimals: { type: "number" },
+      key: { type: "string" },
+      network: { type: "string", enum: ["mainnet", "testnet"] },
+      rpcUrl: { type: "string" },
+      to: { type: "string" },
+      token: { type: "string" },
+    },
+    required: ["to", "amount"],
+    additionalProperties: false,
+  },
+  output: { type: "object", description: "Transfer execution preview." },
+};

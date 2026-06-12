@@ -18,3 +18,5 @@
 - Added first agent-oriented aggregate tool: `moss_wallet_status`, built from shared runtime state.
 - Moved wallet debug diagnostics onto shared runtime (`src/core/wallet-debug.ts`).
 - Updated MCP registry to consume shared runtime for `debug`.
+- Added first preview-first write-adjacent tool: `moss_transfer_preview`.
+- Introduced shared transfer planning logic in `src/core/transfer-shared.ts` and `src/core/transfer-preview.ts`.
