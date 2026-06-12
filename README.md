@@ -278,3 +278,19 @@ Remove installed CLI files and local profiles:
 mega moss --help
 mega moss <command> --help
 ```
+
+
+## Embedded MCP (experimental architecture branch)
+
+This branch introduces an initial embedded MCP server driven by a small shared
+operation registry. The v1 MCP surface is intentionally read-focused and exposes:
+
+- `moss_whoami`
+- `moss_list_keys`
+- `moss_permissions`
+- `moss_debug`
+
+The long-term direction is a shared runtime architecture where CLI commands and
+MCP tools derive from the same wallet operation definitions. Trust-boundary
+creation flows such as `login`, `create-key`, `revoke`, and `logout` remain
+human-governed and are intentionally excluded from the initial MCP surface.
