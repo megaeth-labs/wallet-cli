@@ -36,6 +36,19 @@ describe("transfer capability authority evaluation", () => {
     ]);
     expect(issues[0]?.suggestedAction).toContain("--allow-call");
     expect(issues[1]?.suggestedAction).toContain("--spend-limit");
+    expect(issues[0]?.delta?.missingCalls).toEqual([
+      {
+        to: "0x5555555555555555555555555555555555555555",
+        signature: "transfer(address,uint256)",
+      },
+    ]);
+    expect(issues[1]?.delta?.missingSpend).toEqual([
+      {
+        token: "0x5555555555555555555555555555555555555555",
+        suggestedLimit: "<amount>",
+        suggestedPeriod: "week",
+      },
+    ]);
   });
 
   it("surfaces requested key not found", () => {

@@ -11,10 +11,17 @@ export type CapabilityIssueCode =
   | "missing_call_permission"
   | "missing_spend_permission";
 
+export type PermissionDelta = {
+  missingCalls?: Array<{ to: `0x${string}`; signature: string }>;
+  missingSpend?: Array<{ token: `0x${string}`; suggestedLimit: string; suggestedPeriod: string }>;
+  suggestedCommand?: string;
+};
+
 export type CapabilityIssue = {
   code: CapabilityIssueCode;
   message: string;
   suggestedAction?: string;
+  delta?: PermissionDelta;
 };
 
 export type CapabilitySummary = {
@@ -122,6 +129,10 @@ export function evaluateTransferAuthority(options: {
         code: "missing_call_permission",
         message: `The selected delegated key does not include transfer(address,uint256) call permission for ${options.token}.`,
         suggestedAction: `Create a key with --allow-call '${options.token}:transfer(address,uint256)'`,
+        delta: {
+          missingCalls: [{ to: options.token, signature: "transfer(address,uint256)" }],
+          suggestedCommand: `mega moss create-key --allow-call '${options.token}:transfer(address,uint256)'`,
+        },
       });
     }
 
@@ -133,6 +144,10 @@ export function evaluateTransferAuthority(options: {
         code: "missing_spend_permission",
         message: `The selected delegated key does not include spend permission for ${options.token}.`,
         suggestedAction: `Create a key with --spend-limit ${options.token}:<amount>:<period>`,
+        delta: {
+          missingSpend: [{ token: options.token, suggestedLimit: "<amount>", suggestedPeriod: "week" }],
+          suggestedCommand: `mega moss create-key --spend-limit ${options.token}:<amount>:week`,
+        },
       });
     }
   }

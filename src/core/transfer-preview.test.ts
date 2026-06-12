@@ -35,6 +35,27 @@ describe("transfer preview capability diagnostics", () => {
     expect(result.issues[0]?.suggestedAction).toContain("mega moss create-key");
   });
 
+  it("returns permission deltas for ERC20 transfer requirements", async () => {
+    const env = await tempEnv();
+    await writeWalletProfile(makeProfile(), env);
+
+    const result = await previewTransfer(
+      {
+        amount: "1",
+        to: "0x1111111111111111111111111111111111111111",
+        token: "0x5555555555555555555555555555555555555555",
+        network: "mainnet",
+      },
+      { env, readTokenMetadata: async () => ({ decimals: 18, symbol: "USDm" }) as never },
+    );
+
+    expect(result.readiness).toBe("needs_key");
+    expect(result.issues.map((issue) => issue.code)).toContain("missing_call_permission");
+    expect(result.issues.map((issue) => issue.code)).toContain("missing_spend_permission");
+    expect(result.issues.find((issue) => issue.code === "missing_call_permission")?.delta?.suggestedCommand).toContain("--allow-call");
+    expect(result.issues.find((issue) => issue.code === "missing_spend_permission")?.delta?.suggestedCommand).toContain("--spend-limit");
+  });
+
   it("returns ready when a usable delegated key exists", async () => {
     const env = await tempEnv();
     await writeWalletProfile(makeProfile(), env);

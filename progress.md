@@ -27,3 +27,4 @@
 - Added targeted capability tests to pin the new issue semantics.
 - Added `moss_transfer_execute` as the first write-capable MCP tool, built on top of shared transfer planning plus existing relay execution.
 - Added execution tests for `moss_transfer_execute` and tightened behavior so execution refuses when preview readiness is not `ready`.
+- Added permission delta payloads and suggested commands for missing ERC20 call/spend permissions.
