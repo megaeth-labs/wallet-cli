@@ -20,3 +20,5 @@
 - Updated MCP registry to consume shared runtime for `debug`.
 - Added first preview-first write-adjacent tool: `moss_transfer_preview`.
 - Introduced shared transfer planning logic in `src/core/transfer-shared.ts` and `src/core/transfer-preview.ts`.
+- Added delegated capability evaluation helpers (`src/core/capability.ts`).
+- Transfer preview and wallet status now surface structured issues + suggested next-step guidance.

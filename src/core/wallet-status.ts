@@ -1,6 +1,7 @@
 import { zeroAddress } from "viem";
 
 import { normalizeNetwork } from "../commands/common.js";
+import { evaluateDelegatedKeyCapability, type CapabilityIssue } from "./capability.js";
 import type { StatusCommandOptions, ListCommandOptions, WalletCommandDependencies, WalletListResult, WalletStatusResult, RenderedWalletKey } from "../commands/wallet.js";
 import { summarizeAuthorizedKey, type TokenDisplayMetadataMap } from "../config/permissionSummary.js";
 import { getActiveWalletKey, readWalletProfile, summarizeProfile, type HexString, type WalletKeyRecord, type WalletProfile } from "../config/profile.js";
@@ -185,8 +186,9 @@ export type WalletAggregateStatus = {
   accountAddress: `0x${string}`;
   hasDelegatedKeys: boolean;
   hasActiveKey: boolean;
-  readiness: "needs_login" | "needs_key" | "ready";
+  readiness: "needs_key" | "ready";
   activeKey?: RenderedWalletKey;
+  issues: CapabilityIssue[];
   keyCount: number;
 };
 
@@ -195,18 +197,19 @@ export async function getWalletAggregateStatus(
   dependencies: WalletCommandDependencies = {},
 ): Promise<WalletAggregateStatus> {
   const status = await getWalletStatus(options, dependencies);
+  const capability = evaluateDelegatedKeyCapability({
+    profile: { ...status, keys: status.keys },
+    activeKey: status.activeKey,
+  } as never);
+
   return {
     network: status.network,
     accountAddress: status.accountAddress,
     hasDelegatedKeys: status.keys.length > 0,
     hasActiveKey: status.activeKey !== undefined,
-    readiness:
-      status.keys.length === 0
-        ? "needs_key"
-        : status.activeKey === undefined
-          ? "needs_key"
-          : "ready",
+    readiness: capability.readiness,
     ...(status.activeKey === undefined ? {} : { activeKey: status.activeKey }),
+    issues: capability.issues,
     keyCount: status.keys.length,
   };
 }

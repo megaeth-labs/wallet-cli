@@ -15,6 +15,7 @@ import {
   type Erc20Metadata,
 } from "../eth/erc20.js";
 import { normalizeNetwork } from "../commands/common.js";
+import { evaluateDelegatedKeyCapability, type CapabilityIssue } from "./capability.js";
 import type { TransferCommandDependencies, TransferDetails } from "../commands/transfer.js";
 import type { WalletCommandDependencies } from "../commands/wallet.js";
 
@@ -45,6 +46,7 @@ export type TransferPreviewResult = {
     data: `0x${string}`;
   };
   warnings: string[];
+  issues: CapabilityIssue[];
 };
 
 export async function buildTransferPlan(
@@ -56,10 +58,12 @@ export async function buildTransferPlan(
   const activeKey = getActiveWalletKey(profile);
   const transfer = await buildTransfer(options, network, dependencies as TransferCommandDependencies);
 
+  const capability = evaluateDelegatedKeyCapability({ profile, activeKey });
+
   return {
     network,
     accountAddress: profile.accountAddress,
-    readiness: activeKey === undefined ? "needs_key" : "ready",
+    readiness: capability.readiness,
     ...(activeKey === undefined
       ? {}
       : {
@@ -76,14 +80,8 @@ export async function buildTransferPlan(
       value: transfer.call.value.toString(),
       data: transfer.call.data,
     },
-    warnings:
-      activeKey === undefined
-        ? [
-            profile.keys.length === 0
-              ? "No delegated keys exist yet; run mega moss create-key before execution."
-              : "No usable default delegated key is selected; switch or create a key before execution.",
-          ]
-        : [],
+    warnings: capability.issues.map((issue) => issue.message),
+    issues: capability.issues,
   };
 }
 
