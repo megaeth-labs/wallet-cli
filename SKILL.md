@@ -1,12 +1,12 @@
 ---
 name: mega-wallet-cli
-description: Use the MegaETH Wallet CLI to connect a MegaETH passkey wallet, create/manage scoped delegated session keys, inspect permissions, and use those keys for read-only calls, transfers, and relay-backed execution on MegaETH.
+description: Use the MegaETH Wallet CLI and embedded MCP surface to connect a MegaETH passkey wallet, create/manage scoped delegated session keys, inspect permissions, and use those keys for read-only calls, preview-gated transfers, and relay-backed execution on MegaETH.
 ---
 
 # MegaETH Wallet CLI
 
 Use this skill when an agent needs to operate a local MegaETH wallet through
-`mega moss` commands.
+`mega moss` commands or the embedded MCP surface exposed by `mega moss mcp serve`.
 
 ## Mental Model
 
@@ -199,6 +199,34 @@ with a different relay fee token.
 
 Read [references/permissions.md](references/permissions.md) only when building
 `--permissions ./permissions.json` files or debugging permission schema errors.
+
+## Embedded MCP
+
+Start the embedded MCP server with:
+
+```bash
+mega moss mcp serve
+```
+
+Current MCP tools:
+
+- Read: `moss_whoami`, `moss_list_keys`, `moss_permissions`, `moss_wallet_status`, `moss_debug`
+- Preview: `moss_transfer_preview`, `moss_execute_preview`
+- Execute: `moss_transfer_execute`, `moss_execute`
+
+Prefer MCP preview tools before write tools. Treat MCP execute tools as the
+same underlying delegated-key writes as `mega moss transfer` and
+`mega moss execute`.
+
+For agent workflows:
+
+- use read tools to inspect wallet/account state first
+- use preview tools to confirm readiness, missing permissions, and suggested next steps
+- use execute tools only when preview readiness is `ready` and the user asked for the write
+- treat `login`, `create-key`, `revoke`, and `logout` as human-governed trust-boundary flows, not MCP v1 automation flows
+
+`moss_wallet_status` is the best first tool when an agent needs a single
+high-signal view of account connection, active key, readiness, and issues.
 
 ## Read State
 

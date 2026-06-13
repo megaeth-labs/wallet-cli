@@ -22,6 +22,7 @@ Core commands:
 - `mega moss fund`: open the wallet deposit flow for the active account.
 - `mega moss debug`: inspect local profile, balance, and relay key status without private key output.
 - `mega moss logout`: delete the local profile and delegated private key material; it does not revoke on-chain.
+- `mega moss mcp serve`: run the embedded MCP server for agent/host integrations.
 
 Mainnet is the default network. Testnet is supported with `--network testnet`
 and uses a separate local profile path plus testnet chain/token defaults.
@@ -239,6 +240,28 @@ matching spend permission. If either fee option is present and no
 spend row; add explicit spend rows for workflow token movement. Revoke should
 pass the stored key fee token to the wallet UI by default and support
 `--fee-token <symbol>` for explicit revocation payment-token overrides.
+
+## Embedded MCP
+
+The embedded MCP server is an agent-facing surface over the same wallet runtime
+used by CLI commands. Keep CLI and MCP behavior aligned; if shared runtime logic
+changes, update both command tests and MCP tests together.
+
+Current MCP tools:
+
+- Read: `moss_whoami`, `moss_list_keys`, `moss_permissions`, `moss_wallet_status`, `moss_debug`
+- Preview: `moss_transfer_preview`, `moss_execute_preview`
+- Execute: `moss_transfer_execute`, `moss_execute`
+
+MCP writes must stay preview-first:
+
+- preview tools should surface delegated-key readiness, issue codes, and permission deltas
+- execute tools should refuse when preview readiness is not `ready`
+- tool metadata should remain rich enough for hosts/agents to understand safety, pairing, requirements, and likely issue classes
+
+Trust-boundary creation remains human-governed and is intentionally excluded
+from MCP v1. Do not expose `login`, `create-key`, `revoke`, or `logout` as MCP
+write tools unless the product direction explicitly changes.
 
 ## Commands
 
