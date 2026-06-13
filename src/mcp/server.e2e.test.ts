@@ -41,9 +41,11 @@ describe("MCP server end-to-end", () => {
         serverInfo: { name: "mega-moss-mcp", version: "0.1.0" },
       },
     });
-    const tools = responses[1]?.result?.tools as Array<{ name: string; annotations?: { metadata?: { role?: string } } }>;
+    const tools = responses[1]?.result?.tools as Array<{ name: string; annotations?: { metadata?: { role?: string }; readOnlyHint?: boolean; destructiveHint?: boolean } }>;
     expect(tools.some((tool) => tool.name === "moss_wallet_status")).toBe(true);
     expect(tools.find((tool) => tool.name === "moss_execute")?.annotations?.metadata?.role).toBe("execute");
+    expect(tools.find((tool) => tool.name === "moss_wallet_status")?.annotations?.readOnlyHint).toBe(true);
+    expect(tools.find((tool) => tool.name === "moss_execute")?.annotations?.destructiveHint).toBe(true);
     expect(responses[2]).toMatchObject({
       jsonrpc: "2.0",
       id: 3,

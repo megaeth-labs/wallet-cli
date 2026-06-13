@@ -48,12 +48,18 @@ function toLegacyToolDescriptor(tool: ReturnType<typeof createWalletMcpRegistry>
 }
 
 function toMcpToolDescriptor(tool: ReturnType<typeof createWalletMcpRegistry>[number]) {
+  const readOnlyHint = tool.schema.safety === "read";
+  const destructiveHint = tool.schema.safety === "write";
+
   return {
     name: tool.schema.id,
     title: tool.schema.title,
     description: tool.schema.description,
     inputSchema: tool.schema.input,
     annotations: {
+      readOnlyHint,
+      destructiveHint,
+      idempotentHint: readOnlyHint,
       safety: tool.schema.safety,
       metadata: tool.schema.metadata,
       outputSchema: tool.schema.output,
