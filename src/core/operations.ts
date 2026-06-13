@@ -9,6 +9,23 @@ export type OperationSchema = {
     cli: boolean;
     mcp: boolean;
   };
+  metadata?: {
+    agentExposed?: boolean;
+    humanGoverned?: boolean;
+    mayReturnIssues?: string[];
+    movesValue?: boolean;
+    pairsWith?: string;
+    recommendedFirstStep?: string;
+    requirements?: {
+      canMoveValue?: boolean;
+      requiresCallAuthority?: boolean;
+      requiresDelegatedKey?: boolean;
+      requiresSpendAuthority?: boolean;
+      requiresWalletProfile?: boolean;
+    };
+    role?: "read" | "preview" | "execute" | "admin";
+    valueType?: "none" | "native|erc20" | "arbitrary";
+  };
   input: Record<string, unknown>;
   output: Record<string, unknown>;
 };

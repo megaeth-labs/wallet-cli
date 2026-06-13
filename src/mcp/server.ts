@@ -90,6 +90,7 @@ export async function handleMcpRequest(
         title: tool.schema.title,
         description: tool.schema.description,
         safety: tool.schema.safety,
+        metadata: tool.schema.metadata,
         input: tool.schema.input,
         output: tool.schema.output,
       })),

@@ -18,7 +18,10 @@ describe("MCP server end-to-end", () => {
   it("lists tools over the stream protocol", async () => {
     const { responses } = await runSession(['{"tool":"mcp.tools"}']);
     expect(responses[0]?.tools).toBeDefined();
-    expect((responses[0]?.tools as Array<{ name: string }>).some((tool) => tool.name === "moss_execute")).toBe(true);
+    const tools = responses[0]?.tools as Array<{ name: string; metadata?: { pairsWith?: string; role?: string } }>;
+    expect(tools.some((tool) => tool.name === "moss_execute")).toBe(true);
+    expect(tools.find((tool) => tool.name === "moss_transfer_preview")?.metadata?.pairsWith).toBe("moss_transfer_execute");
+    expect(tools.find((tool) => tool.name === "moss_execute")?.metadata?.role).toBe("execute");
   });
 
   it("serves wallet_status for a configured profile", async () => {

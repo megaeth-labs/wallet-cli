@@ -6,6 +6,14 @@ export const whoamiSchema: OperationSchema = {
   description: "Return the connected account profile and currently selected delegated key.",
   safety: "read",
   exposedIn: { cli: true, mcp: true },
+  metadata: {
+    agentExposed: true,
+    humanGoverned: false,
+    movesValue: false,
+    requirements: { requiresWalletProfile: true },
+    role: "read",
+    valueType: "none",
+  },
   input: {
     type: "object",
     properties: {
@@ -25,6 +33,14 @@ export const listSchema: OperationSchema = {
   description: "List delegated keys known to the local wallet profile.",
   safety: "read",
   exposedIn: { cli: true, mcp: true },
+  metadata: {
+    agentExposed: true,
+    humanGoverned: false,
+    movesValue: false,
+    requirements: { requiresWalletProfile: true },
+    role: "read",
+    valueType: "none",
+  },
   input: {
     type: "object",
     properties: {
@@ -42,6 +58,14 @@ export const permissionsSchema: OperationSchema = {
   description: "Return the approved scope and spend info for a delegated key.",
   safety: "read",
   exposedIn: { cli: true, mcp: true },
+  metadata: {
+    agentExposed: true,
+    humanGoverned: false,
+    movesValue: false,
+    requirements: { requiresWalletProfile: true, requiresDelegatedKey: true },
+    role: "read",
+    valueType: "none",
+  },
   input: {
     type: "object",
     properties: {
@@ -60,6 +84,14 @@ export const debugSchema: OperationSchema = {
   description: "Inspect profile health, relay state, and delegated key diagnostics.",
   safety: "read",
   exposedIn: { cli: true, mcp: true },
+  metadata: {
+    agentExposed: true,
+    humanGoverned: false,
+    movesValue: false,
+    requirements: { requiresWalletProfile: true, requiresDelegatedKey: true },
+    role: "read",
+    valueType: "none",
+  },
   input: {
     type: "object",
     properties: {
@@ -76,6 +108,15 @@ export const walletStatusSchema: OperationSchema = {
   description: "Return the connected account, delegated key state, and whether the wallet is ready for delegated operations.",
   safety: "read",
   exposedIn: { cli: false, mcp: true },
+  metadata: {
+    agentExposed: true,
+    humanGoverned: false,
+    mayReturnIssues: ["no_keys", "no_active_key", "active_key_expired", "active_key_revoked", "local_key_missing"],
+    movesValue: false,
+    requirements: { requiresWalletProfile: true },
+    role: "read",
+    valueType: "none",
+  },
   input: {
     type: "object",
     properties: {
@@ -93,6 +134,17 @@ export const transferPreviewSchema: OperationSchema = {
   description: "Build and inspect a transfer plan without executing it.",
   safety: "preview-write",
   exposedIn: { cli: false, mcp: true },
+  metadata: {
+    agentExposed: true,
+    humanGoverned: false,
+    mayReturnIssues: ["no_keys", "no_active_key", "active_key_expired", "active_key_revoked", "local_key_missing", "requested_key_not_found", "requested_key_unusable", "missing_call_permission", "missing_spend_permission"],
+    movesValue: true,
+    pairsWith: "moss_transfer_execute",
+    recommendedFirstStep: "moss_wallet_status",
+    requirements: { requiresWalletProfile: true, requiresDelegatedKey: true, requiresSpendAuthority: true, canMoveValue: true },
+    role: "preview",
+    valueType: "native|erc20",
+  },
   input: {
     type: "object",
     properties: {
@@ -117,6 +169,17 @@ export const transferExecuteSchema: OperationSchema = {
   description: "Execute a transfer through the delegated-key relay path.",
   safety: "write",
   exposedIn: { cli: false, mcp: true },
+  metadata: {
+    agentExposed: true,
+    humanGoverned: false,
+    mayReturnIssues: ["no_keys", "no_active_key", "active_key_expired", "active_key_revoked", "local_key_missing", "requested_key_not_found", "requested_key_unusable", "missing_call_permission", "missing_spend_permission"],
+    movesValue: true,
+    pairsWith: "moss_transfer_preview",
+    recommendedFirstStep: "moss_transfer_preview",
+    requirements: { requiresWalletProfile: true, requiresDelegatedKey: true, requiresSpendAuthority: true, canMoveValue: true },
+    role: "execute",
+    valueType: "native|erc20",
+  },
   input: {
     type: "object",
     properties: {
@@ -141,6 +204,17 @@ export const executePreviewSchema: OperationSchema = {
   description: "Normalize one or more calls and inspect delegated-key readiness without executing.",
   safety: "preview-write",
   exposedIn: { cli: false, mcp: true },
+  metadata: {
+    agentExposed: true,
+    humanGoverned: false,
+    mayReturnIssues: ["no_keys", "no_active_key", "active_key_expired", "active_key_revoked", "local_key_missing", "requested_key_not_found", "requested_key_unusable", "missing_call_permission", "missing_spend_permission"],
+    movesValue: true,
+    pairsWith: "moss_execute",
+    recommendedFirstStep: "moss_wallet_status",
+    requirements: { requiresWalletProfile: true, requiresDelegatedKey: true, requiresCallAuthority: true, canMoveValue: true },
+    role: "preview",
+    valueType: "arbitrary",
+  },
   input: {
     type: "object",
     properties: {
@@ -161,6 +235,17 @@ export const executeSchema: OperationSchema = {
   description: "Execute one or more calls using existing delegated authority.",
   safety: "write",
   exposedIn: { cli: false, mcp: true },
+  metadata: {
+    agentExposed: true,
+    humanGoverned: false,
+    mayReturnIssues: ["no_keys", "no_active_key", "active_key_expired", "active_key_revoked", "local_key_missing", "requested_key_not_found", "requested_key_unusable", "missing_call_permission", "missing_spend_permission"],
+    movesValue: true,
+    pairsWith: "moss_execute_preview",
+    recommendedFirstStep: "moss_execute_preview",
+    requirements: { requiresWalletProfile: true, requiresDelegatedKey: true, requiresCallAuthority: true, canMoveValue: true },
+    role: "execute",
+    valueType: "arbitrary",
+  },
   input: {
     type: "object",
     properties: {
