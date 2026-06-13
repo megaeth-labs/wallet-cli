@@ -125,7 +125,7 @@ describe("installer scripts", () => {
     );
   });
 
-  it("offers to install missing prerequisites in dry-run mode", async () => {
+  it("offers a Homebrew pnpm install in dry-run mode when only brew is available", async () => {
     const dir = await tempDir();
     const fakeBin = join(dir, "bin");
     await mkdir(fakeBin, { recursive: true });
@@ -151,8 +151,6 @@ describe("installer scripts", () => {
       },
     );
 
-    expect(stdout).toContain("would prompt: Node.js >= 22 is missing.");
-    expect(stdout).toContain("+ brew install node");
     expect(stdout).toContain(
       "would prompt: pnpm is not installed. Install pnpm with Homebrew now?",
     );

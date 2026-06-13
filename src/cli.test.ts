@@ -52,6 +52,10 @@ describe("mega cli", () => {
   });
 
   it("runs compiled mega --help", async () => {
+    await execFileAsync("pnpm", ["build"], {
+      cwd: process.cwd(),
+    });
+
     const { stdout } = await execFileAsync(
       "npm",
       ["exec", "--package", ".", "--", "mega", "--help"],
