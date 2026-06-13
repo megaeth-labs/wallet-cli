@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { chmod, rm } from "node:fs/promises";
+import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { describe, expect, it } from "vitest";
@@ -52,9 +54,7 @@ describe("mega cli", () => {
   });
 
   it("runs compiled mega --help", async () => {
-    await execFileAsync("pnpm", ["build"], {
-      cwd: process.cwd(),
-    });
+    await buildDist();
 
     const { stdout } = await execFileAsync(
       "npm",
@@ -69,3 +69,14 @@ describe("mega cli", () => {
     expect(stdout).toContain("moss");
   });
 });
+
+async function buildDist() {
+  const cwd = process.cwd();
+  await rm(join(cwd, "dist"), { recursive: true, force: true });
+  await execFileAsync(
+    process.execPath,
+    [join(cwd, "node_modules", "typescript", "bin", "tsc"), "-p", "tsconfig.json"],
+    { cwd },
+  );
+  await chmod(join(cwd, "dist", "index.js"), 0o755);
+}

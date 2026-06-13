@@ -4,7 +4,9 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -129,11 +131,12 @@ describe("installer scripts", () => {
     const dir = await tempDir();
     const fakeBin = join(dir, "bin");
     await mkdir(fakeBin, { recursive: true });
+    await mirrorSystemBin(fakeBin, new Set(["node", "pnpm", "corepack", "npm", "brew"]));
     await writeFile(join(fakeBin, "brew"), "#!/usr/bin/env sh\nexit 0\n");
     await chmod(join(fakeBin, "brew"), 0o755);
 
     const { stdout } = await execFileAsync(
-      "bash",
+      "/bin/bash",
       [
         "scripts/install.sh",
         "--dry-run",
@@ -146,7 +149,7 @@ describe("installer scripts", () => {
       {
         env: {
           ...process.env,
-          PATH: `${fakeBin}:/usr/bin:/bin`,
+          PATH: fakeBin,
         },
       },
     );
@@ -290,4 +293,19 @@ async function tempDir(): Promise<string> {
   tempDirs.push(dir);
 
   return dir;
+}
+
+async function mirrorSystemBin(targetDir: string, excluded: Set<string>): Promise<void> {
+  for (const sourceDir of ["/usr/bin", "/bin"]) {
+    const entries = await readdir(sourceDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isFile() && !entry.isSymbolicLink()) continue;
+      if (excluded.has(entry.name)) continue;
+      try {
+        await symlink(join(sourceDir, entry.name), join(targetDir, entry.name));
+      } catch {
+        // Ignore duplicates across /usr/bin and /bin.
+      }
+    }
+  }
 }
