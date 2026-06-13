@@ -253,6 +253,9 @@ Current MCP tools:
 - Preview: `moss_transfer_preview`, `moss_execute_preview`
 - Execute: `moss_transfer_execute`, `moss_execute`
 
+See `docs/mcp/overview.md` for host configuration, readiness semantics, and
+operator-facing MCP guidance.
+
 MCP writes must stay preview-first:
 
 - preview tools should surface delegated-key readiness, issue codes, and permission deltas

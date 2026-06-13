@@ -282,54 +282,17 @@ mega moss <command> --help
 
 ## Embedded MCP
 
-This repository includes an embedded MCP server driven by a small shared
-operation registry.
-
-Start the server over stdio:
+This repository includes an embedded MCP server exposed through:
 
 ```bash
 mega moss mcp serve
 ```
 
-Example Claude/Codex-style MCP config:
+For host configuration, tool categories, readiness semantics, and safety
+recommendations, see:
 
-```json
-{
-  "mcpServers": {
-    "mega-moss": {
-      "transport": "stdio",
-      "command": "mega",
-      "args": ["moss", "mcp", "serve"]
-    }
-  }
-}
-```
+- [docs/mcp/overview.md](docs/mcp/overview.md)
 
-The current MCP surface exposes:
-
-### Read tools
-- `moss_whoami`
-- `moss_list_keys`
-- `moss_permissions`
-- `moss_wallet_status`
-- `moss_debug`
-
-### Preview tools
-- `moss_transfer_preview`
-- `moss_execute_preview`
-
-### Execute tools
-- `moss_transfer_execute`
-- `moss_execute`
-
-Recommended host policy:
-
-- auto-approve read tools only
-- use preview tools before any execute tool
-- require human review for execute tools unless the delegated key scope and workflow are tightly controlled
-
-Trust-boundary creation flows such as `login`, `create-key`, `revoke`, and `logout` remain
-human-governed and are intentionally excluded from the initial MCP surface.
-
-The long-term direction is a shared runtime architecture where CLI commands and
-MCP tools derive from the same wallet operation definitions.
+Trust-boundary creation flows such as `login`, `create-key`, `revoke`, and
+`logout` remain human-governed and are intentionally excluded from the initial
+MCP surface.

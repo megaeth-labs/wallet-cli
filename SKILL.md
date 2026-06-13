@@ -214,6 +214,9 @@ Current MCP tools:
 - Preview: `moss_transfer_preview`, `moss_execute_preview`
 - Execute: `moss_transfer_execute`, `moss_execute`
 
+For MCP host configuration, readiness semantics, and safety guidance, read
+`docs/mcp/overview.md` when working through the embedded MCP surface.
+
 Prefer MCP preview tools before write tools. Treat MCP execute tools as the
 same underlying delegated-key writes as `mega moss transfer` and
 `mega moss execute`.
