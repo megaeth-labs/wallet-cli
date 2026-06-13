@@ -24,6 +24,18 @@ describe("MCP server end-to-end", () => {
     expect(tools.find((tool) => tool.name === "moss_execute")?.metadata?.role).toBe("execute");
   });
 
+  it("returns structured refusal for transfer_execute without delegated readiness", async () => {
+    const env = await tempEnv();
+    await writeWalletProfile({ ...makeProfile(), activeKeyId: undefined, keys: [] }, env);
+    const { responses } = await runSession(
+      [
+        '{"tool":"moss_transfer_execute","input":{"network":"mainnet","to":"0x1111111111111111111111111111111111111111","amount":"1"}}',
+      ],
+      env,
+    );
+    expect(responses[0]?.error).toContain("No delegated keys exist yet");
+  });
+
   it("serves wallet_status for a configured profile", async () => {
     const env = await tempEnv();
     await writeWalletProfile(makeProfile(), env);

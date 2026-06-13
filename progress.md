@@ -37,3 +37,4 @@
 - Added invariant tests for preview/execute metadata consistency and unified execute readiness gating through a shared helper.
 - Reduced remaining transfer/generic execute duplication by introducing a shared `executePreviewedCalls` helper for preview-gated execution.
 - Final polish: tightened README MCP quick-start guidance and strengthened metadata consistency assertions.
+- Added an MCP end-to-end refusal-path assertion for `moss_transfer_execute` when no delegated key is available.
