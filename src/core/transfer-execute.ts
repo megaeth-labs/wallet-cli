@@ -1,6 +1,6 @@
 import { executeWalletCalls, type ExecuteCommandDependencies } from "../commands/execute.js";
 import type { TransferCommandDependencies, TransferCommandResult } from "../commands/transfer.js";
-import { CliError } from "../errors.js";
+import { assertReadyForExecution } from "./execute-common.js";
 import { buildTransferPlan, type TransferPreviewInput } from "./transfer-shared.js";
 
 export async function executeTransfer(
@@ -10,9 +10,7 @@ export async function executeTransfer(
   } = {},
 ): Promise<TransferCommandResult & { previewWarnings: string[] }> {
   const preview = await buildTransferPlan(input, dependencies);
-  if (preview.readiness !== "ready") {
-    throw new CliError(preview.warnings.join(" "));
-  }
+  assertReadyForExecution(preview);
   const execution = await (dependencies.executeWalletCalls ?? executeWalletCalls)(
     {
       calls: [

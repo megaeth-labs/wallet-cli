@@ -1,5 +1,5 @@
 import { executeWalletCalls, type ExecuteCommandDependencies } from "../commands/execute.js";
-import { CliError } from "../errors.js";
+import { assertReadyForExecution } from "./execute-common.js";
 import { previewExecute, type ExecutePreviewInput } from "./execute-preview.js";
 
 export async function executePlannedCalls(
@@ -9,9 +9,7 @@ export async function executePlannedCalls(
   } = {},
 ) {
   const preview = await previewExecute(input, dependencies);
-  if (preview.readiness !== "ready") {
-    throw new CliError(preview.warnings.join(" "));
-  }
+  assertReadyForExecution(preview);
 
   const execution = await (dependencies.executeWalletCalls ?? executeWalletCalls)(
     {

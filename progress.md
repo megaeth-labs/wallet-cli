@@ -34,3 +34,4 @@
 - Added MCP end-to-end stream tests for tool discovery and wallet_status invocation.
 - Enriched `mcp.tools` introspection with metadata for safety, requirements, preview/execute pairing, value movement, and issue hints.
 - Began cleanup pass by introducing shared preview/envelope types and centralized delegated key selection/readiness summarization.
+- Added invariant tests for preview/execute metadata consistency and unified execute readiness gating through a shared helper.
