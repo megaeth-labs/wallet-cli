@@ -41,6 +41,16 @@ describe("mega cli", () => {
     );
   });
 
+  it("registers the moss mcp serve command", () => {
+    const program = createCli();
+    const wallet = program.commands.find((command) => command.name() === "moss");
+    const mcp = wallet?.commands.find((command) => command.name() === "mcp");
+    const serve = mcp?.commands.find((command) => command.name() === "serve");
+
+    expect(mcp).toBeDefined();
+    expect(serve).toBeDefined();
+  });
+
   it("runs compiled mega --help", async () => {
     const { stdout } = await execFileAsync(
       "npm",

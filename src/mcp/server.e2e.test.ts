@@ -15,13 +15,31 @@ afterEach(async () => {
 });
 
 describe("MCP server end-to-end", () => {
-  it("lists tools over the stream protocol", async () => {
+  it("lists tools over the legacy stream protocol", async () => {
     const { responses } = await runSession(['{"tool":"mcp.tools"}']);
     expect(responses[0]?.tools).toBeDefined();
     const tools = responses[0]?.tools as Array<{ name: string; metadata?: { pairsWith?: string; role?: string } }>;
     expect(tools.some((tool) => tool.name === "moss_execute")).toBe(true);
     expect(tools.find((tool) => tool.name === "moss_transfer_preview")?.metadata?.pairsWith).toBe("moss_transfer_execute");
     expect(tools.find((tool) => tool.name === "moss_execute")?.metadata?.role).toBe("execute");
+  });
+
+  it("supports MCP JSON-RPC initialize and tools/list", async () => {
+    const { responses } = await runSession([
+      '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}',
+      '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}',
+    ]);
+    expect(responses[0]).toMatchObject({
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        protocolVersion: "2024-11-05",
+        capabilities: { tools: {} },
+      },
+    });
+    const tools = responses[1]?.result?.tools as Array<{ name: string; annotations?: { metadata?: { role?: string } } }>;
+    expect(tools.some((tool) => tool.name === "moss_wallet_status")).toBe(true);
+    expect(tools.find((tool) => tool.name === "moss_execute")?.annotations?.metadata?.role).toBe("execute");
   });
 
   it("returns structured refusal for transfer_execute without delegated readiness", async () => {

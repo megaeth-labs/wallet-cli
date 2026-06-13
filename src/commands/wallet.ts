@@ -13,6 +13,7 @@ import {
 } from "./debug.js";
 import { registerExecuteCommand } from "./execute.js";
 import { registerFundCommand, type FundCommandDependencies } from "./fund.js";
+import { registerMcpCommand } from "./mcp.js";
 import {
   registerTransferCommand,
   type TransferCommandDependencies,
@@ -405,6 +406,7 @@ Examples:
     stdout: dependencies.stdout,
     ...dependencies.transfer,
   });
+  registerMcpCommand(wallet);
 }
 
 export async function login(
