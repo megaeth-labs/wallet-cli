@@ -16,7 +16,7 @@ afterEach(async () => {
 
 describe("MCP server end-to-end", () => {
   it("rejects non-JSON-RPC requests", async () => {
-    const { responses } = await runSession(['{"tool":"mcp.tools"}']);
+    const { responses } = await runSession(['{"method":"tools/list"}']);
     expect(responses[0]).toMatchObject({
       jsonrpc: "2.0",
       id: null,
