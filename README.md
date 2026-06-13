@@ -280,10 +280,10 @@ mega moss <command> --help
 ```
 
 
-## Embedded MCP (experimental architecture branch)
+## Embedded MCP
 
-This branch introduces an initial embedded MCP server driven by a small shared
-operation registry. The v1 MCP surface is intentionally read-focused and exposes:
+This repository includes an embedded MCP server driven by a small shared
+operation registry. The current MCP surface exposes:
 
 - `moss_whoami`
 - `moss_list_keys`
