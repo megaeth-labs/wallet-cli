@@ -1,8 +1,10 @@
 import { normalizeNetwork } from "../commands/common.js";
 import type { ExecuteCallInput } from "../commands/execute.js";
 import type { WalletCommandDependencies } from "../commands/wallet.js";
-import { getActiveWalletKey, readWalletProfile } from "../config/profile.js";
-import { evaluateDelegatedKeyCapability, evaluateExecuteAuthority, type CapabilityIssue } from "./capability.js";
+import { readWalletProfile } from "../config/profile.js";
+import { evaluateExecuteAuthority, type CapabilityIssue } from "./capability.js";
+import { resolveSelectedKey, summarizeSelectedKey } from "./key-selection.js";
+import type { PreviewEnvelope } from "./runtime-types.js";
 import { normalizeExecuteCalls } from "./execute-shared.js";
 
 export type ExecutePreviewInput = {
@@ -15,16 +17,10 @@ export type ExecutePreviewResult = {
   network: "mainnet" | "testnet";
   accountAddress: `0x${string}`;
   readiness: "ready" | "needs_key";
-  activeKey?: {
-    id: `0x${string}`;
-    accessAddress: `0x${string}`;
-    expiry: number;
-  };
-  requestedKey?: string;
   calls: Array<{ to: `0x${string}`; data: `0x${string}`; value: string }>;
   issues: CapabilityIssue[];
   warnings: string[];
-};
+} & PreviewEnvelope;
 
 export async function previewExecute(
   input: ExecutePreviewInput,
@@ -32,48 +28,30 @@ export async function previewExecute(
 ): Promise<ExecutePreviewResult> {
   const network = normalizeNetwork(input.network);
   const profile = await readWalletProfile(network, dependencies.env);
-  const activeKey = selectKey(profile, input.key);
+  const activeKey = resolveSelectedKey(profile, input.key);
   const calls = normalizeExecuteCalls(input.calls).map((call) => ({
     ...call,
     value: call.value.toString(),
   }));
-  const baseCapability = evaluateDelegatedKeyCapability({ profile, activeKey });
   const executeIssues = evaluateExecuteAuthority({
     calls,
     key: activeKey,
     ...(input.key === undefined ? {} : { requestedKey: input.key }),
     profile,
   });
-  const issues = [...baseCapability.issues, ...executeIssues];
+  const envelope = summarizeSelectedKey({
+    profile,
+    requestedKey: input.key,
+    selectedKey: activeKey,
+    extraIssues: executeIssues,
+  });
 
   return {
     network,
     accountAddress: profile.accountAddress,
-    readiness: issues.length === 0 ? "ready" : "needs_key",
-    ...(activeKey === undefined
-      ? {}
-      : {
-          activeKey: {
-            id: activeKey.id,
-            accessAddress: activeKey.accessAddress,
-            expiry: activeKey.authorizedKey.expiry,
-          },
-        }),
-    ...(input.key === undefined ? {} : { requestedKey: input.key }),
+    ...envelope,
     calls,
-    issues,
-    warnings: issues.map((issue) => issue.message),
+    issues: envelope.issues,
+    warnings: envelope.warnings,
   };
-}
-
-function selectKey(profile: Awaited<ReturnType<typeof readWalletProfile>>, selector: string | undefined) {
-  if (selector === undefined) {
-    return getActiveWalletKey(profile);
-  }
-  return profile.keys.find(
-    (key) =>
-      key.id.toLowerCase() === selector.toLowerCase() ||
-      key.accessAddress.toLowerCase() === selector.toLowerCase() ||
-      key.label?.toLowerCase() === selector.toLowerCase(),
-  );
 }

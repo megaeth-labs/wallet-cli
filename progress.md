@@ -33,3 +33,4 @@
 - Generalized permission deltas into `moss_execute_preview`, including missing call permissions by target/selector and native-value spend guidance.
 - Added MCP end-to-end stream tests for tool discovery and wallet_status invocation.
 - Enriched `mcp.tools` introspection with metadata for safety, requirements, preview/execute pairing, value movement, and issue hints.
+- Began cleanup pass by introducing shared preview/envelope types and centralized delegated key selection/readiness summarization.

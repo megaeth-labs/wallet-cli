@@ -15,7 +15,9 @@ import {
   type Erc20Metadata,
 } from "../eth/erc20.js";
 import { normalizeNetwork } from "../commands/common.js";
-import { evaluateDelegatedKeyCapability, evaluateTransferAuthority, type CapabilityIssue } from "./capability.js";
+import { evaluateTransferAuthority, type CapabilityIssue } from "./capability.js";
+import { resolveSelectedKey, summarizeSelectedKey } from "./key-selection.js";
+import type { PreviewEnvelope } from "./runtime-types.js";
 import type { TransferCommandDependencies, TransferDetails } from "../commands/transfer.js";
 import type { WalletCommandDependencies } from "../commands/wallet.js";
 
@@ -33,12 +35,6 @@ export type TransferPreviewResult = {
   network: Network;
   accountAddress: `0x${string}`;
   readiness: "ready" | "needs_key";
-  activeKey?: {
-    id: `0x${string}`;
-    accessAddress: `0x${string}`;
-    expiry: number;
-  };
-  requestedKey?: string;
   transfer: TransferDetails;
   call: {
     to: `0x${string}`;
@@ -47,7 +43,7 @@ export type TransferPreviewResult = {
   };
   warnings: string[];
   issues: CapabilityIssue[];
-};
+} & PreviewEnvelope;
 
 export async function buildTransferPlan(
   options: TransferPreviewInput,
@@ -55,32 +51,26 @@ export async function buildTransferPlan(
 ): Promise<TransferPreviewResult> {
   const network = normalizeNetwork(options.network);
   const profile = await readWalletProfile(network, dependencies.env);
-  const activeKey = selectKey(profile, options.key);
+  const activeKey = resolveSelectedKey(profile, options.key);
   const transfer = await buildTransfer(options, network, dependencies as TransferCommandDependencies);
 
-  const baseCapability = evaluateDelegatedKeyCapability({ profile, activeKey });
   const transferIssues = evaluateTransferAuthority({
     key: activeKey,
     ...(transfer.details.asset === "erc20" ? { token: transfer.details.token } : {}),
     ...(options.key === undefined ? {} : { requestedKey: options.key }),
     profile,
   });
-  const issues = [...baseCapability.issues, ...transferIssues];
+  const envelope = summarizeSelectedKey({
+    profile,
+    requestedKey: options.key,
+    selectedKey: activeKey,
+    extraIssues: transferIssues,
+  });
 
   return {
     network,
     accountAddress: profile.accountAddress,
-    readiness: issues.length === 0 ? "ready" : "needs_key",
-    ...(activeKey === undefined
-      ? {}
-      : {
-          activeKey: {
-            id: activeKey.id,
-            accessAddress: activeKey.accessAddress,
-            expiry: activeKey.authorizedKey.expiry,
-          },
-        }),
-    ...(options.key === undefined ? {} : { requestedKey: options.key }),
+    ...envelope,
     transfer: transfer.details,
     call: {
       to: transfer.call.to,
