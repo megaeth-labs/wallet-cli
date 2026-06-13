@@ -1,0 +1,2 @@
+- Reproduced advertised failures on PR head: 7 TypeScript errors before tests could clear.
+- Identified concrete defects: missing imports in execute paths, stale `issues` reference in transfer-shared, and MCP stream tool discovery not returning metadata.

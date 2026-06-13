@@ -1,5 +1,5 @@
 import type { Network } from "../config/chains.js";
-import { getActiveWalletKey, readWalletProfile } from "../config/profile.js";
+import { readWalletProfile } from "../config/profile.js";
 import { CliError } from "../errors.js";
 import {
   createEthCallClient,
@@ -66,6 +66,7 @@ export async function buildTransferPlan(
     selectedKey: activeKey,
     extraIssues: transferIssues,
   });
+  const issues = envelope.issues;
 
   return {
     network,
@@ -163,18 +164,6 @@ async function resolveTokenMetadata(
     const suffix = error instanceof Error && error.message.length > 0 ? `: ${firstLine(error.message)}` : "";
     throw new CliError(`failed to read ERC20 decimals; pass --decimals or --rpc-url${suffix}`);
   }
-}
-
-function selectKey(profile: Awaited<ReturnType<typeof readWalletProfile>>, selector: string | undefined) {
-  if (selector === undefined) {
-    return getActiveWalletKey(profile);
-  }
-
-  return profile.keys.find((key) =>
-    key.id.toLowerCase() === selector.toLowerCase() ||
-    key.accessAddress.toLowerCase() === selector.toLowerCase() ||
-    key.label?.toLowerCase() === selector.toLowerCase(),
-  );
 }
 
 function normalizeAmount(value: string | undefined): string {

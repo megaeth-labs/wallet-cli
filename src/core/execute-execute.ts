@@ -1,4 +1,4 @@
-import type { ExecuteCommandDependencies } from "../commands/execute.js";
+import { executeWalletCalls, type ExecuteCommandDependencies } from "../commands/execute.js";
 import { executePreviewedCalls } from "./execute-plan.js";
 import { previewExecute, type ExecutePreviewInput } from "./execute-preview.js";
 

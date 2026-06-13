@@ -1,6 +1,6 @@
 import { executeWalletCalls, type ExecuteCommandDependencies } from "../commands/execute.js";
 import type { TransferCommandDependencies, TransferCommandResult } from "../commands/transfer.js";
-import { assertReadyForExecution } from "./execute-common.js";
+import { executePreviewedCalls } from "./execute-plan.js";
 import { buildTransferPlan, type TransferPreviewInput } from "./transfer-shared.js";
 
 export async function executeTransfer(
