@@ -234,6 +234,40 @@ describe("installer scripts", () => {
     expect(stdout).toContain("codex skill already up to date:");
   });
 
+  it("uses corepack pnpm directly without enabling shims", async () => {
+    const dir = await tempDir();
+    const fakeBin = join(dir, "bin");
+    await mkdir(fakeBin, { recursive: true });
+    await mirrorSystemBin(fakeBin, new Set(["pnpm", "corepack", "brew", "npm", "node"]));
+    await symlink(process.execPath, join(fakeBin, "node"));
+    await writeFile(
+      join(fakeBin, "corepack"),
+      "#!/usr/bin/env sh\nif [ \"$1\" = \"pnpm\" ] && [ \"$2\" = \"--version\" ]; then\n  echo 10.23.0\n  exit 0\nfi\necho \"corepack should not be asked to $1\" >&2\nexit 1\n",
+    );
+    await chmod(join(fakeBin, "corepack"), 0o755);
+
+    const { stdout, stderr } = await execFileAsync("/bin/bash", [
+      "scripts/install.sh",
+      "--dry-run",
+      "--skip-build",
+      "--install-root",
+      join(dir, "mega-wallet-cli"),
+      "--bin-dir",
+      join(dir, "wrappers"),
+      "--no-skill",
+      "-y",
+    ], {
+      env: {
+        ...process.env,
+        PATH: fakeBin,
+      },
+    });
+
+    expect(stdout).not.toContain("corepack enable");
+    expect(stdout).not.toContain("corepack prepare");
+    expect(stderr).not.toContain("corepack should not be asked");
+  });
+
   it("supports a dry-run uninstall plan", async () => {
     const dir = await tempDir();
 

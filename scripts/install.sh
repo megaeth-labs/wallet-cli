@@ -212,20 +212,21 @@ detect_pnpm() {
   fi
 
   if command -v corepack >/dev/null 2>&1; then
-    if ! confirm_install "pnpm is not installed. Activate $pnpm_package with Corepack now?"; then
-      echo "pnpm is required; install pnpm or rerun and approve Corepack activation" >&2
-      exit 1
-    fi
-    run corepack enable
-    run corepack prepare "$pnpm_package" --activate
-
-    if command -v pnpm >/dev/null 2>&1; then
-      pnpm_cmd=(pnpm)
+    if corepack pnpm --version >/dev/null 2>&1; then
+      pnpm_cmd=(corepack pnpm)
       return
     fi
 
-    pnpm_cmd=(corepack pnpm)
-    return
+    if ! confirm_install "pnpm is not installed. Prepare $pnpm_package with Corepack now?"; then
+      echo "pnpm is required; install pnpm or rerun and approve Corepack preparation" >&2
+      exit 1
+    fi
+    run corepack prepare "$pnpm_package" --activate
+
+    if corepack pnpm --version >/dev/null 2>&1; then
+      pnpm_cmd=(corepack pnpm)
+      return
+    fi
   fi
 
   if command -v npm >/dev/null 2>&1; then

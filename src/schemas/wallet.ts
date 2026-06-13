@@ -111,7 +111,7 @@ export const walletStatusSchema: OperationSchema = {
   metadata: {
     agentExposed: true,
     humanGoverned: false,
-    mayReturnIssues: ["no_keys", "no_active_key", "active_key_expired", "active_key_revoked", "local_key_missing"],
+    mayReturnIssues: ["no_wallet_profile", "no_keys", "no_active_key", "active_key_expired", "active_key_revoked", "local_key_missing"],
     movesValue: false,
     requirements: { requiresWalletProfile: true },
     role: "read",

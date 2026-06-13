@@ -24,6 +24,35 @@ describe("MCP server end-to-end", () => {
     });
   });
 
+  it("returns structured no-profile status before login", async () => {
+    const env = await tempEnv();
+    const { responses } = await runSession([
+      '{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"moss_wallet_status","arguments":{"network":"mainnet"}}}',
+    ], env);
+    expect(responses[0]).toMatchObject({
+      jsonrpc: "2.0",
+      id: 30,
+      result: {
+        isError: false,
+        structuredContent: {
+          network: "mainnet",
+          accountAddress: null,
+          readiness: "needs_login",
+          canPreview: false,
+          canExecute: false,
+          issues: [
+            {
+              code: "no_wallet_profile",
+              severity: "blocking",
+              message: "No mainnet wallet profile found.",
+              nextAction: "Run `mega moss login` in a human-controlled terminal.",
+            },
+          ],
+        },
+      },
+    });
+  });
+
   it("supports MCP JSON-RPC initialize, tools/list, and tools/call", async () => {
     const env = await tempEnv();
     await writeWalletProfile({ ...makeProfile(), activeKeyId: undefined, keys: [] }, env);
@@ -135,20 +164,33 @@ async function runSession(lines: string[], env?: NodeJS.ProcessEnv) {
   const output = new PassThrough();
   const chunks: string[] = [];
   output.on("data", (chunk) => chunks.push(chunk.toString("utf8")));
-  const previousEnv = process.env;
-  if (env) process.env = env;
+  const previousEnv = { ...process.env };
+  if (env) {
+    for (const key of Object.keys(process.env)) {
+      if (!(key in env)) delete process.env[key];
+    }
+    Object.assign(process.env, env);
+  }
   const run = runMcpServer({ input, output });
   for (const line of lines) input.write(line + "\n");
   input.end();
   await run;
-  process.env = previousEnv;
+  for (const key of Object.keys(process.env)) {
+    if (!(key in previousEnv)) delete process.env[key];
+  }
+  Object.assign(process.env, previousEnv);
   return { responses: chunks.join("").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line)) };
 }
 
 async function tempEnv(): Promise<NodeJS.ProcessEnv> {
   const root = await mkdtemp(join(tmpdir(), "wallet-cli-mcp-e2e-"));
   tempDirs.push(root);
-  return { ...process.env, XDG_CONFIG_HOME: root };
+  return {
+    ...process.env,
+    HOME: root,
+    XDG_CONFIG_HOME: root,
+    MEGA_WALLET_CLI_CONFIG_DIR: join(root, "megaeth", "wallet-cli"),
+  };
 }
 
 function makeProfile() {

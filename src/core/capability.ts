@@ -1,6 +1,7 @@
 import type { WalletProfile, WalletKeyRecord } from "../config/profile.js";
 
 export type CapabilityIssueCode =
+  | "no_wallet_profile"
   | "no_keys"
   | "no_active_key"
   | "active_key_expired"

@@ -181,35 +181,77 @@ async function readPermissionTokenMetadata(options: {
 }
 
 
+export type WalletAggregateIssue = CapabilityIssue & {
+  severity: "blocking" | "warning";
+  nextAction?: string;
+};
+
 export type WalletAggregateStatus = {
   network: "mainnet" | "testnet";
-  accountAddress: `0x${string}`;
+  accountAddress: `0x${string}` | null;
   hasDelegatedKeys: boolean;
   hasActiveKey: boolean;
-  readiness: "needs_key" | "ready";
-  activeKey?: RenderedWalletKey;
-  issues: CapabilityIssue[];
+  readiness: "needs_login" | "needs_key" | "ready";
+  activeKey?: RenderedWalletKey | null;
+  issues: WalletAggregateIssue[];
   keyCount: number;
+  canPreview: boolean;
+  canExecute: boolean;
 };
 
 export async function getWalletAggregateStatus(
   options: StatusCommandOptions,
   dependencies: WalletCommandDependencies = {},
 ): Promise<WalletAggregateStatus> {
-  const status = await getWalletStatus(options, dependencies);
-  const capability = evaluateDelegatedKeyCapability({
-    profile: { ...status, keys: status.keys },
-    activeKey: status.activeKey,
-  } as never);
+  const network = normalizeNetwork(options.network);
 
-  return {
-    network: status.network,
-    accountAddress: status.accountAddress,
-    hasDelegatedKeys: status.keys.length > 0,
-    hasActiveKey: status.activeKey !== undefined,
-    readiness: capability.readiness,
-    ...(status.activeKey === undefined ? {} : { activeKey: status.activeKey }),
-    issues: capability.issues,
-    keyCount: status.keys.length,
-  };
+  try {
+    const status = await getWalletStatus({ ...options, network }, dependencies);
+    const capability = evaluateDelegatedKeyCapability({
+      profile: { ...status, keys: status.keys },
+      activeKey: status.activeKey,
+    } as never);
+
+    return {
+      network: status.network,
+      accountAddress: status.accountAddress,
+      hasDelegatedKeys: status.keys.length > 0,
+      hasActiveKey: status.activeKey !== undefined,
+      readiness: capability.readiness,
+      ...(status.activeKey === undefined ? {} : { activeKey: status.activeKey }),
+      issues: capability.issues.map((issue) => ({
+        ...issue,
+        severity: "blocking",
+        ...(issue.suggestedAction === undefined ? {} : { nextAction: issue.suggestedAction }),
+      })),
+      keyCount: status.keys.length,
+      canPreview: capability.readiness === "ready",
+      canExecute: capability.readiness === "ready",
+    };
+  } catch (error) {
+    if (error instanceof Error && error.message.includes(`no ${network} wallet profile found`)) {
+      return {
+        network,
+        accountAddress: null,
+        hasDelegatedKeys: false,
+        hasActiveKey: false,
+        readiness: "needs_login",
+        activeKey: null,
+        issues: [
+          {
+            code: "no_wallet_profile",
+            severity: "blocking",
+            message: `No ${network} wallet profile found.`,
+            suggestedAction: "Run `mega moss login` in a human-controlled terminal.",
+            nextAction: "Run `mega moss login` in a human-controlled terminal.",
+          },
+        ],
+        keyCount: 0,
+        canPreview: false,
+        canExecute: false,
+      };
+    }
+
+    throw error;
+  }
 }
