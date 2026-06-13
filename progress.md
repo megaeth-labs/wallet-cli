@@ -35,3 +35,4 @@
 - Enriched `mcp.tools` introspection with metadata for safety, requirements, preview/execute pairing, value movement, and issue hints.
 - Began cleanup pass by introducing shared preview/envelope types and centralized delegated key selection/readiness summarization.
 - Added invariant tests for preview/execute metadata consistency and unified execute readiness gating through a shared helper.
+- Reduced remaining transfer/generic execute duplication by introducing a shared `executePreviewedCalls` helper for preview-gated execution.

@@ -1,5 +1,5 @@
-import { executeWalletCalls, type ExecuteCommandDependencies } from "../commands/execute.js";
-import { assertReadyForExecution } from "./execute-common.js";
+import type { ExecuteCommandDependencies } from "../commands/execute.js";
+import { executePreviewedCalls } from "./execute-plan.js";
 import { previewExecute, type ExecutePreviewInput } from "./execute-preview.js";
 
 export async function executePlannedCalls(
@@ -9,20 +9,16 @@ export async function executePlannedCalls(
   } = {},
 ) {
   const preview = await previewExecute(input, dependencies);
-  assertReadyForExecution(preview);
-
-  const execution = await (dependencies.executeWalletCalls ?? executeWalletCalls)(
-    {
-      calls: input.calls,
-      ...(input.key === undefined ? {} : { key: input.key }),
-      network: preview.network,
-    },
+  return executePreviewedCalls({
     dependencies,
-  );
-
-  return {
-    ...execution,
-    previewWarnings: preview.warnings,
-    previewIssues: preview.issues,
-  };
+    preview,
+    calls: preview.calls.map((call) => ({ ...call, value: BigInt(call.value) })),
+    network: preview.network,
+    requestedKey: input.key,
+    onResult: (execution, currentPreview) => ({
+      ...execution,
+      previewWarnings: currentPreview.warnings,
+      previewIssues: currentPreview.issues,
+    }),
+  });
 }

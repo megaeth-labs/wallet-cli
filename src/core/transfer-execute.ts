@@ -10,25 +10,22 @@ export async function executeTransfer(
   } = {},
 ): Promise<TransferCommandResult & { previewWarnings: string[] }> {
   const preview = await buildTransferPlan(input, dependencies);
-  assertReadyForExecution(preview);
-  const execution = await (dependencies.executeWalletCalls ?? executeWalletCalls)(
-    {
-      calls: [
-        {
-          to: preview.call.to,
-          data: preview.call.data,
-          value: preview.call.value,
-        },
-      ],
-      ...(input.key === undefined ? {} : { key: input.key }),
-      network: preview.network,
-    },
+  return executePreviewedCalls({
     dependencies,
-  );
-
-  return {
-    ...execution,
-    transfer: preview.transfer,
-    previewWarnings: preview.warnings,
-  };
+    preview,
+    calls: [
+      {
+        to: preview.call.to,
+        data: preview.call.data,
+        value: BigInt(preview.call.value),
+      },
+    ],
+    network: preview.network,
+    requestedKey: input.key,
+    onResult: (execution, currentPreview) => ({
+      ...execution,
+      transfer: currentPreview.transfer,
+      previewWarnings: currentPreview.warnings,
+    }),
+  });
 }
