@@ -24,22 +24,54 @@ describe("MCP server end-to-end", () => {
     expect(tools.find((tool) => tool.name === "moss_execute")?.metadata?.role).toBe("execute");
   });
 
-  it("supports MCP JSON-RPC initialize and tools/list", async () => {
+  it("supports MCP JSON-RPC initialize, tools/list, and tools/call", async () => {
+    const env = await tempEnv();
+    await writeWalletProfile({ ...makeProfile(), activeKeyId: undefined, keys: [] }, env);
     const { responses } = await runSession([
       '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}',
       '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}',
-    ]);
+      '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"moss_wallet_status","arguments":{"network":"mainnet"}}}',
+    ], env);
     expect(responses[0]).toMatchObject({
       jsonrpc: "2.0",
       id: 1,
       result: {
         protocolVersion: "2024-11-05",
         capabilities: { tools: {} },
+        serverInfo: { name: "mega-moss-mcp", version: "0.1.0" },
       },
     });
     const tools = responses[1]?.result?.tools as Array<{ name: string; annotations?: { metadata?: { role?: string } } }>;
     expect(tools.some((tool) => tool.name === "moss_wallet_status")).toBe(true);
     expect(tools.find((tool) => tool.name === "moss_execute")?.annotations?.metadata?.role).toBe("execute");
+    expect(responses[2]).toMatchObject({
+      jsonrpc: "2.0",
+      id: 3,
+      result: {
+        isError: false,
+        structuredContent: {
+          network: "mainnet",
+          readiness: "needs_key",
+        },
+      },
+    });
+  });
+
+  it("returns MCP JSON-RPC errors for unknown methods and tools", async () => {
+    const { responses } = await runSession([
+      '{"jsonrpc":"2.0","id":10,"method":"ping","params":{}}',
+      '{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"missing_tool","arguments":{}}}',
+    ]);
+    expect(responses[0]).toMatchObject({
+      jsonrpc: "2.0",
+      id: 10,
+      error: { code: -32601, message: "method_not_found" },
+    });
+    expect(responses[1]).toMatchObject({
+      jsonrpc: "2.0",
+      id: 11,
+      error: { code: -32601, message: "unknown_tool" },
+    });
   });
 
   it("returns structured refusal for transfer_execute without delegated readiness", async () => {
