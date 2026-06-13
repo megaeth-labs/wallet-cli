@@ -24,5 +24,4 @@ mega moss mcp serve
 
 - the server uses stdio transport
 - formal JSON-RPC MCP flows are supported
-- legacy proto-MCP `{ "tool": ... }` requests are still accepted during the transition period
 - `ping`, `initialize`, `tools/list`, and `tools/call` are supported

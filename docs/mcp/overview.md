@@ -19,6 +19,3 @@ The embedded MCP server supports formal stdio MCP JSON-RPC flows including:
 - `ping`
 - `tools/list`
 - `tools/call`
-
-Legacy proto-MCP `{ "tool": ... }` requests are still accepted for backward
-compatibility during the transition period.

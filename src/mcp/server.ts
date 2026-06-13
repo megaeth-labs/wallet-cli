@@ -35,18 +35,6 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function toLegacyToolDescriptor(tool: ReturnType<typeof createWalletMcpRegistry>[number]) {
-  return {
-    name: tool.schema.id,
-    title: tool.schema.title,
-    description: tool.schema.description,
-    safety: tool.schema.safety,
-    metadata: tool.schema.metadata,
-    input: tool.schema.input,
-    output: tool.schema.output,
-  };
-}
-
 function toMcpToolDescriptor(tool: ReturnType<typeof createWalletMcpRegistry>[number]) {
   const readOnlyHint = tool.schema.safety === "read";
   const destructiveHint = tool.schema.safety === "write";
@@ -77,31 +65,6 @@ function success(id: JsonRpcId, result: unknown): JsonRpcResponse {
 
 function failure(id: JsonRpcId, code: number, message: string): JsonRpcResponse {
   return { jsonrpc: "2.0", id, error: { code, message } };
-}
-
-async function handleLegacyRequest(
-  request: Record<string, unknown>,
-  registry: ReturnType<typeof createWalletMcpRegistry>,
-): Promise<Record<string, unknown>> {
-  if (typeof request.tool !== "string") {
-    return { error: "invalid_request" };
-  }
-
-  if (request.tool === "mcp.tools") {
-    return { tools: registry.map((tool) => toLegacyToolDescriptor(tool)) };
-  }
-
-  const tool = registry.find((entry) => entry.schema.id === request.tool);
-  if (tool === undefined) {
-    return { error: "unknown_tool" };
-  }
-
-  try {
-    const result = await tool.run(isObject(request.input) ? request.input : {});
-    return { result };
-  } catch (error) {
-    return { error: error instanceof Error ? error.message : String(error) };
-  }
 }
 
 async function handleJsonRpcRequest(
@@ -165,21 +128,17 @@ async function handleJsonRpcRequest(
 export async function handleMcpRequest(
   payload: string,
   registry = createWalletMcpRegistry(),
-): Promise<Record<string, unknown> | JsonRpcResponse | null> {
+): Promise<JsonRpcResponse | null> {
   let request: unknown;
   try {
     request = JSON.parse(payload);
   } catch {
-    return { error: "invalid_json" };
+    return failure(null, -32700, "parse_error");
   }
 
-  if (!isObject(request)) {
-    return { error: "invalid_request" };
+  if (!isObject(request) || request.jsonrpc !== "2.0") {
+    return failure(null, -32600, "invalid_request");
   }
 
-  if (request.jsonrpc === "2.0") {
-    return handleJsonRpcRequest(request, registry);
-  }
-
-  return handleLegacyRequest(request, registry);
+  return handleJsonRpcRequest(request, registry);
 }

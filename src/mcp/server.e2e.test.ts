@@ -15,13 +15,13 @@ afterEach(async () => {
 });
 
 describe("MCP server end-to-end", () => {
-  it("lists tools over the legacy stream protocol", async () => {
+  it("rejects non-JSON-RPC requests", async () => {
     const { responses } = await runSession(['{"tool":"mcp.tools"}']);
-    expect(responses[0]?.tools).toBeDefined();
-    const tools = responses[0]?.tools as Array<{ name: string; metadata?: { pairsWith?: string; role?: string } }>;
-    expect(tools.some((tool) => tool.name === "moss_execute")).toBe(true);
-    expect(tools.find((tool) => tool.name === "moss_transfer_preview")?.metadata?.pairsWith).toBe("moss_transfer_execute");
-    expect(tools.find((tool) => tool.name === "moss_execute")?.metadata?.role).toBe("execute");
+    expect(responses[0]).toMatchObject({
+      jsonrpc: "2.0",
+      id: null,
+      error: { code: -32600, message: "invalid_request" },
+    });
   });
 
   it("supports MCP JSON-RPC initialize, tools/list, and tools/call", async () => {
@@ -95,24 +95,37 @@ describe("MCP server end-to-end", () => {
     await writeWalletProfile({ ...makeProfile(), activeKeyId: undefined, keys: [] }, env);
     const { responses } = await runSession(
       [
-        '{"tool":"moss_transfer_execute","input":{"network":"mainnet","to":"0x1111111111111111111111111111111111111111","amount":"1"}}',
+        '{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"moss_transfer_execute","arguments":{"network":"mainnet","to":"0x1111111111111111111111111111111111111111","amount":"1"}}}',
       ],
       env,
     );
-    expect(responses[0]?.error).toContain("No delegated keys exist yet");
+    expect(responses[0]).toMatchObject({
+      jsonrpc: "2.0",
+      id: 20,
+      result: {
+        isError: true,
+        structuredContent: { error: "No delegated keys exist yet." },
+      },
+    });
   });
 
   it("serves wallet_status for a configured profile", async () => {
     const env = await tempEnv();
     await writeWalletProfile(makeProfile(), env);
     const { responses } = await runSession(
-      ['{"tool":"moss_wallet_status","input":{"network":"mainnet"}}'],
+      ['{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"moss_wallet_status","arguments":{"network":"mainnet"}}}'],
       env,
     );
-    expect(responses[0]?.result).toMatchObject({
-      network: "mainnet",
-      readiness: "ready",
-      keyCount: 1,
+    expect(responses[0]).toMatchObject({
+      jsonrpc: "2.0",
+      id: 21,
+      result: {
+        structuredContent: {
+          network: "mainnet",
+          readiness: "ready",
+          keyCount: 1,
+        },
+      },
     });
   });
 });
