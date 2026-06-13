@@ -57,7 +57,7 @@ describe("MCP server end-to-end", () => {
     });
   });
 
-  it("returns MCP JSON-RPC errors for unknown methods and tools", async () => {
+  it("supports ping and returns JSON-RPC errors for unknown tools", async () => {
     const { responses } = await runSession([
       '{"jsonrpc":"2.0","id":10,"method":"ping","params":{}}',
       '{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"missing_tool","arguments":{}}}',
@@ -65,12 +65,26 @@ describe("MCP server end-to-end", () => {
     expect(responses[0]).toMatchObject({
       jsonrpc: "2.0",
       id: 10,
-      error: { code: -32601, message: "method_not_found" },
+      result: {},
     });
     expect(responses[1]).toMatchObject({
       jsonrpc: "2.0",
       id: 11,
       error: { code: -32601, message: "unknown_tool" },
+    });
+  });
+
+  it("returns structured MCP tool errors", async () => {
+    const { responses } = await runSession([
+      '{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"moss_permissions","arguments":{"network":"mainnet"}}}',
+    ]);
+    expect(responses[0]).toMatchObject({
+      jsonrpc: "2.0",
+      id: 12,
+      result: {
+        isError: true,
+        structuredContent: { error: "key is required" },
+      },
     });
   });
 

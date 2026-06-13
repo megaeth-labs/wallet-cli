@@ -61,6 +61,10 @@ function toMcpToolDescriptor(tool: ReturnType<typeof createWalletMcpRegistry>[nu
   };
 }
 
+function toToolContent(value: unknown): { type: "text"; text: string }[] {
+  return [{ type: "text", text: JSON.stringify(value, null, 2) }];
+}
+
 function success(id: JsonRpcId, result: unknown): JsonRpcResponse {
   return { jsonrpc: "2.0", id, result };
 }
@@ -118,6 +122,8 @@ async function handleJsonRpcRequest(
       });
     case "notifications/initialized":
       return null;
+    case "ping":
+      return success(id, {});
     case "tools/list":
       return success(id, { tools: registry.map((tool) => toMcpToolDescriptor(tool)) });
     case "tools/call": {
@@ -132,15 +138,15 @@ async function handleJsonRpcRequest(
       try {
         const result = await tool.run(isObject(params.arguments) ? params.arguments : {});
         return success(id, {
-          content: [{ type: "text", text: JSON.stringify(result) }],
+          content: toToolContent(result),
           structuredContent: result,
           isError: false,
         });
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
         return success(id, {
-          content: [
-            { type: "text", text: error instanceof Error ? error.message : String(error) },
-          ],
+          content: toToolContent({ error: message }),
+          structuredContent: { error: message },
           isError: true,
         });
       }
