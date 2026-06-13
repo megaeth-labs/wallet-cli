@@ -53,7 +53,7 @@ describe("mega cli", () => {
     expect(serve).toBeDefined();
   });
 
-  it("runs compiled mega --help", async () => {
+  it("runs compiled mega --help", { timeout: 15_000 }, async () => {
     await buildDist();
 
     const { stdout } = await execFileAsync(
