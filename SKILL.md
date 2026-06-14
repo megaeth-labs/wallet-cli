@@ -143,6 +143,10 @@ Relay fees use the same spend accounting as token/native movement. The CLI does
 not rely on `feeToken.limit` as an on-chain permission. Make sure the approved
 `permissions.spend` includes enough capacity for both the workflow amount and
 expected relay fees after the wallet UI approval returns.
+Relay fees are paid from ordinary spend capacity. During approval, the wallet UI
+may add spend capacity for the user-selected Gas Token based on `maxFeesUSD`.
+Do not use `maxFeesUSD: 0` or `--fee-limit 0` just to remove that row unless
+the user explicitly wants no fee budget.
 
 ## Inspect The Active Wallet
 
@@ -193,8 +197,8 @@ browser/passkey approval flow and requires explicit call scope unless using
 create-key and revoke authorization require same-machine loopback auth. Use
 `revoke` to revoke a key on-chain; the CLI keeps an inactive audit record but
 removes local private key material. Revoke defaults to the key's stored fee
-token; pass `--fee-token` if the wallet needs to pay the revoke transaction
-with a different relay fee token.
+token. On revoke, `--fee-token` selects the relay payment token for that revoke
+transaction.
 
 ## Custom Permission Files
 

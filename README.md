@@ -166,7 +166,8 @@ mega moss revoke 0xKEY_OR_ACCESS_ADDRESS --fee-token USDm
 
 Revokes a delegated key on-chain after browser confirmation. After success, the
 CLI removes local private key material for that key and keeps an inactive audit
-record.
+record. On revoke only, `--fee-token` selects the relay payment token for the
+revoke transaction itself.
 
 ### Reads
 

@@ -84,6 +84,10 @@ the inner `permissions` object:
 - The wallet UI handles grant Gas Token selection during approval. Inspect the
   returned key with `mega moss permissions --json` before relying on fee spend
   capacity for later writes.
+- Relay fees are paid from ordinary spend capacity. During approval, the wallet
+  UI may add spend capacity for the user-selected Gas Token based on
+  `maxFeesUSD`. Do not use `maxFeesUSD: 0` or `--fee-limit 0` just to remove
+  that row unless the user explicitly wants no fee budget.
 - `permissions.calls` is required and must contain at least one entry. Do not
   omit it or use `permissions.calls: []`; both produce unusable or rejected
   write keys.

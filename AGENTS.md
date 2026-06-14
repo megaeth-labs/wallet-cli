@@ -210,9 +210,12 @@ Porto/relay internals.
 permission. The durable permission is ordinary `permissions.spend` for the gas
 token selected in the wallet UI. New CLI-generated create-key requests should
 send `maxFeesUSD`, not legacy `feeToken.symbol`/`feeToken.limit`. The wallet UI
-user selects the actual Gas Token on the grant screen. Be careful when changing
-defaults or copy around this: UI text like "fees" is product shorthand over
-token spend allowance, not a separate gas-only contract permission.
+user selects the actual Gas Token on the grant screen. During approval, the
+wallet UI may add spend capacity for that Gas Token based on `maxFeesUSD`. Do
+not use `maxFeesUSD: 0` or `--fee-limit 0` just to remove that row unless the
+user explicitly wants no fee budget. Be careful when changing defaults or copy
+around this: UI text like "fees" is product shorthand over token spend
+allowance, not a separate gas-only contract permission.
 
 The create-key default keeps the visible approval simple: one-week expiry, a
 `100 USDM` workflow spend cap, and a `1` `maxFeesUSD` approval hint.
@@ -238,8 +241,8 @@ hint; `--fee-token` does not force the wallet UI Gas Token selection. If either
 fee option is present and no `--spend-limit` is supplied, the CLI does not add
 the default USDM workflow spend row; add explicit spend rows for workflow token
 movement. Revoke should pass the stored key fee token to the wallet UI by
-default and support `--fee-token <symbol>` for explicit revocation payment-token
-overrides.
+default and support `--fee-token <symbol>` only as the relay payment token for
+that revoke transaction.
 
 ## Commands
 

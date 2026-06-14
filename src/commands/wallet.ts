@@ -373,7 +373,10 @@ Examples:
     )
     .option("--wallet-url <url>", "wallet UI URL")
     .addOption(walletApiUrlOption())
-    .option("--fee-token <symbol>", "relay fee token for this revocation")
+    .option(
+      "--fee-token <symbol>",
+      "relay payment token for this revoke transaction",
+    )
     .option(
       "--timeout-ms <ms>",
       "loopback revocation timeout",
