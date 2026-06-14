@@ -282,6 +282,10 @@ has enough USDM to cover relay fees. Add
 
 - Never print or log private keys, authorization blobs, API keys, bearer tokens,
   passkey material, or relay secrets.
+- Never inspect wallet profile files directly, including with `cat`, `sed`,
+  `rg`, or editor reads. Use `mega moss whoami`, `mega moss list`,
+  `mega moss permissions`, and `mega moss debug` for profile, key, and
+  permission state.
 - Do not put secrets in URLs. Loopback callback URLs may carry state and
   approved public metadata only.
 - Persist canonical authorization data exactly as approved by the wallet. Treat

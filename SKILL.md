@@ -46,8 +46,11 @@ After install, make sure the install directory printed by the installer is on
 
 - Never print, log, request, or transmit private keys, bearer tokens, API keys,
   passkeys, WebAuthn material, or relay secrets.
-- Treat profile files as local secrets. Do not copy profile contents into chat,
-  issue comments, logs, or telemetry.
+- Treat profile files as local secrets. Never inspect profile files directly,
+  including with `cat`, `sed`, `rg`, or editor reads, and do not copy profile
+  contents into chat, issue comments, logs, or telemetry. Use `mega moss
+  whoami`, `mega moss list`, `mega moss permissions`, and `mega moss debug`
+  instead.
 - Use `mega moss call` for read-only `eth_call` workflows.
 - Use `mega moss execute` or `mega moss transfer` only when the user asked
   for a state-changing operation.
@@ -126,6 +129,8 @@ human token amount, and period is `minute`, `hour`, `day`, `week`, `month`, or
 must include a non-empty `permissions.calls` array. Never omit
 `permissions.calls`; omitted calls have produced keys that the relay rejects for
 writes. Each call entry must include both `to` and `signature`.
+Validate permission shape before running auth commands. Do not use
+`mega moss create-key` as a validator for known invalid permission requests.
 For native ETH transfers, use a native ETH spend row and the no-calldata
 selector `0xe0e0e0e0` for the recipient target, for example
 `--allow-call '<recipient_address>:0xe0e0e0e0'`. Never use the reserved wildcard
