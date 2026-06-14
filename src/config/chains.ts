@@ -26,9 +26,6 @@ export type ChainConfig = {
   };
 };
 
-const walletUrlOverride = readOptionalEnv("MEGA_WALLET_CLI_WALLET_URL");
-const walletApiUrlOverride = readOptionalEnv("MEGA_WALLET_CLI_WALLET_API_URL");
-const relayUrlOverride = readOptionalEnv("MEGA_WALLET_CLI_RELAY_URL");
 const defaultWalletUrl = "https://account.megaeth.com";
 const defaultWalletApiUrl = "https://wallet-api.megaeth.com";
 const nativeCurrency = {
@@ -44,9 +41,9 @@ export const chainConfigs: Record<Network, ChainConfig> = {
     name: "MegaETH Mainnet",
     nativeCurrency,
     rpcUrl: "https://mainnet.megaeth.com/rpc",
-    walletUrl: walletUrlOverride ?? defaultWalletUrl,
-    walletApiUrl: walletApiUrlOverride ?? defaultWalletApiUrl,
-    relayUrl: relayUrlOverride ?? "https://mainnet.megaeth.com/relay",
+    walletUrl: defaultWalletUrl,
+    walletApiUrl: defaultWalletApiUrl,
+    relayUrl: "https://mainnet.megaeth.com/relay",
     defaultFeeToken: {
       address: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
       decimals: 18,
@@ -59,9 +56,9 @@ export const chainConfigs: Record<Network, ChainConfig> = {
     name: "MegaETH Testnet",
     nativeCurrency,
     rpcUrl: "https://carrot.megaeth.com/rpc",
-    walletUrl: walletUrlOverride ?? defaultWalletUrl,
-    walletApiUrl: walletApiUrlOverride ?? defaultWalletApiUrl,
-    relayUrl: relayUrlOverride ?? "https://carrot.megaeth.com/relay",
+    walletUrl: defaultWalletUrl,
+    walletApiUrl: defaultWalletApiUrl,
+    relayUrl: "https://carrot.megaeth.com/relay",
     defaultFeeToken: {
       address: "0x15e9f2b0a747ac05c7446559306687085d161e5c",
       decimals: 18,
@@ -76,9 +73,4 @@ export function isNetwork(value: string): value is Network {
 
 export function getChainConfig(network: Network): ChainConfig {
   return chainConfigs[network];
-}
-
-function readOptionalEnv(name: string): string | undefined {
-  const value = process.env[name];
-  return value === undefined || value.length === 0 ? undefined : value;
 }

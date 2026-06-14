@@ -1,10 +1,16 @@
 import { defaultNetwork, isNetwork, type Network } from "../config/chains.js";
 import { CliError } from "../errors.js";
 
+const configDirEnvVar = "MEGA_WALLET_CLI_CONFIG_DIR";
+
 export type OutputWriter = {
   columns?: number;
   isTTY?: boolean;
   write(chunk: string): unknown;
+};
+
+export type ConfigDirCommandOptions = {
+  configDir?: string;
 };
 
 export function normalizeNetwork(value: string | undefined): Network {
@@ -41,4 +47,23 @@ export function assertHttpUrl(value: string, message: string): void {
   } catch {
     throw new CliError(message);
   }
+}
+
+export function resolveCommandEnv(
+  options: ConfigDirCommandOptions,
+  env: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  if (options.configDir === undefined) {
+    return env;
+  }
+
+  const configDir = options.configDir.trim();
+  if (configDir.length === 0) {
+    throw new CliError("config-dir must not be empty");
+  }
+
+  return {
+    ...env,
+    [configDirEnvVar]: configDir,
+  };
 }

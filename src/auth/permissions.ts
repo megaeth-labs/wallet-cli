@@ -11,15 +11,20 @@ import {
   getChainConfig,
   type Network,
 } from "../config/chains.js";
+import {
+  assertAllowedCallSignature,
+  assertAllowedCallTarget,
+} from "../config/callPermissions.js";
 import { createEthCallClient, type EthCallClient } from "../eth/client.js";
 import { readErc20Metadata } from "../eth/erc20.js";
 
 export type CliPermissionRequest = {
   expiry: number;
-  feeToken: {
+  feeToken?: {
     limit: string;
     symbol?: string;
   };
+  maxFeesUSD?: number;
   permissions: AuthorizedKey["permissions"];
 };
 
@@ -35,8 +40,7 @@ export type ResolvePermissionsOptions = {
 };
 
 const defaultPermissionTtlSeconds = 7 * 24 * 60 * 60;
-const defaultFeeTokenLimit = "1";
-const defaultNativeFeeTokenLimit = "0.001";
+const defaultMaxFeesUSD = "1";
 const defaultUsdmSpendLimit = "100000000000000000000";
 const nativeTokenAddress = "0x0000000000000000000000000000000000000000";
 const nativeDecimals = 18;
@@ -127,13 +131,13 @@ export function defaultKeyPermissions(
 ): CliPermissionRequest {
   const network = options.network ?? defaultNetwork;
   const chainConfig = getChainConfig(network);
-  const feeTokenSymbol = normalizeFeeTokenSymbol(
+  normalizeFeeTokenSymbol(
     options.feeToken ?? chainConfig.defaultFeeToken.symbol,
     network,
   );
   const spend = [defaultSpendPermission(network)];
 
-  return buildDefaultKeyPermissions(now, options, feeTokenSymbol, spend);
+  return buildDefaultKeyPermissions(now, options, spend);
 }
 
 async function resolveDefaultKeyPermissions(
@@ -145,7 +149,7 @@ async function resolveDefaultKeyPermissions(
 ): Promise<CliPermissionRequest> {
   const network = options.network ?? defaultNetwork;
   const chainConfig = getChainConfig(network);
-  const feeTokenSymbol = normalizeFeeTokenSymbol(
+  normalizeFeeTokenSymbol(
     options.feeToken ?? chainConfig.defaultFeeToken.symbol,
     network,
   );
@@ -164,30 +168,43 @@ async function resolveDefaultKeyPermissions(
         ? []
         : [defaultSpendPermission(network)];
 
-  return buildDefaultKeyPermissions(now, options, feeTokenSymbol, spend);
+  return buildDefaultKeyPermissions(now, options, spend);
 }
 
 function buildDefaultKeyPermissions(
   now: Date,
   options: Pick<ResolvePermissionsOptions, "feeLimit">,
-  feeTokenSymbol: string,
   spend: SpendPermission[],
 ): CliPermissionRequest {
+  const maxFeesUSD = normalizeDecimalNumber(
+    options.feeLimit ?? defaultMaxFeesUSD,
+    "fee limit must be a decimal amount",
+  );
+
   return {
     expiry: Math.floor(now.getTime() / 1000) + defaultPermissionTtlSeconds,
-    feeToken: {
-      limit:
-        options.feeLimit ??
-        (nativeFeeSymbols.has(feeTokenSymbol.toLowerCase())
-          ? defaultNativeFeeTokenLimit
-          : defaultFeeTokenLimit),
-      symbol: feeTokenSymbol,
-    },
+    maxFeesUSD,
     permissions: {
       calls: [],
       spend,
     },
   };
+}
+
+function normalizeDecimalNumber(value: string, message: string): number {
+  if (!decimalAmountPattern.test(value)) {
+    throw new CliError(message);
+  }
+
+  return normalizeNumber(Number(value), message);
+}
+
+function normalizeNumber(value: unknown, message: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new CliError(message);
+  }
+
+  return value;
 }
 
 export function normalizeFeeTokenSymbol(
@@ -245,6 +262,8 @@ export function assertExecutableCallPermission(
         "each permissions.calls entry must include both to and signature",
       );
     }
+    assertAllowedCallTarget(call.to, "call permission target");
+    assertAllowedCallSignature(call.signature, "call permission signature");
   }
 }
 
@@ -252,9 +271,8 @@ export function finalizeKeyPermissions(
   request: CliPermissionRequest,
   network: Network = defaultNetwork,
 ): CliPermissionRequest {
-  const resolved = includeFeeTokenSpendCapacity(request, network);
-  assertExecutableCallPermission(resolved);
-  return resolved;
+  assertExecutableCallPermission(request);
+  return request;
 }
 
 export function parsePermissionRequest(value: unknown): CliPermissionRequest {
@@ -270,37 +288,51 @@ export function parsePermissionRequest(value: unknown): CliPermissionRequest {
     throw new CliError("permissions expiry must be a positive integer");
   }
 
-  if (!isObject(value.feeToken)) {
+  const feeToken =
+    value.feeToken === undefined
+      ? undefined
+      : parseLegacyFeeToken(value.feeToken);
+
+  const request: CliPermissionRequest = {
+    expiry: value.expiry,
+    ...(value.feeToken === undefined ? {} : { feeToken }),
+    ...(value.maxFeesUSD === undefined
+      ? {}
+      : {
+          maxFeesUSD: normalizeNumber(
+            value.maxFeesUSD,
+            "permissions maxFeesUSD must be a non-negative number",
+          ),
+        }),
+    permissions: parsePermissionScope(value.permissions),
+  };
+
+  return request;
+}
+
+function parseLegacyFeeToken(value: unknown): CliPermissionRequest["feeToken"] {
+  if (!isObject(value)) {
     throw new CliError("permissions feeToken must be an object");
   }
 
   const feeLimit =
-    value.feeToken.limit === undefined
+    value.limit === undefined
       ? "0"
       : normalizeDecimalString(
-          value.feeToken.limit,
+          value.limit,
           "permissions feeToken.limit must be a decimal string",
         );
   const feeToken: CliPermissionRequest["feeToken"] = {
     limit: feeLimit,
   };
-  if (value.feeToken.symbol !== undefined) {
-    if (
-      typeof value.feeToken.symbol !== "string" ||
-      value.feeToken.symbol.length === 0
-    ) {
+  if (value.symbol !== undefined) {
+    if (typeof value.symbol !== "string" || value.symbol.length === 0) {
       throw new CliError("permissions feeToken.symbol must be a string");
     }
-    feeToken.symbol = value.feeToken.symbol;
+    feeToken.symbol = value.symbol;
   }
 
-  const request: CliPermissionRequest = {
-    expiry: value.expiry,
-    feeToken,
-    permissions: parsePermissionScope(value.permissions),
-  };
-
-  return request;
+  return feeToken;
 }
 
 export function parseAllowCall(value: string): CallPermission {
@@ -312,9 +344,15 @@ export function parseAllowCall(value: string): CallPermission {
   const to = value.slice(0, separator);
   const signature = value.slice(separator + 1);
   assertAddress(to, "allow-call target must be a 20-byte hex address");
+  assertAllowedCallTarget(to, "allow-call target");
   if (signature.length === 0) {
     throw new CliError("allow-call signature is required");
   }
+  assertAllowedCallSignature(signature, "allow-call signature");
+  assertCallSignatureFormat(
+    signature,
+    "allow-call signature must be a function signature or 4-byte selector",
+  );
 
   return {
     to: to as HexString,
@@ -360,22 +398,29 @@ function parseCallPermission(value: unknown): CallPermission {
     value.to,
     "call permission target must be a 20-byte hex address",
   );
+  assertAllowedCallTarget(value.to, "call permission target");
   if (typeof value.signature !== "string" || value.signature.length === 0) {
     throw new CliError("call permission signature is required");
   }
-  if (
-    !selectorPattern.test(value.signature) &&
-    (!value.signature.includes("(") || !value.signature.endsWith(")"))
-  ) {
-    throw new CliError(
-      "call permission signature must be a function signature or 4-byte selector",
-    );
-  }
+  assertAllowedCallSignature(value.signature, "call permission signature");
+  assertCallSignatureFormat(
+    value.signature,
+    "call permission signature must be a function signature or 4-byte selector",
+  );
 
   return {
     to: value.to,
     signature: value.signature,
   };
+}
+
+function assertCallSignatureFormat(value: string, message: string): void {
+  if (
+    !selectorPattern.test(value) &&
+    (!value.includes("(") || !value.endsWith(")"))
+  ) {
+    throw new CliError(message);
+  }
 }
 
 function parseSpendPermission(
@@ -534,98 +579,6 @@ async function resolveSpendLimitTarget(
   }
 }
 
-function includeFeeTokenSpendCapacity(
-  request: CliPermissionRequest,
-  network: Network,
-): CliPermissionRequest {
-  const feeLimit = request.feeToken.limit;
-  if (feeLimit === "0") {
-    return request;
-  }
-
-  const feeToken = resolveFeeTokenSpendTarget(request.feeToken.symbol, network);
-  if (feeToken === undefined) {
-    return request;
-  }
-
-  const feeLimitBaseUnits = decimalToBaseUnits(
-    feeLimit,
-    feeToken.decimals,
-    "permissions feeToken.limit has too many decimals for its token",
-  );
-  if (feeLimitBaseUnits === "0") {
-    return request;
-  }
-
-  const spend = request.permissions.spend.map((item) => ({ ...item }));
-  const index = spend.findIndex((item) =>
-    sameSpendToken(item.token, feeToken.token),
-  );
-
-  if (index === -1) {
-    spend.unshift({
-      limit: feeLimitBaseUnits,
-      period: spend[0]?.period ?? "week",
-      ...(feeToken.token === undefined ? {} : { token: feeToken.token }),
-    });
-  } else {
-    const existing = spend[index];
-    if (existing === undefined) {
-      return request;
-    }
-    spend[index] = {
-      ...existing,
-      limit: addIntegerStrings(existing.limit, feeLimitBaseUnits),
-    };
-  }
-
-  return {
-    ...request,
-    permissions: {
-      ...request.permissions,
-      spend,
-    },
-  };
-}
-
-function resolveFeeTokenSpendTarget(
-  symbol: string | undefined,
-  network: Network,
-): SpendTarget | undefined {
-  if (symbol === undefined) {
-    return {
-      decimals: nativeDecimals,
-      symbol: "ETH",
-    };
-  }
-
-  return resolveKnownSpendTarget(symbol, network);
-}
-
-function resolveKnownSpendTarget(
-  symbol: string,
-  network: Network,
-): SpendTarget | undefined {
-  if (nativeFeeSymbols.has(symbol.toLowerCase())) {
-    return {
-      decimals: nativeDecimals,
-      symbol: "ETH",
-    };
-  }
-  const chainConfig = getChainConfig(network);
-  if (
-    symbol.toLowerCase() === chainConfig.defaultFeeToken.symbol.toLowerCase()
-  ) {
-    return {
-      decimals: chainConfig.defaultFeeToken.decimals,
-      symbol: chainConfig.defaultFeeToken.symbol,
-      token: chainConfig.defaultFeeToken.address,
-    };
-  }
-
-  return extraFeeTokensByNetwork[network]?.[symbol.toLowerCase()];
-}
-
 function decimalToBaseUnits(
   value: string,
   decimals: number,
@@ -644,22 +597,6 @@ function decimalToBaseUnits(
   const wholePart = whole === "" ? "0" : whole;
   const fractionPart = fraction.padEnd(decimals, "0");
   return `${wholePart}${fractionPart}`.replace(/^0+(?=\d)/, "");
-}
-
-function addIntegerStrings(a: string, b: string): string {
-  return (BigInt(a) + BigInt(b)).toString();
-}
-
-function sameSpendToken(a: HexString | undefined, b: HexString | undefined) {
-  return normalizeSpendToken(a) === normalizeSpendToken(b);
-}
-
-function normalizeSpendToken(token: HexString | undefined): string {
-  if (token === undefined || token.toLowerCase() === nativeTokenAddress) {
-    return "";
-  }
-
-  return token.toLowerCase();
 }
 
 function normalizeDecimalString(value: unknown, message: string): string {

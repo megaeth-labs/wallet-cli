@@ -151,7 +151,8 @@ token amount. Period is `minute`, `hour`, `day`, `week`, `month`, or `year`.
 
 Each `--allow-call` is `<contract_address>:<function_signature>`. Write keys
 must have explicit call scope. Empty or omitted call permissions cannot execute
-relay-backed writes.
+relay-backed writes. For native ETH transfers, scope the recipient target with
+the no-calldata selector `0xe0e0e0e0`.
 
 For advanced permission files, see
 [references/permissions.md](references/permissions.md).
@@ -246,10 +247,11 @@ mega moss debug --skip-chain --json
 
 Relay fees use the same spend accounting as token/native movement. Make sure a
 key has enough spend capacity for both the workflow amount and expected relay
-fees in the selected fee token.
+fees in the gas token selected in the wallet UI.
 
-Use `--fee-token <symbol>` and optional `--fee-limit <amount>` on `create-key`
-when a key should pay relay fees with a token other than the default.
+Use optional `--fee-limit <amount>` on `create-key` to set the `maxFeesUSD`
+approval hint. The wallet UI user selects the actual Gas Token on the grant
+screen; the CLI does not send legacy `feeToken.limit` request metadata.
 
 ## Logout And Uninstall
 

@@ -110,9 +110,8 @@ Login defaults to mainnet, `https://account.megaeth.com`,
 targeting non-canonical endpoints. Use `--network testnet` for the wallet
 testnet profile and chain config.
 
-Create-key defaults keep the approval simple: one-week expiry, network-specific
-USDM as the fee token, a `100 USDM` workflow spend cap, and a `1 USDM` fee
-buffer merged into the USDM spend cap over the one-week authorization window.
+Create-key defaults keep the approval simple: one-week expiry, a `100 USDM`
+workflow spend cap, and a `1` `maxFeesUSD` approval hint.
 The agent must provide call scope with `--allow-call <target:signature>`, copy a
 known-good key with `--from`, or pass a complete `--permissions
 ./permissions.json` file. Do not create workflow keys with implicit broad call
@@ -127,21 +126,23 @@ human token amount, and period is `minute`, `hour`, `day`, `week`, `month`, or
 must include a non-empty `permissions.calls` array. Never omit
 `permissions.calls`; omitted calls have produced keys that the relay rejects for
 writes. Each call entry must include both `to` and `signature`.
+For native ETH transfers, use a native ETH spend row and the no-calldata
+selector `0xe0e0e0e0` for the recipient target, for example
+`--allow-call '<recipient_address>:0xe0e0e0e0'`. Never use the reserved wildcard
+address `0x3232323232323232323232323232323232323232` or selector
+`0x32323232`.
 
-Use `--fee-token <symbol>` and optional `--fee-limit <amount>` on `create-key`
-when the delegated key should pay relay fees with a token other than the default
-USDM. The CLI adds that fee buffer to `permissions.spend` for the selected fee
-token before requesting approval. If `--fee-token` or `--fee-limit` is present
-and no `--spend-limit` is supplied, the CLI requests only fee-token spend
-capacity; add explicit `--spend-limit` rows for workflow token movement.
+Use optional `--fee-limit <amount>` on `create-key` to set the `maxFeesUSD`
+approval hint. The CLI does not send legacy `feeToken.symbol` or
+`feeToken.limit` in new create-key requests. The wallet UI user selects the
+actual Gas Token on the grant screen. If `--fee-token` or `--fee-limit` is
+present and no `--spend-limit` is supplied, the CLI requests no workflow spend
+rows; add explicit `--spend-limit` rows for asset movement.
 
 Relay fees use the same spend accounting as token/native movement. The CLI does
-not implement `maxFeesUSD`, and `feeToken.limit` is not an on-chain permission
-by itself. Make sure the approved `permissions.spend` includes enough capacity
-for both the workflow amount and expected relay fees in the selected fee token.
-`feeToken.symbol` selects the preferred fee token for later writes; when
-`feeToken.limit` is present for a known token, the CLI adds or merges that
-amount into `permissions.spend` before requesting approval.
+not rely on `feeToken.limit` as an on-chain permission. Make sure the approved
+`permissions.spend` includes enough capacity for both the workflow amount and
+expected relay fees after the wallet UI approval returns.
 
 ## Inspect The Active Wallet
 
@@ -229,8 +230,10 @@ delegated-key permissions before executing.
 
 When hand-writing raw calldata, verify the function selector first with an ABI
 encoder or `cast sig`; mismatched selectors cause wrong calls. For
-`--allow-call` and permission-file call scopes, use canonical human-readable
-function signatures, not raw 4-byte selectors or wildcard/sentinel selectors.
+`--allow-call` and permission-file call scopes, prefer canonical
+human-readable function signatures. Use raw selectors only when necessary; use
+`0xe0e0e0e0` specifically for native ETH no-calldata transfer scopes and never
+use wildcard/sentinel selectors such as `0x32323232`.
 
 > **ERC20 approvals must be bundled.** On the MegaETH relay, a standalone
 > `approve` is reset at end-of-transaction. Always include `approve` and its
@@ -273,6 +276,9 @@ Do not split approval and consumption across two `execute` calls.
 Native ETH:
 
 ```bash
+mega moss create-key \
+  --spend-limit 0x0000000000000000000000000000000000000000:0.1:week \
+  --allow-call '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd:0xe0e0e0e0'
 mega moss transfer --to 0xabcdefabcdefabcdefabcdefabcdefabcdefabcd --amount 0.1
 ```
 

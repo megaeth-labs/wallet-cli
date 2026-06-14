@@ -56,8 +56,9 @@ The release install path is repo-owned and deterministic:
   It must check Node.js `>=22` and pnpm before building. Interactive runs may
   prompt to install missing prerequisites; non-interactive runs must fail with
   instructions instead of changing system tooling silently.
-  Production wrappers should not bake a wallet URL override; pass
-  `--default-wallet-url http://localhost:4000` only for local wallet UI testing.
+  Production wrappers should not bake a wallet URL override. Pass
+  `--wallet-url http://localhost:4000` on local auth/fund commands when testing
+  against a local wallet UI.
 - `scripts/install-skill.sh` installs the in-repo skill bundle (`SKILL.md` plus
   bundled resources such as `references/`) into Codex and/or Claude skill
   directories. The main installer installs the Codex skill by default; use
@@ -195,26 +196,26 @@ Be precise about empty fields versus omitted fields:
 `permissions.calls` scopes which target/function selectors the key may execute.
 For example, a transfer-only USDC scope should include the USDC token address
 and `transfer(address,uint256)`. CLI-created call scopes must include both
-`to` and `signature`; do not create broad or partial call entries.
+`to` and `signature`; do not create broad or partial call entries. Native ETH
+transfers use the recipient address as `to` and `0xe0e0e0e0` as the no-calldata
+selector. Reject the reserved wildcard address
+`0x3232323232323232323232323232323232323232` and selector `0x32323232`.
 
 `permissions.spend` scopes how much native/token value can leave the account for
 a period. Native token spend uses the zero address in CLI spend-limit args and
 may appear as zero-address or omitted native token data in stored profiles and
 Porto/relay internals.
 
-`feeToken.symbol` is local routing metadata for selecting the preferred relay
-payment token on later delegated writes. `feeToken.limit` is not an on-chain
-permission in the current `wallet-intent` send path. The durable permission is
-ordinary `permissions.spend` for the selected fee token. When resolving CLI
-permission requests, keep enough fee-token spend capacity in the request by
-buffering the matching spend limit or adding a separate fee-token spend row.
-Be careful when changing defaults or copy around this: UI text like "fees" is
-product shorthand over token spend allowance, not a separate gas-only contract
-permission.
+`maxFeesUSD` is an approval hint consumed by the wallet UI, not an on-chain
+permission. The durable permission is ordinary `permissions.spend` for the gas
+token selected in the wallet UI. New CLI-generated create-key requests should
+send `maxFeesUSD`, not legacy `feeToken.symbol`/`feeToken.limit`. The wallet UI
+user selects the actual Gas Token on the grant screen. Be careful when changing
+defaults or copy around this: UI text like "fees" is product shorthand over
+token spend allowance, not a separate gas-only contract permission.
 
-The create-key default keeps the visible approval simple: one-week expiry,
-network-specific USDM as the fee token, a `100 USDM` workflow spend cap, and a
-`1 USDM` fee buffer merged into the USDM spend cap for the authorization window.
+The create-key default keeps the visible approval simple: one-week expiry, a
+`100 USDM` workflow spend cap, and a `1` `maxFeesUSD` approval hint.
 It must not silently request broad call authority. Require explicit call scopes
 from `--allow-call`, copied permissions from `--from`, or a full
 `--permissions` file. Do not create CLI write keys with omitted or empty
@@ -232,13 +233,13 @@ Amount is a human token amount, and period must be `minute`, `hour`, `day`,
 or `--permissions` to define executable call scope. Use a full `--permissions`
 file for custom expiry or no-spend requests.
 
-`mega moss create-key --fee-token <symbol> [--fee-limit <amount>]` changes
-the preferred relay fee token for the new key and adds the fee buffer to the
-matching spend permission. If either fee option is present and no
-`--spend-limit` is supplied, the CLI does not add the default USDM workflow
-spend row; add explicit spend rows for workflow token movement. Revoke should
-pass the stored key fee token to the wallet UI by default and support
-`--fee-token <symbol>` for explicit revocation payment-token overrides.
+`mega moss create-key --fee-limit <amount>` sets the `maxFeesUSD` approval
+hint; `--fee-token` does not force the wallet UI Gas Token selection. If either
+fee option is present and no `--spend-limit` is supplied, the CLI does not add
+the default USDM workflow spend row; add explicit spend rows for workflow token
+movement. Revoke should pass the stored key fee token to the wallet UI by
+default and support `--fee-token <symbol>` for explicit revocation payment-token
+overrides.
 
 ## Commands
 

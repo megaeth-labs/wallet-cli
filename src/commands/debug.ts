@@ -1,6 +1,11 @@
 import { Command } from "commander";
 
-import { normalizeNetwork, type OutputWriter } from "./common.js";
+import {
+  normalizeNetwork,
+  resolveCommandEnv,
+  type ConfigDirCommandOptions,
+  type OutputWriter,
+} from "./common.js";
 import { getChainConfig, type Network } from "../config/chains.js";
 import { getProfilePath } from "../config/paths.js";
 import { formatTokenAmount } from "../config/permissionSummary.js";
@@ -36,7 +41,7 @@ import {
 } from "../relay/sendCalls.js";
 import { sessionKeyFromWalletKey } from "../relay/sessionKey.js";
 
-export type DebugCommandOptions = {
+export type DebugCommandOptions = ConfigDirCommandOptions & {
   json?: boolean;
   network?: string;
   rpcUrl?: string;
@@ -98,6 +103,7 @@ export function registerDebugCommand(
     .command("debug")
     .description("Show local wallet diagnostics without private key material")
     .option("--network <network>", "wallet network: mainnet or testnet")
+    .option("--config-dir <path>", "wallet CLI config directory")
     .option("--rpc-url <url>", "Ethereum JSON-RPC URL for balance checks")
     .option("--skip-chain", "skip balance and relay key checks")
     .option("--json", "print JSON output")
@@ -112,7 +118,7 @@ export async function runWalletDebug(
   dependencies: DebugCommandDependencies = {},
 ): Promise<DebugCommandResult> {
   const network = normalizeNetwork(options.network);
-  const env = dependencies.env ?? process.env;
+  const env = resolveCommandEnv(options, dependencies.env);
   const profile = await readWalletProfile(network, env);
   const activeKey = getActiveWalletKey(profile);
   if (activeKey === undefined) {

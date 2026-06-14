@@ -13,6 +13,10 @@ import { dirname } from "node:path";
 
 import { CliError } from "../errors.js";
 import { redactSecrets } from "../output.js";
+import {
+  assertAllowedCallSignature,
+  assertAllowedCallTarget,
+} from "./callPermissions.js";
 import { isNetwork, networks, type Network } from "./chains.js";
 import { getProfilePath } from "./paths.js";
 
@@ -589,11 +593,16 @@ function assertAuthorizedKey(value: unknown): asserts value is AuthorizedKey {
         call.to,
         "wallet profile call permission target must be a 20-byte hex address",
       );
+      assertAllowedCallTarget(call.to, "wallet profile call permission target");
     }
     if (call.signature !== undefined) {
       assertString(
         call.signature,
         "wallet profile call permission signature must be a string",
+      );
+      assertAllowedCallSignature(
+        call.signature,
+        "wallet profile call permission signature",
       );
     }
   }

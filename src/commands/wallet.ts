@@ -4,8 +4,10 @@ import { zeroAddress } from "viem";
 import { registerCallCommand } from "./call.js";
 import {
   assertHttpUrl,
+  resolveCommandEnv,
   normalizeNetwork,
   parsePositiveInteger as parsePositiveIntegerValue,
+  type ConfigDirCommandOptions,
   type OutputWriter,
 } from "./common.js";
 import {
@@ -70,7 +72,7 @@ import {
   type TerminalStyle,
 } from "../terminal/style.js";
 
-type LoginCommandOptions = {
+type LoginCommandOptions = ConfigDirCommandOptions & {
   authFlow?: string;
   browser?: boolean;
   network?: string;
@@ -93,7 +95,7 @@ type CreateKeyCommandOptions = LoginCommandOptions & {
   spendLimit?: string[];
 };
 
-type StatusCommandOptions = {
+type StatusCommandOptions = ConfigDirCommandOptions & {
   network?: string;
   json?: boolean;
   terse?: boolean;
@@ -211,6 +213,7 @@ export function registerWalletSubcommands(
     .command("login")
     .description("Connect a wallet profile")
     .option("--network <network>", "wallet network: mainnet or testnet")
+    .option("--config-dir <path>", "wallet CLI config directory")
     .addOption(authFlowOption())
     .option(
       "--no-browser",
@@ -239,6 +242,7 @@ export function registerWalletSubcommands(
     .command("whoami")
     .description("Show the wallet account and selected delegated key")
     .option("--network <network>", "wallet network: mainnet or testnet")
+    .option("--config-dir <path>", "wallet CLI config directory")
     .option("--json", "render JSON output")
     .option("-t, --terse", "render compact text output")
     .action(async (options: StatusCommandOptions) => {
@@ -249,6 +253,7 @@ export function registerWalletSubcommands(
     .command("list")
     .description("List local delegated keys")
     .option("--network <network>", "wallet network: mainnet or testnet")
+    .option("--config-dir <path>", "wallet CLI config directory")
     .option("--show-inactive", "include expired and revoked keys")
     .option("--json", "render JSON output")
     .option("-t, --terse", "render compact text output")
@@ -261,6 +266,7 @@ export function registerWalletSubcommands(
     .description("Show a delegated key permission scope and remaining spend")
     .argument("<key>", "full delegated key id or access address")
     .option("--network <network>", "wallet network: mainnet or testnet")
+    .option("--config-dir <path>", "wallet CLI config directory")
     .option("--json", "render JSON output")
     .option("-t, --terse", "render compact text output")
     .action(async (key: string, options: StatusCommandOptions) => {
@@ -272,6 +278,7 @@ export function registerWalletSubcommands(
     .description("Select the default delegated key for writes")
     .argument("<key>", "delegated key id or access address")
     .option("--network <network>", "wallet network: mainnet or testnet")
+    .option("--config-dir <path>", "wallet CLI config directory")
     .option("--json", "render JSON output")
     .option("-t, --terse", "render compact text output")
     .action(async (key: string, options: StatusCommandOptions) => {
@@ -282,6 +289,7 @@ export function registerWalletSubcommands(
     .command("create-key")
     .description("Authorize and store a new delegated key")
     .option("--network <network>", "wallet network: mainnet or testnet")
+    .option("--config-dir <path>", "wallet CLI config directory")
     .addOption(authFlowOption())
     .option(
       "--no-browser",
@@ -297,8 +305,11 @@ export function registerWalletSubcommands(
       `add spend row; token is a 20-byte address (${zeroAddress} for native ETH), period: minute|hour|day|week|month|year`,
       collectOptional,
     )
-    .option("--fee-token <symbol>", "relay fee token for this key")
-    .option("--fee-limit <amount>", "fee-token spend buffer for relay fees")
+    .option(
+      "--fee-token <symbol>",
+      "deprecated; wallet UI user selects the grant Gas Token",
+    )
+    .option("--fee-limit <amount>", "maxFeesUSD approval hint for relay fees")
     .option(
       "--permissions <file>",
       "JSON file containing requested permissions",
@@ -340,6 +351,7 @@ Examples:
     .argument("<key>", "delegated key id or access address")
     .argument("<label>", "human-readable label")
     .option("--network <network>", "wallet network: mainnet or testnet")
+    .option("--config-dir <path>", "wallet CLI config directory")
     .option("--json", "render JSON output")
     .option("-t, --terse", "render compact text output")
     .action(
@@ -353,6 +365,7 @@ Examples:
     .description("Revoke a delegated key on-chain and keep an audit record")
     .argument("<key>", "delegated key id or access address")
     .option("--network <network>", "wallet network: mainnet or testnet")
+    .option("--config-dir <path>", "wallet CLI config directory")
     .addOption(authFlowOption())
     .option(
       "--no-browser",
@@ -377,6 +390,7 @@ Examples:
     .command("logout")
     .description("Delete the local wallet profile and key material")
     .option("--network <network>", "wallet network: mainnet or testnet")
+    .option("--config-dir <path>", "wallet CLI config directory")
     .option("--json", "render JSON output")
     .option("-t, --terse", "render compact text output")
     .action(async (options: StatusCommandOptions) => {
@@ -386,7 +400,10 @@ Examples:
   registerCallCommand(wallet, {
     env: dependencies.env,
   });
-  registerExecuteCommand(wallet);
+  registerExecuteCommand(wallet, {
+    env: dependencies.env,
+    stdout: dependencies.stdout,
+  });
   registerFundCommand(wallet, {
     env: dependencies.env,
     stdout: dependencies.stdout,
@@ -411,8 +428,9 @@ export async function login(
   dependencies: WalletCommandDependencies = {},
 ): Promise<WalletProfile> {
   const network = normalizeNetwork(options.network);
-  if (await profileExists(network, dependencies.env)) {
-    const profile = await readWalletProfile(network, dependencies.env);
+  const env = resolveCommandEnv(options, dependencies.env);
+  if (await profileExists(network, env)) {
+    const profile = await readWalletProfile(network, env);
     throw new CliError(
       `Wallet already connected to ${compactAddress(profile.accountAddress)}. Either logout with \`mega moss logout\` or add a key to the existing wallet profile with \`mega moss create-key\`.`,
     );
@@ -433,14 +451,14 @@ export async function login(
     walletUrl,
     relayUrl,
     timeoutMs: options.timeoutMs,
-    env: dependencies.env,
+    env,
     openBrowser: makeBrowserOpener(options, dependencies, { loginIntro: true }),
   });
   const profile = parseWalletProfile({
     ...result.profile,
     walletApiUrl,
   });
-  await writeWalletProfile(profile, dependencies.env);
+  await writeWalletProfile(profile, env);
   return profile;
 }
 
@@ -449,7 +467,8 @@ export async function runWalletWhoami(
   dependencies: WalletCommandDependencies = {},
 ): Promise<WalletStatusResult> {
   const network = normalizeNetwork(options.network);
-  const profile = await readWalletProfile(network, dependencies.env);
+  const env = resolveCommandEnv(options, dependencies.env);
+  const profile = await readWalletProfile(network, env);
   const activeKey = getActiveWalletKey(profile);
   const tokenMetadata =
     activeKey === undefined || options.terse || options.json
@@ -473,7 +492,8 @@ export async function runWalletList(
   dependencies: WalletCommandDependencies = {},
 ): Promise<WalletListResult> {
   const network = normalizeNetwork(options.network);
-  const profile = await readWalletProfile(network, dependencies.env);
+  const env = resolveCommandEnv(options, dependencies.env);
+  const profile = await readWalletProfile(network, env);
   const now = getNow(dependencies);
   const keys = sortKeysByRecency(profile.keys)
     .map((key) => renderableKey(profile, key, now))
@@ -504,7 +524,8 @@ export async function runWalletPermissions(
   dependencies: WalletCommandDependencies = {},
 ): Promise<WalletPermissionsResult> {
   const network = normalizeNetwork(options.network);
-  const profile = await readWalletProfile(network, dependencies.env);
+  const env = resolveCommandEnv(options, dependencies.env);
+  const profile = await readWalletProfile(network, env);
   const key = requireWalletKey(profile, selector);
   const renderedKey = renderableKey(profile, key, getNow(dependencies));
   const spendInfoResult = options.terse
@@ -636,10 +657,11 @@ export async function runWalletSwitch(
   dependencies: WalletCommandDependencies = {},
 ): Promise<WalletSwitchResult> {
   const network = normalizeNetwork(options.network);
-  const profile = await readWalletProfile(network, dependencies.env);
+  const env = resolveCommandEnv(options, dependencies.env);
+  const profile = await readWalletProfile(network, env);
   const key = requireWalletKey(profile, selector);
   const updated = setActiveWalletKey(profile, key.id, getNow(dependencies));
-  await writeWalletProfile(updated, dependencies.env);
+  await writeWalletProfile(updated, env);
   const active = requireWalletKey(updated, key.id);
   const result: WalletSwitchResult = {
     accountAddress: updated.accountAddress,
@@ -659,7 +681,8 @@ export async function runWalletCreateKey(
   dependencies: WalletCommandDependencies = {},
 ): Promise<WalletCreateKeyResult> {
   const network = normalizeNetwork(options.network);
-  const profile = await readWalletProfile(network, dependencies.env);
+  const env = resolveCommandEnv(options, dependencies.env);
+  const profile = await readWalletProfile(network, env);
   const chainConfig = getChainConfig(network);
   const walletUrl = options.walletUrl ?? profile.walletUrl;
   const walletApiUrl =
@@ -710,7 +733,7 @@ export async function runWalletCreateKey(
     key,
     getNow(dependencies),
   );
-  await writeWalletProfile(updated, dependencies.env);
+  await writeWalletProfile(updated, env);
 
   const result: WalletCreateKeyResult = {
     accountAddress: updated.accountAddress,
@@ -736,7 +759,8 @@ export async function runWalletLabel(
   dependencies: WalletCommandDependencies = {},
 ): Promise<WalletSwitchResult> {
   const network = normalizeNetwork(options.network);
-  const profile = await readWalletProfile(network, dependencies.env);
+  const env = resolveCommandEnv(options, dependencies.env);
+  const profile = await readWalletProfile(network, env);
   const key = requireWalletKey(profile, selector);
   if (label.trim().length === 0) {
     throw new CliError("label must not be empty");
@@ -752,7 +776,7 @@ export async function runWalletLabel(
     ),
     updatedAt: timestamp,
   };
-  await writeWalletProfile(updated, dependencies.env);
+  await writeWalletProfile(updated, env);
   const result: WalletSwitchResult = {
     accountAddress: updated.accountAddress,
     key: renderableKey(
@@ -776,7 +800,8 @@ export async function runWalletRevoke(
   dependencies: WalletCommandDependencies = {},
 ): Promise<WalletRevokeResult> {
   const network = normalizeNetwork(options.network);
-  const profile = await readWalletProfile(network, dependencies.env);
+  const env = resolveCommandEnv(options, dependencies.env);
+  const profile = await readWalletProfile(network, env);
   const key = requireWalletKey(profile, selector);
   if (key.status === "revoked") {
     throw new CliError("delegated key is already revoked");
@@ -804,7 +829,7 @@ export async function runWalletRevoke(
     revokeTxHash: revocation.revokeTxHash,
     now: getNow(dependencies),
   });
-  await writeWalletProfile(updated, dependencies.env);
+  await writeWalletProfile(updated, env);
 
   const result: WalletRevokeResult = {
     accountAddress: updated.accountAddress,
@@ -831,8 +856,9 @@ export async function runWalletLogout(
   dependencies: WalletCommandDependencies = {},
 ): Promise<WalletLogoutResult> {
   const network = normalizeNetwork(options.network);
-  const profile = await readWalletProfile(network, dependencies.env);
-  await deleteWalletProfile(network, dependencies.env);
+  const env = resolveCommandEnv(options, dependencies.env);
+  const profile = await readWalletProfile(network, env);
+  await deleteWalletProfile(network, env);
 
   const result: WalletLogoutResult = {
     network,
@@ -1318,7 +1344,7 @@ async function resolveCreateKeyPermissions(
     return finalizeKeyPermissions(
       {
         expiry: fallback.expiry,
-        feeToken: source.authorizedKey.feeToken ?? fallback.feeToken,
+        maxFeesUSD: fallback.maxFeesUSD,
         permissions: source.authorizedKey.permissions,
       },
       network,

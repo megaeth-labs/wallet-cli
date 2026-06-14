@@ -43,8 +43,6 @@ describe("installer scripts", () => {
       join(dir, "mega-wallet-cli"),
       "--bin-dir",
       join(dir, "bin"),
-      "--default-wallet-url",
-      "http://localhost:4000",
     ]);
 
     expect(stdout).toContain("would install release:");

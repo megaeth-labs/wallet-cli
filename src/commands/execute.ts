@@ -5,6 +5,8 @@ import { Command } from "commander";
 import {
   normalizeNetwork,
   parsePositiveIntegerOption,
+  resolveCommandEnv,
+  type ConfigDirCommandOptions,
   type OutputWriter,
 } from "./common.js";
 import type { Network } from "../config/chains.js";
@@ -36,7 +38,7 @@ import {
   formatTerminalFieldLines,
 } from "../terminal/style.js";
 
-export type ExecuteCommandOptions = {
+export type ExecuteCommandOptions = ConfigDirCommandOptions & {
   calls?: string;
   data?: string;
   json?: boolean;
@@ -57,6 +59,7 @@ export type ExecuteCallInput = {
 
 export type ExecuteWalletCallsOptions = {
   calls: readonly ExecuteCallInput[];
+  configDir?: string;
   key?: string;
   network?: string;
 };
@@ -101,6 +104,7 @@ export function registerExecuteCommand(
     .option("--calls <path>", "JSON file containing calls to execute")
     .option("--key <key>", "delegated key id or access address to use")
     .option("--network <network>", "wallet network: mainnet or testnet")
+    .option("--config-dir <path>", "wallet CLI config directory")
     .option(
       "--poll-interval-ms <ms>",
       "deprecated; ignored for direct relay sends",
@@ -127,6 +131,7 @@ export async function runWalletExecute(
   const result = await executeWalletCalls(
     {
       calls: await resolveCliCalls(options),
+      configDir: options.configDir,
       ...(options.key === undefined ? {} : { key: options.key }),
       network: options.network,
     },
@@ -149,7 +154,7 @@ export async function executeWalletCalls(
 ): Promise<ExecuteCommandResult> {
   const network = normalizeNetwork(options.network);
   const calls = normalizeCalls(options.calls);
-  const env = dependencies.env ?? process.env;
+  const env = resolveCommandEnv(options, dependencies.env);
   const profile = await (dependencies.readProfile ?? readWalletProfile)(
     network,
     env,
