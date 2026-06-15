@@ -17,7 +17,8 @@ curl -fsSL https://account.megaeth.com/install | sh
 
 The installer downloads the latest release, verifies its checksum, installs the
 `mega` command, and installs the bundled agent skill. Add the printed install
-directory to `PATH` if needed.
+directory to `PATH` if needed. Release installs check for CLI updates before
+launching, with the check throttled to avoid a network request on every command.
 
 Install a specific release:
 
@@ -36,6 +37,16 @@ pnpm build
 ```
 
 Requires Node.js 22 or newer and pnpm.
+
+## Update
+
+```bash
+mega moss update
+```
+
+Use `mega moss update --check` to check without installing. The explicit update
+command uses the same public release installer and also refreshes the bundled
+agent skill.
 
 ## Quick Start
 

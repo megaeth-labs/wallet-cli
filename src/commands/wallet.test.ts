@@ -14,6 +14,7 @@ import {
   runWalletPermissions,
   runWalletRevoke,
   runWalletSwitch,
+  runWalletUpdate,
   runWalletWhoami,
 } from "./wallet.js";
 import {
@@ -1340,6 +1341,75 @@ describe("wallet status commands", () => {
     await expect(readWalletProfile("mainnet", env)).rejects.toThrow(
       "run mega moss login",
     );
+  });
+
+  it("checks for CLI updates without installing", async () => {
+    const stdout = memoryOutput();
+
+    const result = await runWalletUpdate(
+      { check: true },
+      {
+        env: {
+          MEGA_WALLET_CLI_INSTALLED_VERSION: "v0.1.0",
+        },
+        stdout,
+        update: {
+          fetch: async () =>
+            new Response(JSON.stringify({ tag_name: "v0.1.1" }), {
+              status: 200,
+            }),
+          runInstaller: async () => {
+            throw new Error("runInstaller should not be called");
+          },
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      currentVersion: "v0.1.0",
+      latestVersion: "v0.1.1",
+      updateAvailable: true,
+      updated: false,
+    });
+    expect(stdout.text).toContain("Update available.");
+    expect(stdout.text).toContain("Run: mega moss update");
+  });
+
+  it("updates the CLI and keeps installer output off JSON stdout", async () => {
+    const stdout = memoryOutput();
+    const stderr = memoryOutput();
+    const installed: string[] = [];
+
+    await runWalletUpdate(
+      { json: true },
+      {
+        env: {
+          MEGA_WALLET_CLI_INSTALLED_VERSION: "v0.1.0",
+        },
+        stderr,
+        stdout,
+        update: {
+          fetch: async () =>
+            new Response(JSON.stringify({ tag_name: "v0.1.1" }), {
+              status: 200,
+            }),
+          runInstaller: async ({ stderr, version }) => {
+            installed.push(version);
+            stderr?.("installer output\n");
+          },
+        },
+      },
+    );
+
+    expect(installed).toEqual(["v0.1.1"]);
+    expect(stderr.text).toBe("installer output\n");
+    const parsed = JSON.parse(stdout.text) as Record<string, unknown>;
+    expect(parsed).toMatchObject({
+      currentVersion: "v0.1.0",
+      latestVersion: "v0.1.1",
+      updateAvailable: true,
+      updated: true,
+    });
   });
 
   it("registers whoami through the command runner with a temp profile dir", async () => {

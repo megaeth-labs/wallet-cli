@@ -42,6 +42,10 @@ curl -fsSL https://account.megaeth.com/install | sh
 After install, make sure the install directory printed by the installer is on
 `PATH`, then rerun `mega moss --help`.
 
+Use `mega moss update --check` to see whether a newer CLI release is available,
+and `mega moss update` to install the latest CLI and bundled skill. Release
+installs also check for updates before launch on a throttled schedule.
+
 ## Safety Rules
 
 - Never print, log, request, or transmit private keys, bearer tokens, API keys,

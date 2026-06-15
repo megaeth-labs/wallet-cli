@@ -2,6 +2,7 @@ import { Command } from "commander";
 
 import { registerWalletCommands } from "./commands/wallet.js";
 import { formatErrorMessage } from "./errors.js";
+import { cliVersion } from "./version.js";
 
 export const commandName = "mega";
 
@@ -11,7 +12,7 @@ export function createCli(): Command {
   program
     .name(commandName)
     .description("MegaETH MOSS account CLI")
-    .version("0.1.0")
+    .version(cliVersion)
     .showHelpAfterError()
     .exitOverride();
 

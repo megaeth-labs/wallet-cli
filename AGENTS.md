@@ -21,6 +21,7 @@ Core commands:
 - `mega moss transfer`: convenience wrapper over `execute`.
 - `mega moss fund`: open the wallet deposit flow for the active account.
 - `mega moss debug`: inspect local profile, balance, and relay key status without private key output.
+- `mega moss update`: check/install the latest CLI release and bundled skill.
 - `mega moss logout`: delete the local profile and delegated private key material; it does not revoke on-chain.
 
 Mainnet is the default network. Testnet is supported with `--network testnet`
@@ -40,9 +41,11 @@ The release install path is repo-owned and deterministic:
   `https://account.megaeth.com/install`. It downloads the latest GitHub Release
   archive, verifies its `.sha256` checksum, installs a versioned release under
   `~/.mega/wallet-cli/releases/`, updates `~/.mega/wallet-cli/current`, writes
-  the `mega` wrapper into `~/.local/bin` by default, removes repo-owned legacy
-  `wallet` wrappers, and installs the bundled skill unless `--no-skill` is
-  passed. It must not require pnpm or a source checkout.
+  the auto-updating `mega` wrapper into `~/.local/bin` by default, removes
+  repo-owned legacy `wallet` wrappers, and installs the bundled skill unless
+  `--no-skill` is passed. The wrapper may check for a newer release before
+  launching but must keep update notices on stderr and must not read wallet
+  profiles or key material. It must not require pnpm or a source checkout.
 - `scripts/package-release.sh` builds the self-contained GitHub Release assets:
   `mega-wallet-cli-<tag>.tar.gz` plus `.sha256`. The archive must include
   `dist/`, production `node_modules/`, `package.json`, `pnpm-lock.yaml`,

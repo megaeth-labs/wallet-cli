@@ -94,7 +94,7 @@ describe("installer scripts", () => {
       "would use asset: https://github.com/megaeth-labs/wallet-cli/releases/download/v0.1.0/mega-wallet-cli-v0.1.0.tar.gz",
     );
     expect(stdout).toContain(
-      `would write wrapper: ${join(dir, "bin", "mega")} -> ${join(dir, "mega-wallet-cli", "current", "dist", "index.js")}`,
+      `would write auto-updating wrapper: ${join(dir, "bin", "mega")} -> ${join(dir, "mega-wallet-cli", "current", "dist", "index.js")}`,
     );
     expect(stdout).toContain(
       `would remove legacy wallet wrapper if repo-owned: ${join(dir, "bin", "wallet")}`,

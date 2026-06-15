@@ -71,6 +71,11 @@ import {
   formatTerminalFieldLines,
   type TerminalStyle,
 } from "../terminal/style.js";
+import {
+  updateCli,
+  type UpdateDependencies,
+  type UpdateResult,
+} from "../update.js";
 
 type LoginCommandOptions = ConfigDirCommandOptions & {
   authFlow?: string;
@@ -117,6 +122,13 @@ type KeyCommandOptions = StatusCommandOptions & {
 
 type LabelCommandOptions = StatusCommandOptions;
 
+type UpdateCommandOptions = {
+  check?: boolean;
+  json?: boolean;
+  terse?: boolean;
+  version?: string;
+};
+
 type AuthFlow = "loopback";
 
 type TokenMetadataReader = (options: {
@@ -137,6 +149,7 @@ export type WalletCommandDependencies = {
   stderr?: OutputWriter;
   stdout?: OutputWriter;
   transfer?: TransferCommandDependencies;
+  update?: UpdateDependencies;
 };
 
 export type WalletStatusResult = ProfileSummary & {
@@ -186,6 +199,8 @@ export type WalletLogoutResult = {
   accountAddress: HexString;
   removed: boolean;
 };
+
+export type WalletUpdateResult = UpdateResult;
 
 export type RenderedWalletKey = WalletKeySummary & {
   active: boolean;
@@ -387,6 +402,17 @@ Examples:
     .option("-t, --terse", "render compact text output")
     .action(async (key: string, options: KeyCommandOptions) => {
       await runWalletRevoke(key, options, dependencies);
+    });
+
+  wallet
+    .command("update")
+    .description("Update the installed MegaETH MOSS CLI and skill")
+    .option("--check", "check for an update without installing it")
+    .option("--version <version>", "install a specific release tag")
+    .option("--json", "render JSON output")
+    .option("-t, --terse", "render compact text output")
+    .action(async (options: UpdateCommandOptions) => {
+      await runWalletUpdate(options, dependencies);
     });
 
   wallet
@@ -876,6 +902,28 @@ export async function runWalletLogout(
   return result;
 }
 
+export async function runWalletUpdate(
+  options: UpdateCommandOptions,
+  dependencies: WalletCommandDependencies = {},
+): Promise<WalletUpdateResult> {
+  const stderr = getStderr(dependencies);
+  const result = await updateCli(
+    {
+      checkOnly: options.check,
+      env: dependencies.env,
+      stderr: (chunk) => stderr.write(chunk),
+      version: options.version,
+    },
+    dependencies.update,
+  );
+
+  getStdout(dependencies).write(
+    renderUpdate(result, options, stdoutStyle(options, dependencies)),
+  );
+
+  return result;
+}
+
 function renderLogin(
   profile: WalletProfile,
   options: LoginCommandOptions,
@@ -1282,6 +1330,71 @@ function renderLogout(
     "",
     "Deleted local delegated key material.",
     "Delegated keys were not revoked on-chain.",
+  ]
+    .join("\n")
+    .concat("\n");
+}
+
+function renderUpdate(
+  result: WalletUpdateResult,
+  options: UpdateCommandOptions,
+  style: TerminalStyle,
+): string {
+  if (options.json) {
+    return toJson(result);
+  }
+
+  if (options.terse) {
+    return [
+      result.currentVersion,
+      result.latestVersion,
+      result.updateAvailable ? "available" : "current",
+      result.updated ? "updated" : "not-updated",
+    ]
+      .join("\t")
+      .concat("\n");
+  }
+
+  if (result.updated) {
+    return [
+      style.success("Updated MegaETH MOSS CLI."),
+      "",
+      ...formatTerminalFieldLines(
+        [
+          ["Previous", result.currentVersion],
+          ["Current", style.accent(result.latestVersion)],
+        ],
+        style,
+      ),
+      "",
+      "Restart any long-running shell sessions before relying on the new version.",
+    ]
+      .join("\n")
+      .concat("\n");
+  }
+
+  if (result.updateAvailable) {
+    return [
+      style.warning("Update available."),
+      "",
+      ...formatTerminalFieldLines(
+        [
+          ["Current", result.currentVersion],
+          ["Latest", style.accent(result.latestVersion)],
+        ],
+        style,
+      ),
+      "",
+      "Run: mega moss update",
+    ]
+      .join("\n")
+      .concat("\n");
+  }
+
+  return [
+    style.success("MegaETH MOSS CLI is up to date."),
+    "",
+    `${style.dim("Version")}: ${style.accent(result.currentVersion)}`,
   ]
     .join("\n")
     .concat("\n");
