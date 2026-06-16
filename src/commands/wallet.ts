@@ -322,9 +322,9 @@ export function registerWalletSubcommands(
     )
     .option(
       "--fee-token <symbol>",
-      "deprecated; wallet UI user selects the grant Gas Token",
+      "fee spend token for the requested key; wallet UI still selects the grant Gas Token",
     )
-    .option("--fee-limit <amount>", "maxFeesUSD approval hint for relay fees")
+    .option("--fee-limit <amount>", "fee spend buffer in fee-token units")
     .option(
       "--permissions <file>",
       "JSON file containing requested permissions",
@@ -1460,7 +1460,6 @@ async function resolveCreateKeyPermissions(
     return finalizeKeyPermissions(
       {
         expiry: fallback.expiry,
-        maxFeesUSD: fallback.maxFeesUSD,
         permissions: source.authorizedKey.permissions,
       },
       network,

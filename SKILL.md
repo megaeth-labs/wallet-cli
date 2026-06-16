@@ -53,7 +53,7 @@ installs also check for updates before launch on a throttled schedule.
 - Treat profile files as local secrets. Never inspect profile files directly,
   including with `cat`, `sed`, `rg`, or editor reads, and do not copy profile
   contents into chat, issue comments, logs, or telemetry. Use `mega moss
-  whoami`, `mega moss list`, `mega moss permissions`, and `mega moss debug`
+whoami`, `mega moss list`, `mega moss permissions`, and `mega moss debug`
   instead.
 - Use `mega moss call` for read-only `eth_call` workflows.
 - Use `mega moss execute` or `mega moss transfer` only when the user asked
@@ -117,8 +117,9 @@ Login defaults to mainnet, `https://account.megaeth.com`,
 targeting non-canonical endpoints. Use `--network testnet` for the wallet
 testnet profile and chain config.
 
-Create-key defaults keep the approval simple: one-week expiry, a `100 USDM`
-workflow spend cap, and a `1` `maxFeesUSD` approval hint.
+Create-key defaults keep the approval simple: one-week expiry and a `101 USDM`
+spend cap. Treat that as `100 USDM` workflow capacity plus a `1 USDM` relay-fee
+buffer merged into the same weekly spend row.
 The agent must provide call scope with `--allow-call <target:signature>`, copy a
 known-good key with `--from`, or pass a complete `--permissions
 ./permissions.json` file. Do not create workflow keys with implicit broad call
@@ -141,21 +142,24 @@ selector `0xe0e0e0e0` for the recipient target, for example
 address `0x3232323232323232323232323232323232323232` or selector
 `0x32323232`.
 
-Use optional `--fee-limit <amount>` on `create-key` to set the `maxFeesUSD`
-approval hint. The CLI does not send legacy `feeToken.symbol` or
-`feeToken.limit` in new create-key requests. The wallet UI user selects the
-actual Gas Token on the grant screen. If `--fee-token` or `--fee-limit` is
-present and no `--spend-limit` is supplied, the CLI requests no workflow spend
-rows; add explicit `--spend-limit` rows for asset movement.
+Use `--fee-token <symbol>` and optional `--fee-limit <amount>` on `create-key`
+to request visible relay-fee spend capacity. `--fee-limit` is a human amount in
+the selected fee token, defaulting to `1`. If that token already has a spend
+row, the CLI adds the fee amount to that row and keeps the row period;
+otherwise it adds a weekly spend row for the fee token. If either fee option is
+present and no `--spend-limit` is supplied, the CLI requests only fee-token
+spend capacity; add explicit `--spend-limit` rows for workflow asset movement.
 
 Relay fees use the same spend accounting as token/native movement. The CLI does
-not rely on `feeToken.limit` as an on-chain permission. Make sure the approved
-`permissions.spend` includes enough capacity for both the workflow amount and
-expected relay fees after the wallet UI approval returns.
-Relay fees are paid from ordinary spend capacity. During approval, the wallet UI
-may add spend capacity for the user-selected Gas Token based on `maxFeesUSD`.
-Do not use `maxFeesUSD: 0` or `--fee-limit 0` just to remove that row unless
-the user explicitly wants no fee budget.
+not rely on request-level fee metadata as on-chain permission. Make sure the
+approved `permissions.spend` includes enough capacity for both the workflow
+amount and expected relay fees after the wallet UI approval returns. During
+approval, the wallet UI may add an additional roughly `$5` spend row for the
+user-selected Gas Token if no matching spend row is already present. Future
+`execute` and `transfer` calls default to the `authorizedKey.feeToken` returned
+by the wallet approval. When comparing an approved key to the requested workflow
+cap, treat wallet-added gas-token spend as relay-fee headroom rather than the
+workflow action amount.
 
 ## Inspect The Active Wallet
 

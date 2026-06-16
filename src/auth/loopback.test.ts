@@ -85,8 +85,8 @@ describe("loopback login", () => {
       ),
     ) as ReturnType<typeof defaultKeyPermissions>;
     expect(decodedPermissions.expiry).toBe(1_778_716_800);
-    expect(decodedPermissions.feeToken).toBeUndefined();
-    expect(decodedPermissions.maxFeesUSD).toBe(1);
+    expect(decodedPermissions).not.toHaveProperty("feeToken");
+    expect(decodedPermissions).not.toHaveProperty("maxFeesUSD");
     expect(decodedPermissions.permissions).toEqual({
       calls: [
         {
@@ -96,7 +96,7 @@ describe("loopback login", () => {
       ],
       spend: [
         {
-          limit: "100000000000000000000",
+          limit: "101000000000000000000",
           period: "week",
           token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
         },
@@ -459,7 +459,7 @@ describe("loopback login", () => {
     expect(url.searchParams.get("feeToken")).toBe("USDm");
   });
 
-  it("applies a create-key spend limit to the default USDM spend request", async () => {
+  it("merges the default fee buffer into a matching spend request", async () => {
     const permissions = await resolveKeyPermissions({
       now: new Date("2026-05-07T00:00:00.000Z"),
       spendLimits: ["0xfafddbb3fc7688494971a79cc65dca3ef82079e7:12.5:week"],
@@ -470,7 +470,7 @@ describe("loopback login", () => {
 
     expect(permissions.permissions.spend).toEqual([
       {
-        limit: "12500000000000000000",
+        limit: "13500000000000000000",
         period: "week",
         token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
       },
@@ -483,7 +483,7 @@ describe("loopback login", () => {
     ]);
   });
 
-  it("sets maxFeesUSD for create-key fee-limit overrides", async () => {
+  it("adds explicit fee-token spend when the fee token is not already requested", async () => {
     const permissions = await resolveKeyPermissions({
       now: new Date("2026-05-07T00:00:00.000Z"),
       feeToken: "USDT0",
@@ -494,18 +494,23 @@ describe("loopback login", () => {
       ],
     });
 
-    expect(permissions.feeToken).toBeUndefined();
-    expect(permissions.maxFeesUSD).toBe(0.25);
+    expect(permissions).not.toHaveProperty("feeToken");
+    expect(permissions).not.toHaveProperty("maxFeesUSD");
     expect(permissions.permissions.spend).toEqual([
       {
         limit: "12500000000000000000",
         period: "week",
         token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
       },
+      {
+        limit: "250000",
+        period: "week",
+        token: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
+      },
     ]);
   });
 
-  it("does not add default USDM spend when create-key only overrides fees", async () => {
+  it("creates only fee-token spend when create-key only overrides fees", async () => {
     const permissions = await resolveKeyPermissions({
       now: new Date("2026-05-07T00:00:00.000Z"),
       feeToken: "USDT0",
@@ -515,9 +520,35 @@ describe("loopback login", () => {
       ],
     });
 
-    expect(permissions.feeToken).toBeUndefined();
-    expect(permissions.maxFeesUSD).toBe(0.05);
-    expect(permissions.permissions.spend).toEqual([]);
+    expect(permissions).not.toHaveProperty("feeToken");
+    expect(permissions).not.toHaveProperty("maxFeesUSD");
+    expect(permissions.permissions.spend).toEqual([
+      {
+        limit: "50000",
+        period: "week",
+        token: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
+      },
+    ]);
+  });
+
+  it("merges fee-token spend into an existing matching token period", async () => {
+    const permissions = await resolveKeyPermissions({
+      now: new Date("2026-05-07T00:00:00.000Z"),
+      feeToken: "USDT0",
+      feeLimit: "0.05",
+      spendLimits: ["0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb:0.25:day"],
+      allowCalls: [
+        "0x3333333333333333333333333333333333333333:transfer(address,uint256)",
+      ],
+    });
+
+    expect(permissions.permissions.spend).toEqual([
+      {
+        limit: "300000",
+        period: "day",
+        token: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
+      },
+    ]);
   });
 
   it("applies custom spend token and period shorthand", async () => {
@@ -539,7 +570,7 @@ describe("loopback login", () => {
     ]);
   });
 
-  it("maps zero-address spend limits to native ETH spend", async () => {
+  it("canonicalizes zero-address spend limits to wallet UI native ETH spend", async () => {
     const permissions = await resolveKeyPermissions({
       now: new Date("2026-05-07T00:00:00.000Z"),
       feeLimit: "0",
@@ -553,7 +584,25 @@ describe("loopback login", () => {
       {
         limit: "1000000000000000",
         period: "week",
-        token: "0x0000000000000000000000000000000000000000",
+      },
+    ]);
+  });
+
+  it("merges native fee-token spend into zero-address native spend rows", async () => {
+    const permissions = await resolveKeyPermissions({
+      now: new Date("2026-05-07T00:00:00.000Z"),
+      feeToken: "ETH",
+      feeLimit: "0.002",
+      spendLimits: ["0x0000000000000000000000000000000000000000:0.001:week"],
+      allowCalls: [
+        "0x3333333333333333333333333333333333333333:transfer(address,uint256)",
+      ],
+    });
+
+    expect(permissions.permissions.spend).toEqual([
+      {
+        limit: "3000000000000000",
+        period: "week",
       },
     ]);
   });
@@ -599,7 +648,7 @@ describe("loopback login", () => {
     ]);
   });
 
-  it("preserves explicit spend rows in custom permission files", async () => {
+  it("merges custom permission file feeToken into explicit spend rows", async () => {
     const dir = await mkdtemp(join(tmpdir(), "mega-wallet-cli-permissions-"));
     tempDirs.push(dir);
     const permissionsFile = join(dir, "permissions.json");
@@ -609,7 +658,7 @@ describe("loopback login", () => {
         expiry: 1_800_000_000,
         feeToken: {
           limit: "0.001",
-          symbol: "ETH",
+          symbol: "USDM",
         },
         permissions: {
           calls: [
@@ -622,7 +671,7 @@ describe("loopback login", () => {
             {
               limit: "1000000000000000000",
               period: "week",
-              token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
+              token: "0xFaFdDBB3fC7688494971A79cC65DCA3ef82079E7",
             },
           ],
         },
@@ -634,9 +683,82 @@ describe("loopback login", () => {
 
     expect(permissions.permissions.spend).toEqual([
       {
-        limit: "1000000000000000000",
+        limit: "1001000000000000000",
         period: "week",
         token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
+      },
+    ]);
+  });
+
+  it.each([
+    [
+      "maxFeesUSD",
+      { maxFeesUSD: 1 },
+      "permissions maxFeesUSD is not supported",
+    ],
+  ])(
+    "rejects custom permission files with unsupported %s metadata",
+    async (_label, extra, message) => {
+      const dir = await mkdtemp(join(tmpdir(), "mega-wallet-cli-permissions-"));
+      tempDirs.push(dir);
+      const permissionsFile = join(dir, "permissions.json");
+      await writeFile(
+        permissionsFile,
+        JSON.stringify({
+          expiry: 1_800_000_000,
+          ...extra,
+          permissions: {
+            calls: [
+              {
+                to: "0x3333333333333333333333333333333333333333",
+                signature: "transfer(address,uint256)",
+              },
+            ],
+            spend: [],
+          },
+        }),
+        "utf8",
+      );
+
+      await expect(resolveKeyPermissions({ permissionsFile })).rejects.toThrow(
+        message,
+      );
+    },
+  );
+
+  it("adds custom permission file feeToken spend when no matching spend exists", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mega-wallet-cli-permissions-"));
+    tempDirs.push(dir);
+    const permissionsFile = join(dir, "permissions.json");
+    await writeFile(
+      permissionsFile,
+      JSON.stringify({
+        expiry: 1_800_000_000,
+        feeToken: {
+          limit: "0.05",
+          symbol: "USDT0",
+        },
+        permissions: {
+          calls: [
+            {
+              to: "0x3333333333333333333333333333333333333333",
+              signature: "transfer(address,uint256)",
+            },
+          ],
+          spend: [],
+        },
+      }),
+      "utf8",
+    );
+
+    const permissions = await resolveKeyPermissions({ permissionsFile });
+
+    expect(permissions).not.toHaveProperty("feeToken");
+    expect(permissions.permissions.spend).toEqual([
+      {
+        limit: "50000",
+        period: "week",
+        token: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
       },
     ]);
   });
@@ -658,10 +780,6 @@ describe("loopback login", () => {
       permissionsFile,
       JSON.stringify({
         expiry: 1_800_000_000,
-        feeToken: {
-          limit: "1",
-          symbol: "USDM",
-        },
         permissions: {
           calls: [],
           spend: [
@@ -688,10 +806,6 @@ describe("loopback login", () => {
       permissionsFile,
       JSON.stringify({
         expiry: 1_800_000_000,
-        feeToken: {
-          limit: "1",
-          symbol: "USDM",
-        },
         permissions: {
           spend: [
             {
@@ -723,10 +837,6 @@ describe("loopback login", () => {
         permissionsFile,
         JSON.stringify({
           expiry: 1_800_000_000,
-          feeToken: {
-            limit: "1",
-            symbol: "USDM",
-          },
           permissions: {
             calls: [call],
             spend: [
@@ -799,7 +909,7 @@ describe("loopback login", () => {
 
     expect(permissions.permissions.spend).toEqual([
       {
-        limit: "12500000000000000000",
+        limit: "13500000000000000000",
         period: "week",
         token: "0x15e9f2b0a747ac05c7446559306687085d161e5c",
       },

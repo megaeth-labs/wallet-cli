@@ -27,9 +27,10 @@ addresses for the selected network. The built-in defaults use:
 
 Use a full permission file when the user needs custom expiry or no-spend
 permissions. Repeat `--spend-limit` for multi-row spend.
-For a custom fee hint with the shorthand flow, use optional
-`--fee-limit <amount>` instead of a full file. The wallet UI user selects the
-actual Gas Token on the grant screen.
+For fee capacity with the shorthand flow, use `--fee-token <symbol>` and
+optional `--fee-limit <amount>` instead of a full file. The CLI merges that
+human token amount into `permissions.spend`; the wallet UI user still selects
+the grant Gas Token on the approval screen.
 
 ## File Shape
 
@@ -39,7 +40,10 @@ the inner `permissions` object:
 ```json
 {
   "expiry": 1800000000,
-  "maxFeesUSD": 1,
+  "feeToken": {
+    "limit": "1",
+    "symbol": "USDM"
+  },
   "permissions": {
     "calls": [
       {
@@ -65,15 +69,10 @@ the inner `permissions` object:
 ## Field Rules
 
 - `expiry` is required and must be a future Unix timestamp in seconds.
-- `maxFeesUSD` is optional and must be a non-negative number. It is sent to the
-  wallet UI as an approval hint; it is not an on-chain permission. New
-  CLI-generated create-key requests use this instead of legacy
-  `feeToken.limit` request metadata.
-- `feeToken` is optional legacy compatibility metadata. `feeToken.limit` is not
-  an on-chain permission by itself, and the current wallet UI does not use
-  request `feeToken.symbol` to preselect the grant Gas Token. Prefer
-  `maxFeesUSD` plus explicit `permissions.spend` rows for workflow asset
-  movement.
+- `feeToken` is optional shorthand for fee spend capacity. `feeToken.limit` is
+  a human decimal in `feeToken.symbol`, defaulting to `1` when omitted. The CLI
+  converts it into ordinary `permissions.spend` before authorization and does
+  not send it onward as durable permission metadata.
 - `permissions` is required.
 - `permissions.spend` is required and may be `[]` for no explicit spend.
 - Spend `limit` values are integer base units, not human decimals. For an
@@ -85,9 +84,8 @@ the inner `permissions` object:
   returned key with `mega moss permissions --json` before relying on fee spend
   capacity for later writes.
 - Relay fees are paid from ordinary spend capacity. During approval, the wallet
-  UI may add spend capacity for the user-selected Gas Token based on
-  `maxFeesUSD`. Do not use `maxFeesUSD: 0` or `--fee-limit 0` just to remove
-  that row unless the user explicitly wants no fee budget.
+  UI may add an additional roughly `$5` spend row for the user-selected Gas
+  Token if no matching spend row is already present.
 - `permissions.calls` is required and must contain at least one entry. Do not
   omit it or use `permissions.calls: []`; both produce unusable or rejected
   write keys.
