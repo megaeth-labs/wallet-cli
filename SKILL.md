@@ -42,19 +42,17 @@ curl -fsSL https://account.megaeth.com/install | sh
 After install, make sure the install directory printed by the installer is on
 `PATH`, then rerun `mega moss --help`.
 
-Use `mega moss update --check` to see whether a newer CLI release is available,
-and `mega moss update` to install the latest CLI and bundled skill. Release
-installs also check for updates before launch on a throttled schedule.
+Release installs check for updates automatically.
 
 ## Safety Rules
 
 - Never print, log, request, or transmit private keys, bearer tokens, API keys,
   passkeys, WebAuthn material, or relay secrets.
 - Treat profile files as local secrets. Never inspect profile files directly,
-  including with `cat`, `sed`, `rg`, or editor reads, and do not copy profile
-  contents into chat, issue comments, logs, or telemetry. Use `mega moss
-whoami`, `mega moss list`, `mega moss permissions`, and `mega moss debug`
-  instead.
+  including with `cat`, `sed`, `rg`, workspace-wide search, or editor reads,
+  and do not copy profile contents into chat, issue comments, logs, or
+  telemetry. Use `mega moss whoami`, `mega moss list`, `mega moss permissions`,
+  and `mega moss debug` instead.
 - Use `mega moss call` for read-only `eth_call` workflows.
 - Use `mega moss execute` or `mega moss transfer` only when the user asked
   for a state-changing operation.
@@ -212,6 +210,29 @@ create-key and revoke authorization require same-machine loopback auth. Use
 removes local private key material. Revoke defaults to the key's stored fee
 token. On revoke, `--fee-token` selects the relay payment token for that revoke
 transaction.
+
+## Update And Uninstall
+
+Release installs check for updates automatically. Use `mega moss update --check`
+only when diagnosing version issues, and `mega moss update` when the user
+explicitly asks to update immediately.
+
+Do not uninstall unless the user explicitly asks. To remove installed CLI files
+only:
+
+```bash
+~/.mega/wallet-cli/current/scripts/uninstall.sh
+```
+
+To remove installed CLI files plus local wallet profiles and delegated private
+key material:
+
+```bash
+~/.mega/wallet-cli/current/scripts/uninstall.sh --config
+```
+
+Uninstalling or logging out does not revoke on-chain delegated keys; use
+`mega moss revoke <key>` for on-chain revocation.
 
 ## Custom Permission Files
 

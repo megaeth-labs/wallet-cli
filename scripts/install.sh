@@ -328,12 +328,15 @@ staging_dir="$release_root/.tmp-$release_id-$$"
 
 if [ "$dry_run" -eq 1 ]; then
   echo "would install release: $release_dir"
+  echo "would install uninstall script: $release_dir/scripts/uninstall.sh"
 else
   rm -rf "$staging_dir"
-  mkdir -p "$staging_dir/dist"
+  mkdir -p "$staging_dir/dist" "$staging_dir/scripts"
   cp "$repo_root/package.json" "$staging_dir/package.json"
   cp "$repo_root/pnpm-lock.yaml" "$staging_dir/pnpm-lock.yaml"
+  cp "$repo_root/scripts/uninstall.sh" "$staging_dir/scripts/uninstall.sh"
   cp -R "$repo_root/dist/." "$staging_dir/dist/"
+  chmod 0755 "$staging_dir/scripts/uninstall.sh"
   run "${pnpm_cmd[@]}" -C "$staging_dir" install --prod --frozen-lockfile
   rm -rf "$release_dir"
   mv "$staging_dir" "$release_dir"
