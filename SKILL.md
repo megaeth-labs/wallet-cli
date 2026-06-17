@@ -134,6 +134,9 @@ human token amount, and period is `minute`, `hour`, `day`, `week`, `month`, or
 must include a non-empty `permissions.calls` array. Never omit
 `permissions.calls`; omitted calls have produced keys that the relay rejects for
 writes. Each call entry must include both `to` and `signature`.
+Read [references/permissions.md](references/permissions.md) before building
+custom `--permissions` files, debugging permission schema errors, or planning
+nontrivial protocol writes.
 Validate permission shape before running auth commands. Do not use
 `mega moss create-key` as a validator for known invalid permission requests.
 For native ETH transfers, use a native ETH spend row and the no-calldata
@@ -178,6 +181,80 @@ request and `spendInfos[].remaining` as the live execution capacity.
 `spendInfos` is Porto/account spend accounting, so it can include relay
 fee-token allowance even when `authorizedKey.permissions.spend` is empty.
 
+## Execute Writes
+
+```bash
+mega moss execute \
+  --to 0x1234567890abcdef1234567890abcdef12345678 \
+  --data 0x \
+  --value 0
+```
+
+For multiple writes, pass `--calls ./calls.json`. Pass
+`--key 0xKEY_OR_ACCESS_ADDRESS` only when the user has approved using a
+non-default stored key. Confirm that the requested operation fits the approved
+delegated-key permissions before executing.
+
+When hand-writing raw calldata, verify the function selector first with an ABI
+encoder or `cast sig`; mismatched selectors cause wrong calls. For
+`--allow-call` and permission-file call scopes, prefer canonical
+human-readable function signatures. Use raw selectors only when necessary; use
+`0xe0e0e0e0` specifically for native ETH no-calldata transfer scopes and never
+use wildcard/sentinel selectors such as `0x32323232`.
+
+> **ERC20 approvals must be bundled.** On the MegaETH relay, a standalone
+> `approve` is reset at end-of-transaction. Always include `approve` and its
+> consuming call in the same `--calls` array.
+
+Spend permission is not call permission. A key with `calls: []` or omitted
+`permissions.calls` cannot execute relay-backed writes, including native ETH
+transfers, even when it has spend allowance. Do not request `calls: []` and do
+not omit `permissions.calls`; use explicit `--allow-call <target:signature>`
+scopes or permission-file call entries with both `to` and `signature`.
+
+For workflows that move ERC20 value through another contract, the key usually
+needs both spend permission for the token and call permission for each contract
+function it invokes, such as ERC20 `approve` plus the downstream protocol call.
+ERC20 spend accounting charges the larger of recognized calldata value
+(`transfer`, `transferFrom`, `approve`, Permit2 approve) and observed wallet
+balance decrease. Size spend caps for the larger amount in an approve plus
+protocol-call batch, not the sum.
+
+### Common Patterns
+
+ERC20 approve plus protocol call, such as Aave supply or a swap:
+
+```json
+[
+  {
+    "to": "<TOKEN>",
+    "data": "0x<approve(spender,amount) calldata>",
+    "value": "0"
+  },
+  {
+    "to": "<PROTOCOL>",
+    "data": "0x<supply/swap/deposit calldata>",
+    "value": "0"
+  }
+]
+```
+
+Use one `mega moss execute --calls ./calls.json` command for the array above.
+Do not split approval and consumption across two `execute` calls.
+
+## Read State
+
+```bash
+mega moss call \
+  --to 0x1234567890abcdef1234567890abcdef12345678 \
+  --data 0x
+```
+
+`call` is read-only and should be the default for inspection.
+If `--from` is omitted, the CLI uses the logged-in wallet account when a local
+profile exists. Pass `--from 0x...` only when a different simulation address is
+needed.
+
 ## Manage Delegated Keys
 
 ```bash
@@ -215,78 +292,8 @@ transaction.
 
 ## Custom Permission Files
 
-Read [references/permissions.md](references/permissions.md) only when building
-`--permissions ./permissions.json` files or debugging permission schema errors.
-
-## Read State
-
-```bash
-mega moss call \
-  --to 0x1234567890abcdef1234567890abcdef12345678 \
-  --data 0x
-```
-
-`call` is read-only and should be the default for inspection.
-If `--from` is omitted, the CLI uses the logged-in wallet account when a local
-profile exists. Pass `--from 0x...` only when a different simulation address is
-needed.
-
-## Execute Writes
-
-```bash
-mega moss execute \
-  --to 0x1234567890abcdef1234567890abcdef12345678 \
-  --data 0x \
-  --value 0
-```
-
-For multiple writes, pass `--calls ./calls.json`. Pass
-`--key 0xKEY_OR_ACCESS_ADDRESS` only when the user has approved using a
-non-default stored key. Confirm that the requested operation fits the approved
-delegated-key permissions before executing.
-
-When hand-writing raw calldata, verify the function selector first with an ABI
-encoder or `cast sig`; mismatched selectors cause wrong calls. For
-`--allow-call` and permission-file call scopes, prefer canonical
-human-readable function signatures. Use raw selectors only when necessary; use
-`0xe0e0e0e0` specifically for native ETH no-calldata transfer scopes and never
-use wildcard/sentinel selectors such as `0x32323232`.
-
-> **ERC20 approvals must be bundled.** On the MegaETH relay, a standalone
-> `approve` is reset at end-of-transaction. Always include `approve` and its
-> consuming call in the same `--calls` array.
-
-Spend permission is not call permission. A key with `calls: []` or omitted
-`permissions.calls` cannot execute relay-backed writes, including native ETH
-transfers, even when it has spend allowance. Do not request `calls: []` and do
-not omit `permissions.calls`; use explicit `--allow-call <target:signature>`
-scopes or permission-file call entries with both `to` and `signature`.
-
-For workflows that move ERC20 value through another contract, the key usually
-needs both spend permission for the token and call permission for each contract
-function it invokes, such as ERC20 `approve` plus the downstream protocol call.
-
-### Common Patterns
-
-ERC20 approve plus protocol call, such as Aave supply or a swap:
-
-```json
-[
-  {
-    "to": "<TOKEN>",
-    "data": "0x<approve(spender,amount) calldata>",
-    "value": "0"
-  },
-  {
-    "to": "<PROTOCOL>",
-    "data": "0x<supply/swap/deposit calldata>",
-    "value": "0"
-  }
-]
-```
-
-Use one `mega moss execute --calls ./calls.json` command for the array above.
-Do not split approval and consumption across two `execute` calls.
+For the full permission schema and examples, read
+[references/permissions.md](references/permissions.md).
 
 ## Transfer Funds
 
