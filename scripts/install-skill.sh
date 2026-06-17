@@ -8,6 +8,8 @@ force=0
 dry_run=0
 codex_home="${CODEX_HOME:-$HOME/.codex}"
 claude_home="${CLAUDE_HOME:-$HOME/.claude}"
+hermes_home="${HERMES_HOME:-$HOME/.hermes}"
+openclaw_state_dir="${OPENCLAW_STATE_DIR:-$HOME/.openclaw}"
 
 usage() {
   cat <<'USAGE'
@@ -16,9 +18,12 @@ Usage: scripts/install-skill.sh [options]
 Install the MegaETH Wallet CLI agent skill from this checkout.
 
 Options:
-  --agent codex|claude|all  Agent skill directory to install into (default: all)
+  --agent codex|claude|hermes|openclaw|all
+                             Agent skill directory to install into (default: all)
   --codex-home DIR          Codex home directory (default: $CODEX_HOME or ~/.codex)
   --claude-home DIR         Claude home directory (default: $CLAUDE_HOME or ~/.claude)
+  --hermes-home DIR         Hermes home directory (default: $HERMES_HOME or ~/.hermes)
+  --openclaw-state-dir DIR  OpenClaw state directory (default: $OPENCLAW_STATE_DIR or ~/.openclaw)
   --name NAME               Destination skill directory name (default: mega-wallet-cli)
   --force                   Replace an existing installed skill
   --dry-run                 Print actions without writing files
@@ -41,6 +46,14 @@ while [ "$#" -gt 0 ]; do
       ;;
     --claude-home)
       claude_home="${2:?missing value for --claude-home}"
+      shift 2
+      ;;
+    --hermes-home)
+      hermes_home="${2:?missing value for --hermes-home}"
+      shift 2
+      ;;
+    --openclaw-state-dir)
+      openclaw_state_dir="${2:?missing value for --openclaw-state-dir}"
       shift 2
       ;;
     --name)
@@ -149,13 +162,21 @@ case "$agents" in
   claude)
     install_one "claude" "$claude_home"
     ;;
+  hermes)
+    install_one "hermes" "$hermes_home"
+    ;;
+  openclaw)
+    install_one "openclaw" "$openclaw_state_dir"
+    ;;
   all)
     install_one "codex" "$codex_home"
     install_one "claude" "$claude_home"
+    install_one "hermes" "$hermes_home"
+    install_one "openclaw" "$openclaw_state_dir"
     ;;
   *)
     echo "unsupported --agent value: $agents" >&2
-    echo "expected one of: codex, claude, all" >&2
+    echo "expected one of: codex, claude, hermes, openclaw, all" >&2
     exit 2
     ;;
 esac

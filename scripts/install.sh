@@ -31,7 +31,7 @@ Options:
   --install-root DIR       Versioned install root (default: ~/.mega/wallet-cli)
   --skip-build             Reuse existing dist/ instead of running pnpm install/build
   --no-skill               Skip installing the agent skill from SKILL.md
-  --skill-agent AGENT      Skill target: codex, claude, or all (default: all)
+  --skill-agent AGENT      Skill target: codex, claude, hermes, openclaw, or all (default: all)
   --force-skill            Replace existing installed skill when it differs
   -y, --yes                Install missing prerequisites without prompting
   --dry-run                Print actions without writing files or running builds

@@ -16,9 +16,10 @@ curl -fsSL https://account.megaeth.com/install | sh
 ```
 
 The installer downloads the latest release, verifies its checksum, installs the
-`mega` command, and installs the bundled agent skill. Add the printed install
-directory to `PATH` if needed. Release installs check for CLI updates before
-launching, with the check throttled to avoid a network request on every command.
+`mega` command, and installs the bundled agent skill for Codex, Claude, Hermes,
+and OpenClaw. Add the printed install directory to `PATH` if needed. Release
+installs check for CLI updates before launching, with the check throttled to
+avoid a network request on every command.
 
 Install a specific release:
 
