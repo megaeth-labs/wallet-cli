@@ -154,3 +154,15 @@ Workflows that move ERC20 value through another contract usually need both
 spend permission for the token and call permission for each function they
 invoke, such as ERC20 `approve` plus the downstream protocol call. A key with
 sufficient spend but no call permission will still fail with `UnauthorizedCall`.
+
+For ERC20-style spend accounting, the relay/account guard effectively charges
+the larger of calldata-tracked value and observed balance decrease. Recognized
+top-level calldata patterns include ERC20 `transfer`, `transferFrom`,
+`approve`, and Permit2 approve. Consequences:
+
+- `approve` alone can consume spend capacity for the approved amount even when
+  wallet balance does not decrease.
+- A protocol pull that does not expose a top-level token transfer can still
+  consume spend capacity from the observed token balance decrease.
+- `approve` plus the consuming protocol call in one batch should be sized for
+  the larger of the approval amount and the actual pulled amount, not their sum.

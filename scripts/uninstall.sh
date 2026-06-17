@@ -32,6 +32,8 @@ fi
 legacy_config_dir="$HOME/.config/mega-wallet-cli"
 codex_home="${CODEX_HOME:-$HOME/.codex}"
 claude_home="${CLAUDE_HOME:-$HOME/.claude}"
+hermes_home="${HERMES_HOME:-$HOME/.hermes}"
+openclaw_state_dir="${OPENCLAW_STATE_DIR:-$HOME/.openclaw}"
 skill_name="mega-wallet-cli"
 agents="all"
 remove_config=0
@@ -48,10 +50,12 @@ Options:
   --prefix DIR             Prefix used when --bin-dir is omitted (default: ~/.local)
   --bin-dir DIR            Directory containing the mega wrapper (default: <prefix>/bin)
   --install-root DIR       Versioned install root to remove (default: ~/.mega/wallet-cli)
-  --agent codex|claude|all|none
+  --agent codex|claude|hermes|openclaw|all|none
                            Agent skill directory to remove (default: all)
   --codex-home DIR         Codex home directory (default: $CODEX_HOME or ~/.codex)
   --claude-home DIR        Claude home directory (default: $CLAUDE_HOME or ~/.claude)
+  --hermes-home DIR        Hermes home directory (default: $HERMES_HOME or ~/.hermes)
+  --openclaw-state-dir DIR OpenClaw state directory (default: $OPENCLAW_STATE_DIR or ~/.openclaw)
   --name NAME              Skill directory name (default: mega-wallet-cli)
   --config                 Also remove wallet CLI config/profile state
   --config-dir DIR         Config dir for --config (default matches the CLI's platform
@@ -95,6 +99,14 @@ while [ "$#" -gt 0 ]; do
       ;;
     --claude-home)
       claude_home="${2:?missing value for --claude-home}"
+      shift 2
+      ;;
+    --hermes-home)
+      hermes_home="${2:?missing value for --hermes-home}"
+      shift 2
+      ;;
+    --openclaw-state-dir)
+      openclaw_state_dir="${2:?missing value for --openclaw-state-dir}"
       shift 2
       ;;
     --name)
@@ -201,15 +213,23 @@ case "$agents" in
   claude)
     remove_skill "claude" "$claude_home"
     ;;
+  hermes)
+    remove_skill "hermes" "$hermes_home"
+    ;;
+  openclaw)
+    remove_skill "openclaw" "$openclaw_state_dir"
+    ;;
   all)
     remove_skill "codex" "$codex_home"
     remove_skill "claude" "$claude_home"
+    remove_skill "hermes" "$hermes_home"
+    remove_skill "openclaw" "$openclaw_state_dir"
     ;;
   none)
     ;;
   *)
     echo "unsupported --agent value: $agents" >&2
-    echo "expected one of: codex, claude, all, none" >&2
+    echo "expected one of: codex, claude, hermes, openclaw, all, none" >&2
     exit 2
     ;;
 esac

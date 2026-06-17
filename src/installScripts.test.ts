@@ -62,6 +62,8 @@ describe("installer scripts", () => {
     );
     expect(stdout).toContain("would install codex skill:");
     expect(stdout).toContain("would install claude skill:");
+    expect(stdout).toContain("would install hermes skill:");
+    expect(stdout).toContain("would install openclaw skill:");
   });
 
   it("can skip the default skill install", async () => {
@@ -165,10 +167,12 @@ describe("installer scripts", () => {
     expect(stdout).toContain("+ brew install pnpm");
   });
 
-  it("installs the agent skill into isolated Codex and Claude homes", async () => {
+  it("installs the agent skill into isolated agent homes", async () => {
     const dir = await tempDir();
     const codexHome = join(dir, "codex");
     const claudeHome = join(dir, "claude");
+    const hermesHome = join(dir, "hermes");
+    const openclawStateDir = join(dir, "openclaw");
 
     await execFileAsync("bash", [
       "scripts/install-skill.sh",
@@ -178,6 +182,10 @@ describe("installer scripts", () => {
       codexHome,
       "--claude-home",
       claudeHome,
+      "--hermes-home",
+      hermesHome,
+      "--openclaw-state-dir",
+      openclawStateDir,
       "--force",
     ]);
 
@@ -187,6 +195,14 @@ describe("installer scripts", () => {
     );
     const claudeSkill = await readFile(
       join(claudeHome, "skills", "mega-wallet-cli", "SKILL.md"),
+      "utf8",
+    );
+    const hermesSkill = await readFile(
+      join(hermesHome, "skills", "mega-wallet-cli", "SKILL.md"),
+      "utf8",
+    );
+    const openclawSkill = await readFile(
+      join(openclawStateDir, "skills", "mega-wallet-cli", "SKILL.md"),
       "utf8",
     );
     const codexPermissionsReference = await readFile(
@@ -212,6 +228,8 @@ describe("installer scripts", () => {
 
     expect(codexSkill).toContain("mega moss");
     expect(claudeSkill).toBe(codexSkill);
+    expect(hermesSkill).toBe(codexSkill);
+    expect(openclawSkill).toBe(codexSkill);
     expect(codexPermissionsReference).toContain("Permission Requests");
     expect(claudePermissionsReference).toBe(codexPermissionsReference);
   });
@@ -254,6 +272,10 @@ describe("installer scripts", () => {
       join(dir, "codex"),
       "--claude-home",
       join(dir, "claude"),
+      "--hermes-home",
+      join(dir, "hermes"),
+      "--openclaw-state-dir",
+      join(dir, "openclaw"),
       "--config-dir",
       join(dir, "config"),
       "--config",
@@ -263,6 +285,8 @@ describe("installer scripts", () => {
     expect(stdout).toContain("skip missing install root:");
     expect(stdout).toContain("skip missing codex skill:");
     expect(stdout).toContain("skip missing claude skill:");
+    expect(stdout).toContain("skip missing hermes skill:");
+    expect(stdout).toContain("skip missing openclaw skill:");
     expect(stdout).toContain("skip missing config:");
   });
 

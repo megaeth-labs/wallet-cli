@@ -66,9 +66,9 @@ The release install path is repo-owned and deterministic:
   `--wallet-url http://localhost:4000` on local auth/fund commands when testing
   against a local wallet UI.
 - `scripts/install-skill.sh` installs the in-repo skill bundle (`SKILL.md` plus
-  bundled resources such as `references/`) into Codex and/or Claude skill
-  directories. The main installer installs the Codex skill by default; use
-  `--no-skill` for binary-only installs.
+  bundled resources such as `references/`) into Codex, Claude, Hermes, and
+  OpenClaw skill directories. The main installer installs all supported skill
+  targets by default; use `--no-skill` for binary-only installs.
 - `scripts/uninstall.sh` removes local install artifacts for agent-readiness
   testing; wallet profiles are removed only when `--config` is passed.
 - `pnpm install:local -- --dry-run`, `pnpm install:release -- --dry-run

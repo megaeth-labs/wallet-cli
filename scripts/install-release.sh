@@ -26,7 +26,7 @@ Options:
   --bin-dir DIR           Directory for the mega wrapper (default: <prefix>/bin)
   --install-root DIR      Versioned install root (default: ~/.mega/wallet-cli)
   --no-skill              Skip installing the bundled agent skill
-  --skill-agent AGENT     Skill target: codex, claude, or all (default: all)
+  --skill-agent AGENT     Skill target: codex, claude, hermes, openclaw, or all (default: all)
   --no-force-skill        Do not replace an existing installed skill
   --dry-run               Print actions without writing files
   -h, --help              Show this help
@@ -100,9 +100,9 @@ case "$repo" in
 esac
 
 case "$skill_agent" in
-  codex|claude|all) ;;
+  codex|claude|hermes|openclaw|all) ;;
   *)
-    echo "--skill-agent must be codex, claude, or all" >&2
+    echo "--skill-agent must be codex, claude, hermes, openclaw, or all" >&2
     exit 2
     ;;
 esac

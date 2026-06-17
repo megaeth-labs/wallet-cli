@@ -11,6 +11,7 @@ import {
   decodeAbiParameters,
   encodeAbiParameters,
   parseAbiParameters,
+  toFunctionSelector,
 } from "viem";
 
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -1316,7 +1317,7 @@ function toRelayMockPermissions(permissions) {
 
   for (const call of permissions?.calls ?? []) {
     result.push({
-      selector: call.signature ?? anyCallSelector,
+      selector: toMockCallSelector(call.signature),
       to: call.to ?? anyCallTarget,
       type: "call",
     });
@@ -1332,6 +1333,16 @@ function toRelayMockPermissions(permissions) {
   }
 
   return result;
+}
+
+function toMockCallSelector(signature) {
+  if (signature === undefined) {
+    return anyCallSelector;
+  }
+  if (/^0x[0-9a-fA-F]{8}$/.test(signature)) {
+    return signature;
+  }
+  return toFunctionSelector(`function ${signature}`);
 }
 
 function toHexQuantity(value) {
@@ -1609,7 +1620,7 @@ async function routeWalletRelayToShim(page, runOptions) {
   await page.route(`${relayOrigin}/**`, async (route) => {
     const request = route.request();
     const target = new URL(request.url());
-    if (target.pathname === "/rpc") {
+    if (target.pathname === "/rpc" && !runOptions.mockRelay) {
       await route.continue();
       return;
     }
@@ -1783,12 +1794,12 @@ async function ensureWallet(page, walletUrl, timeoutMs, webauthn) {
 
   console.log("Creating Playwright passkey wallet");
   await page
-    .getByRole("button", { name: /^(Create PassKey|Create Account)$/ })
+    .getByRole("button", { name: /^(Create PassKey|Create Account)$/i })
     .click();
   const terms = page.getByText(/I have read, understood, and agree/);
   if (await terms.isVisible({ timeout: 5_000 }).catch(() => false)) {
     await terms.click();
-    await page.getByRole("button", { name: "Create Account" }).click();
+    await page.getByRole("button", { name: /^Create Account$/i }).click();
   }
   const stored = await waitForStoredAccount(page, timeoutMs);
   await webauthn.saveCredentials();
@@ -2124,11 +2135,12 @@ function shimApiUrl(runOptions) {
 }
 
 function createManagementKeyOptions(runOptions, label) {
+  const chainConfig = chainConfigs[runOptions.network];
   return {
     allowCall:
       runOptions.permissionsFile || runOptions.allowCalls.length > 0
         ? runOptions.allowCalls
-        : [`${anyCallTarget}:${anyCallSelector}`],
+        : [`${chainConfig.usdmAddress}:transfer(address,uint256)`],
     authFlow: runOptions.authFlow,
     label,
     network: runOptions.network,
@@ -2332,6 +2344,11 @@ async function runKeyManagementE2E(page, runOptions, initialProfile) {
                       .getByText(/Revok(e|ing) Mega CLI Key/)
                       .waitFor({ timeout: runOptions.timeoutMs / 2 })
                       .catch(() => undefined);
+                    await approveLoopback(
+                      page,
+                      "Revoke",
+                      runOptions.timeoutMs,
+                    );
                   },
                 }),
             }),
@@ -2616,8 +2633,8 @@ async function assertPermissionScreen(page, timeoutMs, runOptions) {
   );
   await waitForBodyText(
     page,
-    (text) => /0x32323232/i.test(text) && /0x3232/i.test(text),
-    "default call permission",
+    (text) => /Call transfer on 0xfafddb/i.test(text),
+    "USDm transfer call permission",
     timeoutMs,
   );
   await waitForBodyText(
@@ -2635,6 +2652,8 @@ async function assertPermissionScreen(page, timeoutMs, runOptions) {
   assertMissing(body, "Pay up to 0 ETH in fees");
   assertMissing(body, "Pay up to 0 eth in fees");
   assertMissing(body, "$1 USDM");
+  assertMissing(body, "0x32323232");
+  assertMissing(body, "0x323232");
 }
 
 async function assertRelaySmokePermissionScreen(page, timeoutMs, chainConfig) {
