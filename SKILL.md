@@ -345,3 +345,8 @@ private key material and key-selection metadata. It does not revoke delegated
 keys on-chain. Use `mega moss revoke <key>` when the user wants on-chain
 revocation; use `logout` only when the user explicitly wants this CLI install to
 forget the wallet locally.
+
+## Related MegaETH Ecosystem Sources
+
+- [mega-tokenlist](https://github.com/megaeth-labs/mega-tokenlist) — canonical MegaETH token metadata and asset source; use when an agent needs token addresses, symbols, logos, or other token reference material.
+- [awesome-megaeth-ai](https://github.com/megaeth-labs/awesome-megaeth-ai) — curated MegaETH AI tooling and ecosystem reference list; use when an agent needs broader MegaETH agent or tool context beyond this CLI.

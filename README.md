@@ -290,6 +290,11 @@ Remove installed CLI files and local profiles:
 ~/.mega/wallet-cli/current/scripts/uninstall.sh --config
 ```
 
+## Related Resources
+
+- [mega-tokenlist](https://github.com/megaeth-labs/mega-tokenlist)
+- [awesome-megaeth-ai](https://github.com/megaeth-labs/awesome-megaeth-ai)
+
 ## Help
 
 ```bash
