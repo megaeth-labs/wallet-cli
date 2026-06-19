@@ -1807,6 +1807,26 @@ async function ensureWallet(page, walletUrl, timeoutMs, webauthn) {
 }
 
 async function readStoredAccount(page) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      return await page.evaluate(() => {
+        const raw = localStorage.getItem("key");
+        return raw ? JSON.parse(raw) : null;
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        !message.includes("Execution context was destroyed") &&
+        !message.includes("because of a navigation")
+      ) {
+        throw error;
+      }
+
+      await page.waitForLoadState("domcontentloaded").catch(() => undefined);
+      await delay(250);
+    }
+  }
+
   return page.evaluate(() => {
     const raw = localStorage.getItem("key");
     return raw ? JSON.parse(raw) : null;
@@ -2237,6 +2257,7 @@ async function runKeyManagementE2E(page, runOptions, initialProfile) {
     ),
   );
   const secondKey = created.result.key;
+  await assertCreatedKeyMatchesRequest(secondKey, runOptions);
   assert(
     secondKey.id.toLowerCase() !== firstKey.id.toLowerCase(),
     "create-key reused the existing key id",
@@ -2603,6 +2624,7 @@ async function assertPermissionScreen(page, timeoutMs, runOptions) {
 
   if (runOptions?.permissionsFile) {
     const request = await readPermissionRequest(runOptions.permissionsFile);
+    await assertCliGrantReviewChrome(page, request.feeToken, timeoutMs);
     for (const spend of request.permissions.spend ?? []) {
       const expected = expectedSpendText(spend, runOptions.network);
       await waitForBodyText(
@@ -2626,6 +2648,11 @@ async function assertPermissionScreen(page, timeoutMs, runOptions) {
     return;
   }
 
+  await assertCliGrantReviewChrome(
+    page,
+    { limit: "1", symbol: "USDM" },
+    timeoutMs,
+  );
   await waitForBodyText(
     page,
     (text) => /Spend up to\s+100\s+USDM/i.test(text),
@@ -2661,6 +2688,39 @@ async function assertPermissionScreen(page, timeoutMs, runOptions) {
   assertMissing(body, "$1 USDM");
   assertMissing(body, "0x32323232");
   assertMissing(body, "0x323232");
+}
+
+async function assertCliGrantReviewChrome(page, feeToken, timeoutMs) {
+  await waitForBodyText(
+    page,
+    (text) => normalizeText(text).includes("Approval Gas Token"),
+    "approval transaction gas token row",
+    timeoutMs,
+  );
+  await waitForBodyText(
+    page,
+    (text) => normalizeText(text).includes("Approval Max Gas"),
+    "approval transaction max gas row",
+    timeoutMs,
+  );
+
+  if (feeToken?.symbol !== undefined) {
+    await waitForBodyText(
+      page,
+      (text) => {
+        const normalized = normalizeText(text);
+        return (
+          normalized.includes("Pay relay fees with") &&
+          normalized
+            .toLowerCase()
+            .includes(String(feeToken.symbol).toLowerCase()) &&
+          normalized.includes(String(feeToken.limit))
+        );
+      },
+      "requested delegated-key fee token row",
+      timeoutMs,
+    );
+  }
 }
 
 async function assertRelaySmokePermissionScreen(page, timeoutMs, chainConfig) {
@@ -2718,6 +2778,121 @@ async function assertPermissionsOutput(stdout, runOptions) {
       `Uses ${formatSymbol(request.feeToken.symbol)} for relay fees`,
     );
   }
+}
+
+async function assertCreatedKeyMatchesRequest(key, runOptions) {
+  const expected = runOptions.permissionsFile
+    ? await readPermissionRequest(runOptions.permissionsFile)
+    : defaultManagementPermissionRequest(runOptions.network);
+
+  assertFeeTokenMatches(key.authorizedKey.feeToken, expected.feeToken);
+  assertSpendPermissionsMatch(
+    key.authorizedKey.permissions.spend,
+    expected.permissions.spend,
+  );
+  assertCallPermissionsMatch(
+    key.authorizedKey.permissions.calls,
+    expected.permissions.calls,
+  );
+}
+
+function defaultManagementPermissionRequest(network) {
+  const chainConfig = e2eChainConfig(network);
+  return {
+    feeToken: {
+      limit: "1",
+      symbol: "USDM",
+    },
+    permissions: {
+      calls: [
+        {
+          to: chainConfig.usdmAddress,
+          signature: "transfer(address,uint256)",
+        },
+      ],
+      spend: [
+        {
+          limit: "100000000000000000000",
+          period: "week",
+          token: chainConfig.usdmAddress,
+        },
+      ],
+    },
+  };
+}
+
+function assertFeeTokenMatches(actual, expected) {
+  if (expected === undefined) {
+    assert(actual === undefined, "created key unexpectedly included feeToken");
+    return;
+  }
+
+  assert(actual !== undefined, "created key is missing requested feeToken");
+  assertEqual(actual.limit, expected.limit, "created key feeToken.limit changed");
+  assertEqual(
+    actual.symbol,
+    expected.symbol,
+    "created key feeToken.symbol changed",
+  );
+}
+
+function assertSpendPermissionsMatch(actual, expected) {
+  assert(
+    Array.isArray(actual),
+    "created key authorizedKey.permissions.spend is not an array",
+  );
+  assertEqual(
+    actual.length,
+    expected.length,
+    "created key spend permission count changed",
+  );
+
+  for (const expectedSpend of expected) {
+    const match = actual.find(
+      (spend) =>
+        normalizePermissionAddress(spend.token) ===
+          normalizePermissionAddress(expectedSpend.token) &&
+        spend.limit === expectedSpend.limit &&
+        spend.period === expectedSpend.period,
+    );
+    assert(
+      match !== undefined,
+      `created key is missing requested spend permission ${JSON.stringify(
+        expectedSpend,
+      )}`,
+    );
+  }
+}
+
+function assertCallPermissionsMatch(actual, expected) {
+  assert(
+    Array.isArray(actual),
+    "created key authorizedKey.permissions.calls is not an array",
+  );
+  assertEqual(
+    actual.length,
+    expected.length,
+    "created key call permission count changed",
+  );
+
+  for (const expectedCall of expected) {
+    const match = actual.find(
+      (call) =>
+        normalizePermissionAddress(call.to) ===
+          normalizePermissionAddress(expectedCall.to) &&
+        call.signature === expectedCall.signature,
+    );
+    assert(
+      match !== undefined,
+      `created key is missing requested call permission ${JSON.stringify(
+        expectedCall,
+      )}`,
+    );
+  }
+}
+
+function normalizePermissionAddress(value) {
+  return value === undefined ? undefined : String(value).toLowerCase();
 }
 
 async function readPermissionRequest(permissionsFile) {
