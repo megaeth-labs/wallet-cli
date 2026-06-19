@@ -2,7 +2,19 @@
 set -euo pipefail
 
 prefix="${MEGA_WALLET_CLI_PREFIX:-$HOME/.local}"
-install_root="${MEGA_WALLET_CLI_HOME:-$HOME/.mega/wallet-cli}"
+script_path="${BASH_SOURCE[0]:-$0}"
+if [ "${MEGA_WALLET_CLI_HOME:-}" ]; then
+  install_root="$MEGA_WALLET_CLI_HOME"
+else
+  case "$script_path" in
+    */current/scripts/uninstall.sh)
+      install_root="$(cd "$(dirname "$(dirname "$(dirname "$script_path")")")" && pwd)"
+      ;;
+    *)
+      install_root="$HOME/.mega/wallet-cli"
+      ;;
+  esac
+fi
 bin_dir="${MEGA_WALLET_CLI_BIN_DIR:-$prefix/bin}"
 config_dir_overridden=0
 if [ "${MEGA_WALLET_CLI_CONFIG_DIR:-}" ]; then

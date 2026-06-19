@@ -78,6 +78,7 @@ checksum_path="$archive_path.sha256"
 
 if [ "$dry_run" -eq 1 ]; then
   echo "would package release: $release_name"
+  echo "would include script: scripts/uninstall.sh"
   echo "would write archive: $archive_path"
   echo "would write checksum: $checksum_path"
   exit 0
@@ -103,9 +104,13 @@ cp "$repo_root/pnpm-lock.yaml" "$release_dir/pnpm-lock.yaml"
 cp "$repo_root/README.md" "$release_dir/README.md"
 cp "$repo_root/SKILL.md" "$release_dir/SKILL.md"
 cp "$repo_root/scripts/install-skill.sh" "$release_dir/scripts/install-skill.sh"
+cp "$repo_root/scripts/uninstall.sh" "$release_dir/scripts/uninstall.sh"
 cp -R "$repo_root/dist" "$release_dir/dist"
 cp -R "$repo_root/references" "$release_dir/references"
-chmod 0755 "$release_dir/dist/index.js" "$release_dir/scripts/install-skill.sh"
+chmod 0755 \
+  "$release_dir/dist/index.js" \
+  "$release_dir/scripts/install-skill.sh" \
+  "$release_dir/scripts/uninstall.sh"
 
 pnpm -C "$release_dir" install --prod --frozen-lockfile
 

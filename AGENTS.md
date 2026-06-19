@@ -49,12 +49,15 @@ The release install path is repo-owned and deterministic:
 - `scripts/package-release.sh` builds the self-contained GitHub Release assets:
   `mega-wallet-cli-<tag>.tar.gz` plus `.sha256`. The archive must include
   `dist/`, production `node_modules/`, `package.json`, `pnpm-lock.yaml`,
-  `SKILL.md`, `references/`, and `scripts/install-skill.sh` so the public
-  installer can install CLI and skill without building from source.
+  `SKILL.md`, `references/`, `scripts/install-skill.sh`, and
+  `scripts/uninstall.sh` so the public installer can install CLI and skill
+  without building from source while leaving the documented uninstall path
+  available under `current/scripts/uninstall.sh`.
 - `scripts/install.sh` is the local checkout installer. It builds the CLI,
   installs a versioned release under `~/.mega/wallet-cli/releases/`, updates
   `~/.mega/wallet-cli/current`, and writes the `mega` wrapper into `~/.local/bin`
-  by default. It should remove any repo-owned legacy `wallet` wrapper so stale
+  by default. It should install `scripts/uninstall.sh` into the versioned
+  release and remove any repo-owned legacy `wallet` wrapper so stale
   compatibility shortcuts do not remain on PATH.
   It must check Node.js `>=22` and pnpm before building. Interactive runs may
   prompt to install missing prerequisites; non-interactive runs must fail with
