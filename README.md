@@ -137,6 +137,15 @@ mega moss login
 Connects the local CLI profile to your MOSS account. Browser authorization uses
 same-machine loopback. Normally let the CLI open the browser; use
 `--no-browser` only when you need to copy the authorization URL manually.
+For headless or different-machine approval, use:
+
+```bash
+mega moss login --auth-flow device
+```
+
+Device auth prints a URL and verification code, then waits for approval in
+MegaETH Wallet. The same `--auth-flow device` option is available for
+`create-key` and `revoke`.
 
 If a profile already exists, `login` exits before opening the browser. Use
 `create-key` to add a delegated key, or `logout` to forget the local profile.

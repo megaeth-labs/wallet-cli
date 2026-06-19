@@ -186,18 +186,34 @@ export class HttpDeviceAuthClient implements DeviceAuthClient {
   }
 
   async #postJson(path: string, body: unknown): Promise<unknown> {
-    const response = await this.#fetch(new URL(path, this.#walletApiUrl), {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        accept: "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-    const payload = await parseJsonResponse(response);
-    if (!response.ok) {
+    let response: Response;
+    try {
+      response = await this.#fetch(new URL(path, this.#walletApiUrl), {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (error) {
       throw new CliError(
-        `wallet device authorization request failed (${response.status})`,
+        `wallet device authorization service is unavailable at ${this.#walletApiUrl}: ${formatUnknownError(error)}`,
+      );
+    }
+
+    const payload = await parseJsonResponse(response, path);
+    if (!response.ok) {
+      if (path.endsWith("/start") && isUnavailableStatus(response.status)) {
+        throw new CliError(
+          `device-code auth is not available from wallet API ${this.#walletApiUrl}; use loopback auth or update the wallet backend`,
+        );
+      }
+      const detail = extractErrorMessage(payload);
+      throw new CliError(
+        detail === undefined
+          ? `wallet device authorization request failed (${response.status})`
+          : `wallet device authorization request failed (${response.status}): ${detail}`,
       );
     }
     return payload;
@@ -670,12 +686,49 @@ function intervalToMs(seconds: number): number {
   );
 }
 
-async function parseJsonResponse(response: Response): Promise<unknown> {
+async function parseJsonResponse(
+  response: Response,
+  path: string,
+): Promise<unknown> {
   try {
     return await response.json();
   } catch {
+    if (path.endsWith("/start") && isUnavailableStatus(response.status)) {
+      throw new CliError(
+        `device-code auth is not available from this wallet API; use loopback auth or update the wallet backend`,
+      );
+    }
+
     throw new CliError("wallet device authorization response was not JSON");
   }
+}
+
+function isUnavailableStatus(status: number): boolean {
+  return status === 404 || status === 405 || status === 501;
+}
+
+function extractErrorMessage(value: unknown): string | undefined {
+  if (!isObject(value)) {
+    return undefined;
+  }
+
+  if (typeof value.error === "string" && value.error.length > 0) {
+    return value.error;
+  }
+
+  if (typeof value.status === "string" && value.status.length > 0) {
+    return value.status;
+  }
+
+  if (typeof value.message === "string" && value.message.length > 0) {
+    return value.message;
+  }
+
+  return undefined;
+}
+
+function formatUnknownError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function defaultSleep(ms: number): Promise<void> {

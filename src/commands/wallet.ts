@@ -28,6 +28,12 @@ import {
   type BrowserOpener,
 } from "../auth/loopback.js";
 import {
+  authorizeDeviceKey,
+  authorizeDeviceLogin,
+  authorizeDeviceRevoke,
+  type AuthorizationPrompt,
+} from "../auth/device.js";
+import {
   defaultKeyPermissions,
   finalizeKeyPermissions,
   normalizeFeeTokenSymbol,
@@ -129,7 +135,7 @@ type UpdateCommandOptions = {
   version?: string;
 };
 
-type AuthFlow = "loopback";
+type AuthFlow = "loopback" | "device";
 
 type TokenMetadataReader = (options: {
   network: Network;
@@ -137,6 +143,9 @@ type TokenMetadataReader = (options: {
 }) => Promise<TokenDisplayMetadataMap>;
 
 export type WalletCommandDependencies = {
+  authorizeDeviceKey?: typeof authorizeDeviceKey;
+  authorizeDeviceLogin?: typeof authorizeDeviceLogin;
+  authorizeDeviceRevoke?: typeof authorizeDeviceRevoke;
   authorizeKey?: typeof authorizeLoopbackKey;
   browserFallbackDelayMs?: number;
   env?: NodeJS.ProcessEnv;
@@ -470,26 +479,100 @@ export async function login(
   const walletUrl = options.walletUrl ?? chainConfig.walletUrl;
   const walletApiUrl = options.walletApiUrl ?? chainConfig.walletApiUrl;
   const relayUrl = options.relayUrl ?? chainConfig.relayUrl;
-  parseAuthFlow(options.authFlow);
+  const authFlow = parseAuthFlow(options.authFlow);
 
   assertHttpUrl(walletUrl, "wallet-url must be an HTTP(S) URL");
   assertHttpUrl(walletApiUrl, "wallet-api-url must be an HTTP(S) URL");
   assertHttpUrl(relayUrl, "relay-url must be an HTTP(S) URL");
 
-  const result = await runLoopbackLogin({
-    network,
-    walletUrl,
-    relayUrl,
-    timeoutMs: options.timeoutMs,
-    env,
-    openBrowser: makeBrowserOpener(options, dependencies, { loginIntro: true }),
-  });
-  const profile = parseWalletProfile({
-    ...result.profile,
-    walletApiUrl,
-  });
+  const now = getNow(dependencies);
+  const profile =
+    authFlow === "device"
+      ? await loginWithDeviceAuth({
+          network,
+          walletUrl,
+          walletApiUrl,
+          relayUrl,
+          timeoutMs: options.timeoutMs,
+          now,
+          options,
+          dependencies,
+        })
+      : await loginWithLoopbackAuth({
+          network,
+          walletUrl,
+          walletApiUrl,
+          relayUrl,
+          timeoutMs: options.timeoutMs,
+          env,
+          options,
+          dependencies,
+        });
   await writeWalletProfile(profile, env);
   return profile;
+}
+
+async function loginWithDeviceAuth(input: {
+  network: Network;
+  walletUrl: string;
+  walletApiUrl: string;
+  relayUrl: string;
+  timeoutMs: number;
+  now: Date;
+  options: LoginCommandOptions;
+  dependencies: WalletCommandDependencies;
+}): Promise<WalletProfile> {
+  const result = await (
+    input.dependencies.authorizeDeviceLogin ?? authorizeDeviceLogin
+  )({
+    network: input.network,
+    walletUrl: input.walletUrl,
+    walletApiUrl: input.walletApiUrl,
+    relayUrl: input.relayUrl,
+    timeoutMs: input.timeoutMs,
+    now: input.now,
+    onPrompt: makeDevicePromptRenderer(input.options, input.dependencies),
+  });
+  const timestamp = input.now.toISOString();
+
+  return parseWalletProfile({
+    version: 1,
+    network: input.network,
+    accountAddress: result.accountAddress,
+    keys: [],
+    walletUrl: input.walletUrl,
+    walletApiUrl: input.walletApiUrl,
+    relayUrl: input.relayUrl,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  });
+}
+
+async function loginWithLoopbackAuth(input: {
+  network: Network;
+  walletUrl: string;
+  walletApiUrl: string;
+  relayUrl: string;
+  timeoutMs: number;
+  env: NodeJS.ProcessEnv;
+  options: LoginCommandOptions;
+  dependencies: WalletCommandDependencies;
+}): Promise<WalletProfile> {
+  const result = await runLoopbackLogin({
+    network: input.network,
+    walletUrl: input.walletUrl,
+    relayUrl: input.relayUrl,
+    timeoutMs: input.timeoutMs,
+    env: input.env,
+    openBrowser: makeBrowserOpener(input.options, input.dependencies, {
+      loginIntro: true,
+    }),
+  });
+
+  return parseWalletProfile({
+    ...result.profile,
+    walletApiUrl: input.walletApiUrl,
+  });
 }
 
 export async function runWalletWhoami(
@@ -718,7 +801,7 @@ export async function runWalletCreateKey(
   const walletApiUrl =
     options.walletApiUrl ?? profile.walletApiUrl ?? chainConfig.walletApiUrl;
   const relayUrl = options.relayUrl ?? profile.relayUrl;
-  parseAuthFlow(options.authFlow);
+  const authFlow = parseAuthFlow(options.authFlow);
   assertHttpUrl(walletUrl, "wallet-url must be an HTTP(S) URL");
   assertHttpUrl(walletApiUrl, "wallet-api-url must be an HTTP(S) URL");
   assertHttpUrl(relayUrl, "relay-url must be an HTTP(S) URL");
@@ -729,16 +812,27 @@ export async function runWalletCreateKey(
     network,
     getNow(dependencies),
   );
-  const authorization = await (
-    dependencies.authorizeKey ?? authorizeLoopbackKey
-  )({
-    network,
-    permissionRequest,
-    walletUrl,
-    relayUrl,
-    timeoutMs: options.timeoutMs,
-    openBrowser: makeBrowserOpener(options, dependencies),
-  });
+  const authorization =
+    authFlow === "device"
+      ? await (dependencies.authorizeDeviceKey ?? authorizeDeviceKey)({
+          network,
+          permissionRequest,
+          existingAccountAddress: profile.accountAddress,
+          walletUrl,
+          walletApiUrl,
+          relayUrl,
+          timeoutMs: options.timeoutMs,
+          now: getNow(dependencies),
+          onPrompt: makeDevicePromptRenderer(options, dependencies),
+        })
+      : await (dependencies.authorizeKey ?? authorizeLoopbackKey)({
+          network,
+          permissionRequest,
+          walletUrl,
+          relayUrl,
+          timeoutMs: options.timeoutMs,
+          openBrowser: makeBrowserOpener(options, dependencies),
+        });
 
   if (
     authorization.accountAddress.toLowerCase() !==
@@ -838,23 +932,40 @@ export async function runWalletRevoke(
   }
 
   const walletUrl = options.walletUrl ?? profile.walletUrl;
-  parseAuthFlow(options.authFlow);
+  const authFlow = parseAuthFlow(options.authFlow);
   assertHttpUrl(walletUrl, "wallet-url must be an HTTP(S) URL");
+  const walletApiUrl =
+    options.walletApiUrl ??
+    profile.walletApiUrl ??
+    getChainConfig(network).walletApiUrl;
+  assertHttpUrl(walletApiUrl, "wallet-api-url must be an HTTP(S) URL");
 
-  const revocation = await (dependencies.revokeKey ?? runLoopbackRevoke)({
+  const feeToken = normalizeFeeTokenSymbol(
+    options.feeToken ??
+      key.authorizedKey.feeToken?.symbol ??
+      getChainConfig(network).defaultFeeToken.symbol,
     network,
-    accountAddress: profile.accountAddress,
-    accessAddress: key.accessAddress,
-    feeToken: normalizeFeeTokenSymbol(
-      options.feeToken ??
-        key.authorizedKey.feeToken?.symbol ??
-        getChainConfig(network).defaultFeeToken.symbol,
-      network,
-    ),
-    walletUrl,
-    timeoutMs: options.timeoutMs,
-    openBrowser: makeBrowserOpener(options, dependencies),
-  });
+  );
+  const revocation =
+    authFlow === "device"
+      ? await (dependencies.authorizeDeviceRevoke ?? authorizeDeviceRevoke)({
+          network,
+          walletApiUrl,
+          accountAddress: profile.accountAddress,
+          accessAddress: key.accessAddress,
+          feeToken,
+          timeoutMs: options.timeoutMs,
+          onPrompt: makeDevicePromptRenderer(options, dependencies),
+        })
+      : await (dependencies.revokeKey ?? runLoopbackRevoke)({
+          network,
+          accountAddress: profile.accountAddress,
+          accessAddress: key.accessAddress,
+          feeToken,
+          walletUrl,
+          timeoutMs: options.timeoutMs,
+          openBrowser: makeBrowserOpener(options, dependencies),
+        });
   const updated = revokeWalletKeyLocal(profile, key.id, {
     revokeTxHash: revocation.revokeTxHash,
     now: getNow(dependencies),
@@ -1539,10 +1650,8 @@ function sameKey(left: WalletKeyRecord, right: WalletKeyRecord): boolean {
 
 function parseAuthFlow(value: string | undefined): AuthFlow {
   const flow = value ?? "loopback";
-  if (flow !== "loopback") {
-    throw new CliError(
-      "device-code auth is not supported right now; use same-machine loopback auth",
-    );
+  if (flow !== "loopback" && flow !== "device") {
+    throw new CliError("auth-flow must be loopback or device");
   }
 
   return flow;
@@ -1551,8 +1660,8 @@ function parseAuthFlow(value: string | undefined): AuthFlow {
 function authFlowOption(): Option {
   return new Option(
     "--auth-flow <flow>",
-    "unsupported; only loopback auth is available",
-  ).hideHelp();
+    "authorization flow: loopback or device",
+  );
 }
 
 function walletApiUrlOption(): Option {
@@ -1648,6 +1757,30 @@ function shouldOpenBrowser(options: {
   noBrowser?: boolean;
 }): boolean {
   return options.noBrowser !== true && options.browser !== false;
+}
+
+function makeDevicePromptRenderer(
+  options: { json?: boolean; terse?: boolean },
+  dependencies: WalletCommandDependencies,
+): (prompt: AuthorizationPrompt) => void {
+  return (prompt) => {
+    const stderr = getStderr(dependencies);
+    const style = stderrStyle(options, dependencies);
+    stderr.write(
+      [
+        style.strong("Running headless? Go to this URL and enter this code:"),
+        "",
+        `${style.dim("URL")}: ${style.accent(prompt.verificationUri)}`,
+        `${style.dim("Code")}: ${style.accent(prompt.userCode)}`,
+        `${style.dim("Direct link")}: ${style.accent(prompt.verificationUriComplete)}`,
+        `${style.dim("Expires")}: ${prompt.expiresAt}`,
+        "",
+        "Waiting for approval...",
+      ]
+        .join("\n")
+        .concat("\n"),
+    );
+  };
 }
 
 function getStdout(dependencies: WalletCommandDependencies): OutputWriter {

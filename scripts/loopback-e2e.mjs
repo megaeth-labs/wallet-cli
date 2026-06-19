@@ -87,6 +87,7 @@ try {
 
   page = await browser.newPage();
   attachPageTelemetry(page, telemetry);
+  await routeWalletApiToShimExceptDevice(page, options);
   await routeWalletRelayToShim(page, options);
   const webauthn = await installVirtualAuthenticator(
     browser,
@@ -94,6 +95,10 @@ try {
     options.credentialsPath,
   );
   await ensureWallet(page, options.walletUrl, options.timeoutMs, webauthn);
+
+  if (options.deviceCancel) {
+    await runDeviceCancellationE2E(page, options);
+  }
 
   const loginResult = await runCliLogin(page, options);
 
@@ -160,8 +165,10 @@ function parseArgs(args) {
     reset: false,
     relaySmoke: false,
     screenOnly: false,
+    deviceCancel: false,
     smokeAmount: "0.0001",
     authFlow: "loopback",
+    deviceApiUrl: undefined,
     shimPort: 4002,
     shimOnly: false,
     timeoutMs: 120_000,
@@ -195,6 +202,9 @@ function parseArgs(args) {
         parsed.authFlow = authFlow;
         break;
       }
+      case "--device-api-url":
+        parsed.deviceApiUrl = stripTrailingSlash(readValue(args, ++index, arg));
+        break;
       case "--config-dir":
         configDir = resolve(readValue(args, ++index, arg));
         break;
@@ -242,6 +252,9 @@ function parseArgs(args) {
         break;
       case "--screen-only":
         parsed.screenOnly = true;
+        break;
+      case "--device-cancel":
+        parsed.deviceCancel = true;
         break;
       case "--shim-port":
         parsed.shimPort = parsePositiveInteger(
@@ -295,6 +308,9 @@ function parseArgs(args) {
       `--reset is disabled for --relay-smoke because it would delete persistent development smoke-test credentials. Delete ${parsed.e2eDir} manually if you intentionally need a new relay-smoke wallet.`,
     );
   }
+  if (parsed.deviceCancel && parsed.authFlow !== "device") {
+    throw new Error("--device-cancel requires --auth-flow device");
+  }
   parsePositiveDecimal(parsed.smokeAmount, "--smoke-amount");
   return parsed;
 }
@@ -339,7 +355,9 @@ function printHelp() {
 
 Options:
   --auth-flow <flow>     Authorization flow: loopback or device (default: loopback)
+  --device-api-url <url> Wallet API URL for device-code auth; non-device wallet API calls still use the shim
   --screen-only          Stop after verifying the wallet permission screen
+  --device-cancel        Verify FE rejection paths for device login, create-key, and revoke
   --headed               Show the Playwright Chromium window
   --hold                 Keep the browser open after the check
   --management           Run live delegated-key management checks after login
@@ -1634,6 +1652,34 @@ async function routeWalletRelayToShim(page, runOptions) {
   });
 }
 
+async function routeWalletApiToShimExceptDevice(page, runOptions) {
+  if (!runOptions.deviceApiUrl) {
+    return;
+  }
+
+  const deviceUrl = new URL(runOptions.deviceApiUrl);
+  const apiOrigins = new Set([
+    deviceUrl.origin,
+    `http://localhost:${deviceUrl.port}`,
+    `http://127.0.0.1:${deviceUrl.port}`,
+  ]);
+
+  for (const apiOrigin of apiOrigins) {
+    await page.route(`${apiOrigin}/**`, async (route) => {
+      const request = route.request();
+      const target = new URL(request.url());
+      if (target.pathname.startsWith("/v1/cli-auth/device")) {
+        await route.continue();
+        return;
+      }
+
+      const shimUrl = `${shimApiUrl(runOptions)}${target.pathname}${target.search}`;
+      const response = await route.fetch({ url: shimUrl });
+      await route.fulfill({ response });
+    });
+  }
+}
+
 function normalizeAddress(value) {
   if (typeof value !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(value)) {
     throw new Error("expected 20-byte hex address");
@@ -1968,7 +2014,7 @@ async function runDeviceCliLogin(page, runOptions) {
         network: runOptions.network,
         relayUrl: runOptions.relayUrl,
         timeoutMs: runOptions.timeoutMs,
-        walletApiUrl: shimApiUrl(runOptions),
+        walletApiUrl: deviceApiUrl(runOptions),
         walletUrl: runOptions.walletUrl,
       },
       {
@@ -1991,6 +2037,136 @@ async function runDeviceCliLogin(page, runOptions) {
   }
 }
 
+async function runDeviceCancellationE2E(page, runOptions) {
+  const [walletCommands, profileStore] = await Promise.all([
+    import(pathToFileURL(resolve(repoRoot, "dist/commands/wallet.js")).href),
+    import(pathToFileURL(resolve(repoRoot, "dist/config/profile.js")).href),
+  ]);
+  const env = {
+    ...process.env,
+    MEGA_WALLET_CLI_CONFIG_DIR: runOptions.configDir,
+  };
+
+  console.log("Running device authorization cancellation E2E...");
+
+  await assertRejectsWith(
+    () =>
+      walletCommands.login(
+        {
+          authFlow: "device",
+          network: runOptions.network,
+          relayUrl: runOptions.relayUrl,
+          timeoutMs: runOptions.timeoutMs,
+          walletApiUrl: deviceApiUrl(runOptions),
+          walletUrl: runOptions.walletUrl,
+        },
+        {
+          authorizeDeviceLogin: createDeviceLoginRejectAuthorizer(
+            page,
+            runOptions,
+          ),
+          env,
+        },
+      ),
+    "wallet device authorization was rejected",
+    "device login rejection",
+  );
+  assert(
+    (await readExistingCliProfile(runOptions)) === undefined,
+    "cancelled device login wrote a local profile",
+  );
+
+  const profile = await walletCommands.login(
+    {
+      authFlow: "device",
+      network: runOptions.network,
+      relayUrl: runOptions.relayUrl,
+      timeoutMs: runOptions.timeoutMs,
+      walletApiUrl: deviceApiUrl(runOptions),
+      walletUrl: runOptions.walletUrl,
+    },
+    {
+      authorizeDeviceLogin: createDeviceLoginAuthorizer(page, runOptions),
+      env,
+    },
+  );
+
+  await assertRejectsWith(
+    () =>
+      walletCommands.runWalletCreateKey(
+        createManagementKeyOptions(runOptions, "e2e-cancelled"),
+        {
+          authorizeDeviceKey: createDeviceKeyRejectAuthorizer(page, runOptions),
+          env,
+          stdout: memoryOutput(),
+        },
+      ),
+    "wallet device authorization was rejected",
+    "device create-key rejection",
+  );
+  const afterCreateReject = await profileStore.readWalletProfile(
+    runOptions.network,
+    env,
+  );
+  assertEqual(
+    afterCreateReject.keys.length,
+    0,
+    "cancelled device create-key stored a key",
+  );
+
+  const created = await walletCommands.runWalletCreateKey(
+    createManagementKeyOptions(runOptions, "e2e-cancel-revoke-target"),
+    {
+      authorizeDeviceKey: createDeviceKeyAuthorizer(page, runOptions),
+      env,
+      stdout: memoryOutput(),
+    },
+  );
+  await assertRejectsWith(
+    () =>
+      walletCommands.runWalletRevoke(
+        created.key.id,
+        {
+          authFlow: "device",
+          network: runOptions.network,
+          timeoutMs: runOptions.timeoutMs,
+          walletApiUrl: deviceApiUrl(runOptions),
+          walletUrl: runOptions.walletUrl,
+        },
+        {
+          authorizeDeviceRevoke: createDeviceRevokeRejectAuthorizer(
+            page,
+            runOptions,
+          ),
+          env,
+          stdout: memoryOutput(),
+        },
+      ),
+    "wallet device authorization was rejected",
+    "device revoke rejection",
+  );
+  const afterRevokeReject = await profileStore.readWalletProfile(
+    runOptions.network,
+    env,
+  );
+  const target = afterRevokeReject.keys.find(
+    (key) => key.id.toLowerCase() === created.key.id.toLowerCase(),
+  );
+  assert(target, "revoke cancellation target key disappeared");
+  assertEqual(target.status, "active", "cancelled revoke marked key revoked");
+  assert(
+    Object.hasOwn(target, "privateKey"),
+    "cancelled revoke removed private key material",
+  );
+  assertEqual(
+    profile.accountAddress.toLowerCase(),
+    afterRevokeReject.accountAddress.toLowerCase(),
+    "device cancellation test changed account",
+  );
+
+  console.log("Device authorization cancellation E2E completed.");
+}
+
 function createDeviceKeyAuthorizer(
   page,
   runOptions,
@@ -2004,7 +2180,7 @@ function createDeviceKeyAuthorizer(
 
     return authorizeDeviceKey({
       ...authorizationOptions,
-      walletApiUrl: shimApiUrl(runOptions),
+      walletApiUrl: deviceApiUrl(runOptions),
       sleep: async (ms) => {
         await promptTask;
         await delay(Math.min(ms, 500));
@@ -2013,6 +2189,27 @@ function createDeviceKeyAuthorizer(
         promptTask = handleDeviceGrantPrompt(page, prompt, runOptions, {
           screenOnly,
         });
+      },
+    });
+  };
+}
+
+function createDeviceKeyRejectAuthorizer(page, runOptions) {
+  return async (authorizationOptions) => {
+    const { authorizeDeviceKey } = await import(
+      pathToFileURL(resolve(repoRoot, "dist/auth/device.js")).href
+    );
+    let promptTask = Promise.resolve();
+
+    return authorizeDeviceKey({
+      ...authorizationOptions,
+      walletApiUrl: deviceApiUrl(runOptions),
+      sleep: async (ms) => {
+        await promptTask;
+        await delay(Math.min(ms, 500));
+      },
+      onPrompt: (prompt) => {
+        promptTask = handleDeviceRejectPrompt(page, prompt, runOptions);
       },
     });
   };
@@ -2044,6 +2241,26 @@ function createDeviceLoginAuthorizer(
   };
 }
 
+function createDeviceLoginRejectAuthorizer(page, runOptions) {
+  return async (authorizationOptions) => {
+    const { authorizeDeviceLogin } = await import(
+      pathToFileURL(resolve(repoRoot, "dist/auth/device.js")).href
+    );
+    let promptTask = Promise.resolve();
+
+    return authorizeDeviceLogin({
+      ...authorizationOptions,
+      sleep: async (ms) => {
+        await promptTask;
+        await delay(Math.min(ms, 500));
+      },
+      onPrompt: (prompt) => {
+        promptTask = handleDeviceRejectPrompt(page, prompt, runOptions);
+      },
+    });
+  };
+}
+
 function createDeviceRevokeAuthorizer(page, runOptions) {
   return async (authorizationOptions) => {
     const { authorizeDeviceRevoke } = await import(
@@ -2059,6 +2276,26 @@ function createDeviceRevokeAuthorizer(page, runOptions) {
       },
       onPrompt: (prompt) => {
         promptTask = handleDeviceRevokePrompt(page, prompt, runOptions);
+      },
+    });
+  };
+}
+
+function createDeviceRevokeRejectAuthorizer(page, runOptions) {
+  return async (authorizationOptions) => {
+    const { authorizeDeviceRevoke } = await import(
+      pathToFileURL(resolve(repoRoot, "dist/auth/device.js")).href
+    );
+    let promptTask = Promise.resolve();
+
+    return authorizeDeviceRevoke({
+      ...authorizationOptions,
+      sleep: async (ms) => {
+        await promptTask;
+        await delay(Math.min(ms, 500));
+      },
+      onPrompt: (prompt) => {
+        promptTask = handleDeviceRejectPrompt(page, prompt, runOptions);
       },
     });
   };
@@ -2131,6 +2368,20 @@ async function handleDeviceRevokePrompt(page, prompt, runOptions) {
   );
 }
 
+async function handleDeviceRejectPrompt(page, prompt, runOptions) {
+  await page.goto(prompt.verificationUriComplete, {
+    waitUntil: "domcontentloaded",
+  });
+  await assertDeviceRequestScreen(page, prompt.userCode, runOptions.timeoutMs);
+  await page.getByRole("button", { name: "Reject" }).click();
+  await waitForBodyText(
+    page,
+    (text) => text.includes("CLI request rejected"),
+    "device request rejection",
+    runOptions.timeoutMs,
+  );
+}
+
 async function assertDeviceRequestScreen(page, userCode, timeoutMs) {
   await waitForBodyText(
     page,
@@ -2154,6 +2405,10 @@ function shimApiUrl(runOptions) {
   return `http://127.0.0.1:${runOptions.shimPort}`;
 }
 
+function deviceApiUrl(runOptions) {
+  return runOptions.deviceApiUrl ?? shimApiUrl(runOptions);
+}
+
 function createManagementKeyOptions(runOptions, label) {
   const chainConfig = chainConfigs[runOptions.network];
   return {
@@ -2167,7 +2422,7 @@ function createManagementKeyOptions(runOptions, label) {
     permissions: runOptions.permissionsFile,
     relayUrl: runOptions.relayUrl,
     timeoutMs: runOptions.timeoutMs,
-    walletApiUrl: shimApiUrl(runOptions),
+    walletApiUrl: deviceApiUrl(runOptions),
     walletUrl: runOptions.walletUrl,
   };
 }
@@ -2347,14 +2602,17 @@ async function runKeyManagementE2E(page, runOptions, initialProfile) {
         authFlow: runOptions.authFlow,
         network: runOptions.network,
         timeoutMs: runOptions.timeoutMs,
-        walletApiUrl: shimApiUrl(runOptions),
+        walletApiUrl: deviceApiUrl(runOptions),
         walletUrl: runOptions.walletUrl,
       },
       {
         env,
         ...(runOptions.authFlow === "device"
           ? {
-              revokeDeviceKey: createDeviceRevokeAuthorizer(page, runOptions),
+              authorizeDeviceRevoke: createDeviceRevokeAuthorizer(
+                page,
+                runOptions,
+              ),
             }
           : {
               revokeKey: (options) =>
@@ -2366,11 +2624,7 @@ async function runKeyManagementE2E(page, runOptions, initialProfile) {
                       .getByText(/Revok(e|ing) Mega CLI Key/)
                       .waitFor({ timeout: runOptions.timeoutMs / 2 })
                       .catch(() => undefined);
-                    await approveLoopback(
-                      page,
-                      "Revoke",
-                      runOptions.timeoutMs,
-                    );
+                    await approveLoopback(page, "Revoke", runOptions.timeoutMs);
                   },
                 }),
             }),
@@ -2446,10 +2700,7 @@ async function runRelaySmokeE2E(page, runOptions, initialProfile) {
         {
           ...(runOptions.authFlow === "device"
             ? {
-                authorizeKey: createDeviceKeyAuthorizer(
-                  page,
-                  runOptions,
-                ),
+                authorizeDeviceKey: createDeviceKeyAuthorizer(page, runOptions),
               }
             : {
                 authorizeKey: (options) =>
@@ -2529,7 +2780,7 @@ function createRelaySmokeKeyOptions(runOptions, chainConfig) {
     relayUrl: runOptions.relayUrl,
     spendLimit: [`${chainConfig.usdmAddress}:${relaySmokeSpendLimit}:week`],
     timeoutMs: runOptions.timeoutMs,
-    walletApiUrl: shimApiUrl(runOptions),
+    walletApiUrl: deviceApiUrl(runOptions),
     walletUrl: runOptions.walletUrl,
   };
 }
@@ -2828,7 +3079,11 @@ function assertFeeTokenMatches(actual, expected) {
   }
 
   assert(actual !== undefined, "created key is missing requested feeToken");
-  assertEqual(actual.limit, expected.limit, "created key feeToken.limit changed");
+  assertEqual(
+    actual.limit,
+    expected.limit,
+    "created key feeToken.limit changed",
+  );
   assertEqual(
     actual.symbol,
     expected.symbol,
@@ -2983,6 +3238,21 @@ function assertIncludes(value, expected) {
   if (!value.includes(expected)) {
     throw new Error(`expected output to include ${expected}`);
   }
+}
+
+async function assertRejectsWith(action, expectedMessage, label) {
+  try {
+    await action();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    assert(
+      message.includes(expectedMessage),
+      `${label} failed with unexpected error: ${message}`,
+    );
+    return;
+  }
+
+  throw new Error(`${label} unexpectedly succeeded`);
 }
 
 async function waitForBodyText(page, predicate, label, timeoutMs) {

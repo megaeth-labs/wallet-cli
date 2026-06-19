@@ -111,9 +111,12 @@ again with the desired wallet. Failed mismatched authorizations must not be
 stored locally.
 
 Loopback requires the browser and CLI process to run on the same machine.
-Device-code auth is not a supported user flow right now; do not recommend
-`--auth-flow device` in README.md, SKILL.md, examples, or recovery messages
-unless the wallet UI/backend support is live.
+Device-code auth is available with `--auth-flow device` for headless or
+different-machine approval. It creates a backend device request, prints a URL
+and user code, and polls the wallet API with PKCE until the wallet UI approves,
+rejects, or the request expires. If the backend does not expose
+`/v1/cli-auth/device`, the CLI must fail before polling with a clear fallback
+message.
 
 The loopback callback must never carry the delegated private key, bearer tokens,
 API keys, passkey material, or other transferable secrets. Login callbacks may
@@ -176,9 +179,7 @@ smoke wallet.
 
 `pnpm e2e:device:relay-smoke` uses the same persistent funded wallet but
 creates or reuses a separate `e2e-relay-smoke-device` delegated key through the
-local shim's device-code endpoints. This is an internal E2E path only; device
-auth remains unsupported for normal CLI users until the real wallet backend
-flow is live.
+local shim's device-code endpoints.
 
 ## Permission Model
 

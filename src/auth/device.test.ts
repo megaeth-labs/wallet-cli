@@ -483,6 +483,30 @@ describe("device auth helpers", () => {
       },
     ]);
   });
+
+  it("reports unavailable backend support before polling", async () => {
+    const fetchImpl: typeof fetch = async () =>
+      new Response("<html>not found</html>", {
+        status: 404,
+        headers: { "content-type": "text/html" },
+      });
+
+    const client = new HttpDeviceAuthClient(
+      "https://wallet-api.example",
+      fetchImpl,
+    );
+
+    await expect(
+      client.start({
+        operation: "login",
+        clientName: "mega-cli",
+        network: "mainnet",
+        codeChallenge: "challenge",
+        codeChallengeMethod: "S256",
+        state: testState,
+      }),
+    ).rejects.toThrow("device-code auth is not available");
+  });
 });
 
 function makeClient(

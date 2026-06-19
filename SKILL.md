@@ -73,17 +73,21 @@ account profile locally. The callback must not contain private keys or
 transferable bearer credentials. Login alone is not enough for writes; create a
 scoped delegated key before `execute` or `transfer`.
 
-Prefer the default browser-opened loopback flow. Use `--no-browser` only as a
-fallback when the browser does not open automatically or when the user needs a
-URL to copy manually. `--no-browser` is not headless auth; it still uses
-same-machine loopback auth and waits for browser approval.
+Prefer the default browser-opened loopback flow when the browser and CLI run on
+the same machine. Use `--no-browser` only as a fallback when the browser does
+not open automatically or when the user needs a URL to copy manually.
+`--no-browser` is not headless auth; it still uses same-machine loopback auth
+and waits for browser approval.
+
+Use `--auth-flow device` only for headless or different-machine approval. The
+CLI prints a URL and verification code, the user approves in MegaETH Wallet,
+and the CLI polls the wallet API with PKCE until approval. `--no-browser` is
+unnecessary with device auth. If the CLI says device-code auth is unavailable,
+use loopback auth or a wallet backend that supports `/v1/cli-auth/device`.
 
 Do not reuse old authorization URLs or edit their query parameters. If an auth
 command times out, is interrupted, or the browser link stops verifying, rerun
 the command and use the new URL it opens or prints.
-
-Device-code auth is not supported right now. Do not use `--auth-flow device`;
-use loopback auth on the same machine as the browser.
 
 For both browser-opened and `--no-browser` authorization flows, pass
 `--timeout-ms 300000` when passkey approval may take longer than the default
@@ -274,12 +278,11 @@ inspection, writes, revoke, fund, and logout commands.
 
 Use `create-key` when no existing key has the requested scope; it opens the
 browser/passkey approval flow and requires explicit call scope unless using
-`--from` or `--permissions`. Device-code auth is not supported right now, so
-create-key and revoke authorization require same-machine loopback auth. Use
-`revoke` to revoke a key on-chain; the CLI keeps an inactive audit record but
-removes local private key material. Revoke defaults to the key's stored fee
-token. On revoke, `--fee-token` selects the relay payment token for that revoke
-transaction.
+`--from` or `--permissions`. Add `--auth-flow device` only when the user must
+approve from a separate browser/device. Use `revoke` to revoke a key on-chain;
+the CLI keeps an inactive audit record but removes local private key material.
+Revoke defaults to the key's stored fee token. On revoke, `--fee-token` selects
+the relay payment token for that revoke transaction.
 
 ## Update And Uninstall
 

@@ -1050,6 +1050,57 @@ describe("wallet status commands", () => {
     });
   });
 
+  it("logs in with device auth and prints the verification code", async () => {
+    const env = await tempEnv();
+    const stderr = memoryOutput();
+
+    const profile = await login(
+      {
+        authFlow: "device",
+        network: "mainnet",
+        walletUrl: "https://wallet.example",
+        walletApiUrl: "https://wallet-api.example",
+        relayUrl: "https://relay.example",
+        timeoutMs: 1_000,
+      },
+      {
+        authorizeDeviceLogin: async (options) => {
+          expect(options.walletUrl).toBe("https://wallet.example");
+          expect(options.walletApiUrl).toBe("https://wallet-api.example");
+          expect(options.relayUrl).toBe("https://relay.example");
+          options.onPrompt?.({
+            verificationUri: "https://wallet.example/cli-auth",
+            verificationUriComplete:
+              "https://wallet.example/cli-auth?code=ABCD-1234",
+            userCode: "ABCD-1234",
+            expiresAt: "2026-05-07T00:10:00.000Z",
+          });
+          return {
+            accountAddress: "0x1111111111111111111111111111111111111111",
+            authUrl: "https://wallet.example/cli-auth?code=ABCD-1234",
+            relayUrl: "https://relay.example",
+            walletUrl: "https://wallet.example",
+          };
+        },
+        env,
+        now: () => activeNow,
+        stderr,
+      },
+    );
+
+    expect(profile.keys).toEqual([]);
+    expect(stderr.text).toContain("Running headless?");
+    expect(stderr.text).toContain("Code: ABCD-1234");
+    expect(stderr.text).toContain(
+      "Direct link: https://wallet.example/cli-auth?code=ABCD-1234",
+    );
+    await expect(readWalletProfile("mainnet", env)).resolves.toMatchObject({
+      accountAddress: "0x1111111111111111111111111111111111111111",
+      walletApiUrl: "https://wallet-api.example",
+      keys: [],
+    });
+  });
+
   it("uses --config-dir ahead of the dependency environment", async () => {
     const env = await tempEnv();
     const overrideEnv = await tempEnv();
@@ -1158,7 +1209,6 @@ describe("wallet status commands", () => {
     expect(stdout.text).toContain("Network: mainnet");
   });
 
-
   it("falls back to a printed auth URL when the browser cannot be opened", async () => {
     const env = await tempEnv();
     const stdout = memoryOutput();
@@ -1174,7 +1224,10 @@ describe("wallet status commands", () => {
         expect(redirectUri).not.toBeNull();
         setTimeout(async () => {
           const callbackUrl = new URL(redirectUri!);
-          callbackUrl.searchParams.set("state", authUrl.searchParams.get("state")!);
+          callbackUrl.searchParams.set(
+            "state",
+            authUrl.searchParams.get("state")!,
+          );
           callbackUrl.searchParams.set("status", "approved");
           callbackUrl.searchParams.set(
             "accountAddress",
@@ -1227,7 +1280,10 @@ describe("wallet status commands", () => {
         expect(redirectUri).not.toBeNull();
         setTimeout(async () => {
           const callbackUrl = new URL(redirectUri!);
-          callbackUrl.searchParams.set("state", authUrl.searchParams.get("state")!);
+          callbackUrl.searchParams.set(
+            "state",
+            authUrl.searchParams.get("state")!,
+          );
           callbackUrl.searchParams.set("status", "approved");
           callbackUrl.searchParams.set(
             "accountAddress",
@@ -1326,31 +1382,68 @@ describe("wallet status commands", () => {
     expect(stdout.text).toContain("Network: mainnet");
   });
 
-  it("rejects device auth for create-key", async () => {
+  it("creates a key with device auth and prints the verification code", async () => {
     const env = await tempEnv();
     const profile = makeProfile();
+    const created = makeKey({
+      id: "0x8888888888888888888888888888888888888888",
+      accessAddress: "0x8888888888888888888888888888888888888888",
+      privateKey:
+        "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    });
+    const stderr = memoryOutput();
+    const stdout = memoryOutput();
     await writeWalletProfile(profile, env);
 
-    await expect(
-      runWalletCreateKey(
-        {
-          allowCall: [
-            "0x4444444444444444444444444444444444444444:transfer(address,uint256)",
-          ],
-          authFlow: "device",
-          network: "mainnet",
-          timeoutMs: 1_000,
+    const result = await runWalletCreateKey(
+      {
+        allowCall: [
+          "0x4444444444444444444444444444444444444444:transfer(address,uint256)",
+        ],
+        authFlow: "device",
+        network: "mainnet",
+        timeoutMs: 1_000,
+        terse: true,
+      },
+      {
+        authorizeDeviceKey: async (options) => {
+          expect(options.walletUrl).toBe(profile.walletUrl);
+          expect(options.walletApiUrl).toBe(profile.walletApiUrl);
+          expect(options.existingAccountAddress).toBe(profile.accountAddress);
+          options.onPrompt?.({
+            verificationUri: "https://wallet.example/cli-auth",
+            verificationUriComplete:
+              "https://wallet.example/cli-auth?code=ABCD-1234",
+            userCode: "ABCD-1234",
+            expiresAt: "2026-05-07T00:10:00.000Z",
+          });
+          return {
+            accountAddress: profile.accountAddress,
+            authUrl: "https://wallet.example/cli-auth?code=ABCD-1234",
+            key: created,
+            relayUrl: profile.relayUrl,
+            walletUrl: profile.walletUrl,
+          };
         },
-        {
-          authorizeKey: async () => {
-            throw new Error("authorizeKey should not be called");
-          },
-          env,
-          now: () => activeNow,
-          stdout: memoryOutput(),
+        authorizeKey: async () => {
+          throw new Error("authorizeKey should not be called");
         },
-      ),
-    ).rejects.toThrow("device-code auth is not supported right now");
+        env,
+        now: () => activeNow,
+        stderr,
+        stdout,
+      },
+    );
+
+    expect(result.key.id).toBe(created.id);
+    expect(stderr.text).toContain("Code: ABCD-1234");
+    expect(stdout.text).toBe(
+      `mainnet\t${created.id}\t${created.accessAddress}\n`,
+    );
+    await expect(readWalletProfile("mainnet", env)).resolves.toMatchObject({
+      activeKeyId: created.id,
+      keys: [{ id: profile.keys[0]!.id }, { id: created.id }],
+    });
   });
 
   it("revokes a key on-chain and keeps an inactive audit record", async () => {
@@ -1417,30 +1510,55 @@ describe("wallet status commands", () => {
     );
   });
 
-  it("rejects device auth for revoke", async () => {
+  it("revokes a key with device auth and prints the verification code", async () => {
     const env = await tempEnv();
     const profile = makeProfile();
+    const stderr = memoryOutput();
+    const stdout = memoryOutput();
     await writeWalletProfile(profile, env);
 
-    await expect(
-      runWalletRevoke(
-        profile.keys[0]!.id,
-        {
-          authFlow: "device",
-          network: "mainnet",
-          terse: true,
-          timeoutMs: 1_000,
+    const result = await runWalletRevoke(
+      profile.keys[0]!.id,
+      {
+        authFlow: "device",
+        network: "mainnet",
+        terse: true,
+        timeoutMs: 1_000,
+      },
+      {
+        authorizeDeviceRevoke: async (options) => {
+          expect(options.walletApiUrl).toBe(profile.walletApiUrl);
+          expect(options.accountAddress).toBe(profile.accountAddress);
+          expect(options.accessAddress).toBe(profile.keys[0]!.accessAddress);
+          expect(options.feeToken).toBe("ETH");
+          options.onPrompt?.({
+            verificationUri: "https://wallet.example/cli-auth",
+            verificationUriComplete:
+              "https://wallet.example/cli-auth?code=ABCD-1234",
+            userCode: "ABCD-1234",
+            expiresAt: "2026-05-07T00:10:00.000Z",
+          });
+          return {
+            authUrl: "https://wallet.example/cli-auth?code=ABCD-1234",
+            revokeTxHash:
+              "0x9999999999999999999999999999999999999999999999999999999999999999",
+          };
         },
-        {
-          env,
-          now: () => activeNow,
-          revokeKey: async () => {
-            throw new Error("revokeKey should not be called");
-          },
-          stdout: memoryOutput(),
+        env,
+        now: () => activeNow,
+        revokeKey: async () => {
+          throw new Error("revokeKey should not be called");
         },
-      ),
-    ).rejects.toThrow("device-code auth is not supported right now");
+        stderr,
+        stdout,
+      },
+    );
+
+    expect(result.key.effectiveStatus).toBe("revoked");
+    expect(stderr.text).toContain("Code: ABCD-1234");
+    expect(stdout.text).toBe(
+      `mainnet\t${profile.keys[0]!.id}\trevoked\t0x9999999999999999999999999999999999999999999999999999999999999999\n`,
+    );
   });
 
   it("removes the local profile on logout", async () => {
