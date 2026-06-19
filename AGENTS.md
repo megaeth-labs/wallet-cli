@@ -212,20 +212,17 @@ a period. Native token spend uses the zero address in CLI spend-limit args and
 may appear as zero-address or omitted native token data in stored profiles and
 Porto/relay internals.
 
-Relay fee capacity is represented as ordinary `permissions.spend`, not a
-separate gas-only contract permission. The CLI should materialize
-`--fee-token`/`--fee-limit` as a spend row or merge it into an existing row for
-the same token. The wallet UI user still selects the grant Gas Token on the
-approval screen, and the returned `authorizedKey.feeToken` is the default token
-later used by `execute` and `transfer`. During approval, the wallet UI may add
-an additional roughly `$5` spend row for the user-selected Gas Token if no
-matching spend row is already present. Be careful when changing defaults or copy
-around this: UI text like "fees" is product shorthand over token spend
-allowance.
+Delegated-key relay fee metadata is represented by `feeToken`; workflow
+token/native movement is represented by `permissions.spend`. The CLI should
+send `--fee-token`/`--fee-limit` as explicit request-level `feeToken` metadata,
+not merge it into spend rows. The wallet UI user may still select the Gas Token
+for the approval transaction itself, and the returned `authorizedKey.feeToken`
+is the default token later used by `execute` and `transfer`. Be careful when
+changing defaults or copy around this: UI text like "fees" is product shorthand
+over delegated-key fee metadata, not workflow spend authority.
 
 The create-key default keeps the visible approval simple: one-week expiry, a
-`101 USDM` spend cap (`100 USDM` workflow capacity plus a `1 USDM` relay-fee
-buffer merged into the same weekly spend row).
+`100 USDM` workflow spend cap, and explicit `1 USDM` relay-fee metadata.
 It must not silently request broad call authority. Require explicit call scopes
 from `--allow-call`, copied permissions from `--from`, or a full
 `--permissions` file. Do not create CLI write keys with omitted or empty
@@ -244,12 +241,11 @@ or `--permissions` to define executable call scope. Use a full `--permissions`
 file for custom expiry or no-spend requests.
 
 `mega moss create-key --fee-token <symbol> --fee-limit <amount>` requests a
-fee spend buffer in human fee-token units. If the fee token already has a spend
-row, add the fee amount to that row and keep its period; otherwise add a weekly
-fee-token spend row. If either fee option is present and no `--spend-limit` is
-supplied, the CLI requests only fee-token spend capacity; add explicit spend
-rows for workflow token movement. Revoke should pass the stored key fee token to
-the wallet UI by default and support `--fee-token <symbol>` only as the relay
+delegated-key fee token and limit in human fee-token units. It does not add or
+merge spend rows. If either fee option is present and no `--spend-limit` is
+supplied, the CLI requests no workflow spend capacity; add explicit spend rows
+for workflow token movement. Revoke should pass the stored key fee token to the
+wallet UI by default and support `--fee-token <symbol>` only as the relay
 payment token for that revoke transaction.
 
 ## Commands

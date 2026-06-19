@@ -267,16 +267,16 @@ mega moss debug --skip-chain --json
 
 ## Fees
 
-Relay fees use the same spend accounting as token/native movement. Make sure a
-key has enough spend capacity for both the workflow amount and expected relay
-fees in the gas token selected in the wallet UI.
+Workflow token/native movement uses `permissions.spend`. Relay fee preference
+uses the delegated key's `feeToken` metadata.
 
 Use `--fee-token <symbol>` and optional `--fee-limit <amount>` on `create-key`
-to request fee spend capacity. `--fee-limit` is a human amount in that token,
-defaulting to `1`; the CLI merges it into an existing spend row for the same
-token or adds a weekly row. The wallet UI user still selects the grant Gas
-Token, and later writes default to the `authorizedKey.feeToken` returned by
-approval.
+to request delegated-key relay-fee metadata. `--fee-limit` is a human amount in
+that token, defaulting to `1`; the CLI sends it as `feeToken` and does not merge
+it into `permissions.spend`. Add explicit `--spend-limit` rows for workflow
+token/native movement. The wallet UI user may still select the Gas Token for
+the approval transaction itself, and later writes default to the
+`authorizedKey.feeToken` returned by approval.
 
 ## Logout And Uninstall
 

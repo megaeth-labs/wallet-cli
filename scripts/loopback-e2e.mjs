@@ -2288,7 +2288,8 @@ async function runKeyManagementE2E(page, runOptions, initialProfile) {
   if (runOptions.permissionsFile) {
     await assertPermissionsOutput(permissions.stdout, runOptions);
   } else {
-    assertIncludes(permissions.stdout, "Can spend up to 101 USDm per week");
+    assertIncludes(permissions.stdout, "Can spend up to 100 USDm per week");
+    assertIncludes(permissions.stdout, "Uses USDm for relay fees");
   }
 
   await withOutput((stdout) =>
@@ -2627,8 +2628,14 @@ async function assertPermissionScreen(page, timeoutMs, runOptions) {
 
   await waitForBodyText(
     page,
-    (text) => /Spend up to\s+101\s+USDM/i.test(text),
-    "101 USDM spend permission",
+    (text) => /Spend up to\s+100\s+USDM/i.test(text),
+    "100 USDM spend permission",
+    timeoutMs,
+  );
+  await waitForBodyText(
+    page,
+    (text) => /Pay relay fees with\s+USDM/i.test(text),
+    "USDM fee token",
     timeoutMs,
   );
   await waitForBodyText(

@@ -1461,6 +1461,7 @@ async function resolveCreateKeyPermissions(
     return finalizeKeyPermissions(
       {
         expiry: fallback.expiry,
+        feeToken: source.authorizedKey.feeToken ?? fallback.feeToken,
         permissions: source.authorizedKey.permissions,
       },
       network,

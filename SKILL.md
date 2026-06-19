@@ -115,9 +115,8 @@ Login defaults to mainnet, `https://account.megaeth.com`,
 targeting non-canonical endpoints. Use `--network testnet` for the wallet
 testnet profile and chain config.
 
-Create-key defaults keep the approval simple: one-week expiry and a `101 USDM`
-spend cap. Treat that as `100 USDM` workflow capacity plus a `1 USDM` relay-fee
-buffer merged into the same weekly spend row.
+Create-key defaults keep the approval simple: one-week expiry, a `100 USDM`
+workflow spend cap, and explicit `1 USDM` relay-fee metadata.
 The agent must provide call scope with `--allow-call <target:signature>`, copy a
 known-good key with `--from`, or pass a complete `--permissions
 ./permissions.json` file. Do not create workflow keys with implicit broad call
@@ -144,23 +143,17 @@ address `0x3232323232323232323232323232323232323232` or selector
 `0x32323232`.
 
 Use `--fee-token <symbol>` and optional `--fee-limit <amount>` on `create-key`
-to request visible relay-fee spend capacity. `--fee-limit` is a human amount in
-the selected fee token, defaulting to `1`. If that token already has a spend
-row, the CLI adds the fee amount to that row and keeps the row period;
-otherwise it adds a weekly spend row for the fee token. If either fee option is
-present and no `--spend-limit` is supplied, the CLI requests only fee-token
-spend capacity; add explicit `--spend-limit` rows for workflow asset movement.
+to request explicit delegated-key relay-fee metadata. `--fee-limit` is a human
+amount in the selected fee token, defaulting to `1`. This does not create a
+workflow spend row; add explicit `--spend-limit` rows for workflow token/native
+movement. If either fee option is present and no `--spend-limit` is supplied,
+the CLI requests no workflow spend rows.
 
-Relay fees use the same spend accounting as token/native movement. The CLI does
-not rely on request-level fee metadata as on-chain permission. Make sure the
-approved `permissions.spend` includes enough capacity for both the workflow
-amount and expected relay fees after the wallet UI approval returns. During
-approval, the wallet UI may add an additional roughly `$5` spend row for the
-user-selected Gas Token if no matching spend row is already present. Future
-`execute` and `transfer` calls default to the `authorizedKey.feeToken` returned
-by the wallet approval. When comparing an approved key to the requested workflow
-cap, treat wallet-added gas-token spend as relay-fee headroom rather than the
-workflow action amount.
+Relay fees use delegated-key fee metadata plus relay/account enforcement, while
+workflow token/native movement uses `permissions.spend`. Future `execute` and
+`transfer` calls default to the `authorizedKey.feeToken` returned by wallet
+approval. The Gas Token shown during approval pays the approval transaction
+itself and should not be treated as a mutation to the requested key scope.
 
 ## Inspect The Active Wallet
 

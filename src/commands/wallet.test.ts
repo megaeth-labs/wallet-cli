@@ -610,7 +610,7 @@ describe("wallet status commands", () => {
     );
   });
 
-  it("copies delegated-key permissions without legacy fee-token request metadata", async () => {
+  it("copies delegated-key permissions with fee-token metadata", async () => {
     const env = await tempEnv();
     const profile = makeProfile();
     const source = profile.keys[0]!;
@@ -642,7 +642,10 @@ describe("wallet status commands", () => {
       },
       {
         authorizeKey: async (options) => {
-          expect(options.permissionRequest).not.toHaveProperty("feeToken");
+          expect(options.permissionRequest.feeToken).toEqual({
+            limit: "1",
+            symbol: "USDM",
+          });
           expect(options.permissionRequest).not.toHaveProperty("maxFeesUSD");
           expect(options.permissionRequest.permissions.spend).toEqual([
             {
@@ -684,11 +687,15 @@ describe("wallet status commands", () => {
       authorizeKey: async (options) => {
         expect(options.permissionRequest.permissions.spend).toEqual([
           {
-            limit: "13500000000000000000",
+            limit: "12500000000000000000",
             period: "week",
             token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
           },
         ]);
+        expect(options.permissionRequest.feeToken).toEqual({
+          limit: "1",
+          symbol: "USDM",
+        });
         expect(options.permissionRequest.permissions.calls).toEqual([
           {
             to: "0x4444444444444444444444444444444444444444",
@@ -830,18 +837,16 @@ describe("wallet status commands", () => {
     program.exitOverride();
     registerWalletCommands(program, {
       authorizeKey: async (options) => {
-        expect(options.permissionRequest).not.toHaveProperty("feeToken");
+        expect(options.permissionRequest.feeToken).toEqual({
+          limit: "0.25",
+          symbol: "USDT0",
+        });
         expect(options.permissionRequest).not.toHaveProperty("maxFeesUSD");
         expect(options.permissionRequest.permissions.spend).toEqual([
           {
             limit: "12500000000000000000",
             period: "week",
             token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
-          },
-          {
-            limit: "250000",
-            period: "week",
-            token: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
           },
         ]);
         return {
@@ -888,15 +893,12 @@ describe("wallet status commands", () => {
     program.exitOverride();
     registerWalletCommands(program, {
       authorizeKey: async (options) => {
-        expect(options.permissionRequest).not.toHaveProperty("feeToken");
+        expect(options.permissionRequest.feeToken).toEqual({
+          limit: "0.05",
+          symbol: "USDT0",
+        });
         expect(options.permissionRequest).not.toHaveProperty("maxFeesUSD");
-        expect(options.permissionRequest.permissions.spend).toEqual([
-          {
-            limit: "50000",
-            period: "week",
-            token: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
-          },
-        ]);
+        expect(options.permissionRequest.permissions.spend).toEqual([]);
         return {
           accountAddress: profile.accountAddress,
           authUrl: "https://wallet.example/cli-auth/loopback",
@@ -943,11 +945,15 @@ describe("wallet status commands", () => {
         expect(options.network).toBe("testnet");
         expect(options.permissionRequest.permissions.spend).toEqual([
           {
-            limit: "26000000000000000000",
+            limit: "25000000000000000000",
             period: "week",
             token: "0x15e9f2b0a747ac05c7446559306687085d161e5c",
           },
         ]);
+        expect(options.permissionRequest.feeToken).toEqual({
+          limit: "1",
+          symbol: "USDM",
+        });
         return {
           accountAddress: profile.accountAddress,
           authUrl: "https://wallet.example/cli-auth/loopback",

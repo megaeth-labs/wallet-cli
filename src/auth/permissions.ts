@@ -20,6 +20,10 @@ import { readErc20Metadata } from "../eth/erc20.js";
 
 export type CliPermissionRequest = {
   expiry: number;
+  feeToken?: {
+    limit: string;
+    symbol?: string;
+  };
   permissions: AuthorizedKey["permissions"];
 };
 
@@ -173,17 +177,15 @@ function buildDefaultKeyPermissions(
   spend: SpendPermission[],
   feeToken: SpendTarget,
 ): CliPermissionRequest {
-  const permissionsSpend = applyFeeSpendLimit(
-    spend,
-    feeToken,
-    options.feeLimit ?? defaultFeeLimit,
-  );
-
   return {
     expiry: Math.floor(now.getTime() / 1000) + defaultPermissionTtlSeconds,
+    feeToken: {
+      limit: options.feeLimit ?? defaultFeeLimit,
+      symbol: feeToken.symbol,
+    },
     permissions: {
       calls: [],
-      spend: permissionsSpend,
+      spend,
     },
   };
 }
@@ -282,56 +284,6 @@ function resolveFeeSpendTarget(
   throw new CliError(`unsupported fee token ${symbol} for ${chainConfig.name}`);
 }
 
-function applyFeeSpendLimit(
-  spend: SpendPermission[],
-  feeToken: SpendTarget,
-  feeLimit: string,
-): SpendPermission[] {
-  const feeUnits = BigInt(normalizeFeeLimitAmount(feeLimit, feeToken));
-  if (feeUnits === 0n) {
-    return spend;
-  }
-
-  const index = spend.findIndex((entry) =>
-    sameSpendToken(entry.token, feeToken.token),
-  );
-
-  if (index !== -1) {
-    return spend.map((entry, i) =>
-      i === index
-        ? {
-            ...entry,
-            limit: (BigInt(entry.limit) + feeUnits).toString(),
-          }
-        : entry,
-    );
-  }
-
-  return [
-    ...spend,
-    {
-      limit: feeUnits.toString(),
-      period: "week",
-      ...(feeToken.token === undefined ? {} : { token: feeToken.token }),
-    },
-  ];
-}
-
-function normalizeFeeLimitAmount(value: string, target: SpendTarget): string {
-  return decimalToBaseUnits(
-    value,
-    target.decimals,
-    `fee limit must use at most ${target.decimals} decimal places for ${target.symbol}`,
-  );
-}
-
-function sameSpendToken(
-  left: HexString | undefined,
-  right: HexString | undefined,
-): boolean {
-  return normalizeSpendToken(left) === normalizeSpendToken(right);
-}
-
 function normalizeSpendToken(value: HexString | undefined): string {
   return (value ?? nativeTokenAddress).toLowerCase();
 }
@@ -381,17 +333,8 @@ export function parsePermissionRequest(
 
   const request: CliPermissionRequest = {
     expiry: value.expiry,
-    permissions:
-      feeToken === undefined
-        ? permissions
-        : {
-            ...permissions,
-            spend: applyFeeSpendLimit(
-              permissions.spend,
-              feeToken.target,
-              feeToken.limit,
-            ),
-          },
+    ...(feeToken === undefined ? {} : { feeToken }),
+    permissions,
   };
 
   return request;
@@ -400,16 +343,16 @@ export function parsePermissionRequest(
 function parsePermissionFeeToken(
   value: unknown,
   network: Network,
-): { target: SpendTarget; limit: string } {
+): NonNullable<CliPermissionRequest["feeToken"]> {
   if (!isObject(value)) {
     throw new CliError("permissions feeToken must be an object");
   }
 
-  const symbol =
+  const rawSymbol =
     value.symbol === undefined
       ? getChainConfig(network).defaultFeeToken.symbol
       : value.symbol;
-  if (typeof symbol !== "string" || symbol.length === 0) {
+  if (typeof rawSymbol !== "string" || rawSymbol.length === 0) {
     throw new CliError("permissions feeToken.symbol must be a string");
   }
 
@@ -419,8 +362,8 @@ function parsePermissionFeeToken(
   }
 
   return {
-    target: resolveFeeSpendTarget(symbol, network),
     limit,
+    symbol: normalizeFeeTokenSymbol(rawSymbol, network),
   };
 }
 
