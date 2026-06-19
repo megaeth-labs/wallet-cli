@@ -27,8 +27,10 @@ addresses for the selected network. The built-in defaults use:
 
 Use a full permission file when the user needs custom expiry or no-spend
 permissions. Repeat `--spend-limit` for multi-row spend.
-For a non-default fee token with the shorthand flow, use `--fee-token <symbol>`
-and optional `--fee-limit <amount>` instead of a full file.
+For fee capacity with the shorthand flow, use `--fee-token <symbol>` and
+optional `--fee-limit <amount>` instead of a full file. The CLI merges that
+human token amount into `permissions.spend`; the wallet UI user still selects
+the grant Gas Token on the approval screen.
 
 ## File Shape
 
@@ -39,6 +41,7 @@ the inner `permissions` object:
 {
   "expiry": 1800000000,
   "feeToken": {
+    "limit": "1",
     "symbol": "USDM"
   },
   "permissions": {
@@ -66,15 +69,10 @@ the inner `permissions` object:
 ## Field Rules
 
 - `expiry` is required and must be a future Unix timestamp in seconds.
-- `feeToken` is required. `feeToken.symbol` selects the preferred relay fee
-  token for later writes. Omit the symbol or use `ETH` for native ETH.
-- `feeToken.limit` is optional compatibility metadata, not an on-chain
-  permission by itself. When present for a known fee token, the CLI treats it as
-  a human-decimal fee buffer and adds or merges that amount into
-  `permissions.spend` before approval. You can also omit it and encode the fee
-  capacity directly in `permissions.spend`.
-- `maxFeesUSD` is not implemented by the CLI; do not include it in permission
-  files.
+- `feeToken` is optional shorthand for fee spend capacity. `feeToken.limit` is
+  a human decimal in `feeToken.symbol`, defaulting to `1` when omitted. The CLI
+  converts it into ordinary `permissions.spend` before authorization and does
+  not send it onward as durable permission metadata.
 - `permissions` is required.
 - `permissions.spend` is required and may be `[]` for no explicit spend.
 - Spend `limit` values are integer base units, not human decimals. For an
@@ -82,17 +80,21 @@ the inner `permissions` object:
 - Spend `period` must be `minute`, `hour`, `day`, `week`, `month`, or `year`.
 - Use `0x0000000000000000000000000000000000000000` or omit `token` for native
   ETH spend. Use a 20-byte token address for ERC20 spend.
-- Custom permission files must include spend capacity for relay fees in the
-  selected fee token. If the fee token is also the workflow token, increase that
-  token's spend limit enough to cover both the workflow amount and fees. If the
-  fee token is different, add a separate spend row for it.
+- The wallet UI handles grant Gas Token selection during approval. Inspect the
+  returned key with `mega moss permissions --json` before relying on fee spend
+  capacity for later writes.
+- Relay fees are paid from ordinary spend capacity. During approval, the wallet
+  UI may add an additional roughly `$5` spend row for the user-selected Gas
+  Token if no matching spend row is already present.
 - `permissions.calls` is required and must contain at least one entry. Do not
   omit it or use `permissions.calls: []`; both produce unusable or rejected
   write keys.
-- Each call entry must include both `to` and `signature`. Use canonical
+- Each call entry must include both `to` and `signature`. Prefer canonical
   human-readable function signatures, such as `transfer(address,uint256)` or
-  `supply(address,uint256,address,uint16)`. Do not use raw 4-byte selectors,
-  wildcard selectors, or sentinel selector values for delegated-key scopes.
+  `supply(address,uint256,address,uint16)`. Raw 4-byte selectors are accepted
+  only when needed. Use `0xe0e0e0e0` for native ETH no-calldata transfer
+  scopes. Do not use the reserved wildcard address
+  `0x3232323232323232323232323232323232323232` or selector `0x32323232`.
 - Tuple parameters use standard ABI notation with nested parentheses, such as
   `exactOutputSingle((address,address,uint24,address,uint256,uint256,uint160))`.
   Use canonical signatures without parameter names or spaces, and verify complex
@@ -128,9 +130,39 @@ available:
 ]
 ```
 
+Native ETH transfer permission:
+
+```json
+"calls": [
+  {
+    "to": "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+    "signature": "0xe0e0e0e0"
+  }
+],
+"spend": [
+  {
+    "token": "0x0000000000000000000000000000000000000000",
+    "limit": "100000000000000000",
+    "period": "week"
+  }
+]
+```
+
 ## Multi-Contract Writes
 
 Workflows that move ERC20 value through another contract usually need both
 spend permission for the token and call permission for each function they
 invoke, such as ERC20 `approve` plus the downstream protocol call. A key with
 sufficient spend but no call permission will still fail with `UnauthorizedCall`.
+
+For ERC20-style spend accounting, the relay/account guard effectively charges
+the larger of calldata-tracked value and observed balance decrease. Recognized
+top-level calldata patterns include ERC20 `transfer`, `transferFrom`,
+`approve`, and Permit2 approve. Consequences:
+
+- `approve` alone can consume spend capacity for the approved amount even when
+  wallet balance does not decrease.
+- A protocol pull that does not expose a top-level token transfer can still
+  consume spend capacity from the observed token balance decrease.
+- `approve` plus the consuming protocol call in one batch should be sized for
+  the larger of the approval amount and the actual pulled amount, not their sum.

@@ -34,11 +34,7 @@ export function getConfigRoot(env: NodeJS.ProcessEnv = process.env): string {
     );
   }
 
-  return join(
-    env.XDG_CONFIG_HOME ?? join(homedir(), ".config"),
-    "megaeth",
-    "wallet-cli",
-  );
+  return join(homedir(), ".config", "megaeth", "wallet-cli");
 }
 
 export function getConfigPaths(

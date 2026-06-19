@@ -42,12 +42,17 @@ curl -fsSL https://account.megaeth.com/install | sh
 After install, make sure the install directory printed by the installer is on
 `PATH`, then rerun `mega moss --help`.
 
+Release installs check for updates automatically.
+
 ## Safety Rules
 
 - Never print, log, request, or transmit private keys, bearer tokens, API keys,
   passkeys, WebAuthn material, or relay secrets.
-- Treat profile files as local secrets. Do not copy profile contents into chat,
-  issue comments, logs, or telemetry.
+- Treat profile files as local secrets. Never inspect profile files directly,
+  including with `cat`, `sed`, `rg`, workspace-wide search, or editor reads,
+  and do not copy profile contents into chat, issue comments, logs, or
+  telemetry. Use `mega moss whoami`, `mega moss list`, `mega moss permissions`,
+  and `mega moss debug` instead.
 - Use `mega moss call` for read-only `eth_call` workflows.
 - Use `mega moss execute` or `mega moss transfer` only when the user asked
   for a state-changing operation.
@@ -110,9 +115,9 @@ Login defaults to mainnet, `https://account.megaeth.com`,
 targeting non-canonical endpoints. Use `--network testnet` for the wallet
 testnet profile and chain config.
 
-Create-key defaults keep the approval simple: one-week expiry, network-specific
-USDM as the fee token, a `100 USDM` workflow spend cap, and a `1 USDM` fee
-buffer merged into the USDM spend cap over the one-week authorization window.
+Create-key defaults keep the approval simple: one-week expiry and a `101 USDM`
+spend cap. Treat that as `100 USDM` workflow capacity plus a `1 USDM` relay-fee
+buffer merged into the same weekly spend row.
 The agent must provide call scope with `--allow-call <target:signature>`, copy a
 known-good key with `--from`, or pass a complete `--permissions
 ./permissions.json` file. Do not create workflow keys with implicit broad call
@@ -127,21 +132,35 @@ human token amount, and period is `minute`, `hour`, `day`, `week`, `month`, or
 must include a non-empty `permissions.calls` array. Never omit
 `permissions.calls`; omitted calls have produced keys that the relay rejects for
 writes. Each call entry must include both `to` and `signature`.
+Read [references/permissions.md](references/permissions.md) before building
+custom `--permissions` files, debugging permission schema errors, or planning
+nontrivial protocol writes.
+Validate permission shape before running auth commands. Do not use
+`mega moss create-key` as a validator for known invalid permission requests.
+For native ETH transfers, use a native ETH spend row and the no-calldata
+selector `0xe0e0e0e0` for the recipient target, for example
+`--allow-call '<recipient_address>:0xe0e0e0e0'`. Never use the reserved wildcard
+address `0x3232323232323232323232323232323232323232` or selector
+`0x32323232`.
 
 Use `--fee-token <symbol>` and optional `--fee-limit <amount>` on `create-key`
-when the delegated key should pay relay fees with a token other than the default
-USDM. The CLI adds that fee buffer to `permissions.spend` for the selected fee
-token before requesting approval. If `--fee-token` or `--fee-limit` is present
-and no `--spend-limit` is supplied, the CLI requests only fee-token spend
-capacity; add explicit `--spend-limit` rows for workflow token movement.
+to request visible relay-fee spend capacity. `--fee-limit` is a human amount in
+the selected fee token, defaulting to `1`. If that token already has a spend
+row, the CLI adds the fee amount to that row and keeps the row period;
+otherwise it adds a weekly spend row for the fee token. If either fee option is
+present and no `--spend-limit` is supplied, the CLI requests only fee-token
+spend capacity; add explicit `--spend-limit` rows for workflow asset movement.
 
 Relay fees use the same spend accounting as token/native movement. The CLI does
-not implement `maxFeesUSD`, and `feeToken.limit` is not an on-chain permission
-by itself. Make sure the approved `permissions.spend` includes enough capacity
-for both the workflow amount and expected relay fees in the selected fee token.
-`feeToken.symbol` selects the preferred fee token for later writes; when
-`feeToken.limit` is present for a known token, the CLI adds or merges that
-amount into `permissions.spend` before requesting approval.
+not rely on request-level fee metadata as on-chain permission. Make sure the
+approved `permissions.spend` includes enough capacity for both the workflow
+amount and expected relay fees after the wallet UI approval returns. During
+approval, the wallet UI may add an additional roughly `$5` spend row for the
+user-selected Gas Token if no matching spend row is already present. Future
+`execute` and `transfer` calls default to the `authorizedKey.feeToken` returned
+by the wallet approval. When comparing an approved key to the requested workflow
+cap, treat wallet-added gas-token spend as relay-fee headroom rather than the
+workflow action amount.
 
 ## Inspect The Active Wallet
 
@@ -159,6 +178,80 @@ In `permissions --json`, treat `authorizedKey.permissions.spend` as the stored
 request and `spendInfos[].remaining` as the live execution capacity.
 `spendInfos` is Porto/account spend accounting, so it can include relay
 fee-token allowance even when `authorizedKey.permissions.spend` is empty.
+
+## Execute Writes
+
+```bash
+mega moss execute \
+  --to 0x1234567890abcdef1234567890abcdef12345678 \
+  --data 0x \
+  --value 0
+```
+
+For multiple writes, pass `--calls ./calls.json`. Pass
+`--key 0xKEY_OR_ACCESS_ADDRESS` only when the user has approved using a
+non-default stored key. Confirm that the requested operation fits the approved
+delegated-key permissions before executing.
+
+When hand-writing raw calldata, verify the function selector first with an ABI
+encoder or `cast sig`; mismatched selectors cause wrong calls. For
+`--allow-call` and permission-file call scopes, prefer canonical
+human-readable function signatures. Use raw selectors only when necessary; use
+`0xe0e0e0e0` specifically for native ETH no-calldata transfer scopes and never
+use wildcard/sentinel selectors such as `0x32323232`.
+
+> **ERC20 approvals must be bundled.** On the MegaETH relay, a standalone
+> `approve` is reset at end-of-transaction. Always include `approve` and its
+> consuming call in the same `--calls` array.
+
+Spend permission is not call permission. A key with `calls: []` or omitted
+`permissions.calls` cannot execute relay-backed writes, including native ETH
+transfers, even when it has spend allowance. Do not request `calls: []` and do
+not omit `permissions.calls`; use explicit `--allow-call <target:signature>`
+scopes or permission-file call entries with both `to` and `signature`.
+
+For workflows that move ERC20 value through another contract, the key usually
+needs both spend permission for the token and call permission for each contract
+function it invokes, such as ERC20 `approve` plus the downstream protocol call.
+ERC20 spend accounting charges the larger of recognized calldata value
+(`transfer`, `transferFrom`, `approve`, Permit2 approve) and observed wallet
+balance decrease. Size spend caps for the larger amount in an approve plus
+protocol-call batch, not the sum.
+
+### Common Patterns
+
+ERC20 approve plus protocol call, such as Aave supply or a swap:
+
+```json
+[
+  {
+    "to": "<TOKEN>",
+    "data": "0x<approve(spender,amount) calldata>",
+    "value": "0"
+  },
+  {
+    "to": "<PROTOCOL>",
+    "data": "0x<supply/swap/deposit calldata>",
+    "value": "0"
+  }
+]
+```
+
+Use one `mega moss execute --calls ./calls.json` command for the array above.
+Do not split approval and consumption across two `execute` calls.
+
+## Read State
+
+```bash
+mega moss call \
+  --to 0x1234567890abcdef1234567890abcdef12345678 \
+  --data 0x
+```
+
+`call` is read-only and should be the default for inspection.
+If `--from` is omitted, the CLI uses the logged-in wallet account when a local
+profile exists. Pass `--from 0x...` only when a different simulation address is
+needed.
 
 ## Manage Delegated Keys
 
@@ -192,87 +285,45 @@ browser/passkey approval flow and requires explicit call scope unless using
 create-key and revoke authorization require same-machine loopback auth. Use
 `revoke` to revoke a key on-chain; the CLI keeps an inactive audit record but
 removes local private key material. Revoke defaults to the key's stored fee
-token; pass `--fee-token` if the wallet needs to pay the revoke transaction
-with a different relay fee token.
+token. On revoke, `--fee-token` selects the relay payment token for that revoke
+transaction.
+
+## Update And Uninstall
+
+Release installs check for updates automatically. Use `mega moss update --check`
+only when diagnosing version issues, and `mega moss update` when the user
+explicitly asks to update immediately.
+
+Do not uninstall unless the user explicitly asks. To remove installed CLI files
+only:
+
+```bash
+~/.mega/wallet-cli/current/scripts/uninstall.sh
+```
+
+To remove installed CLI files plus local wallet profiles and delegated private
+key material:
+
+```bash
+~/.mega/wallet-cli/current/scripts/uninstall.sh --config
+```
+
+Uninstalling or logging out does not revoke on-chain delegated keys; use
+`mega moss revoke <key>` for on-chain revocation.
 
 ## Custom Permission Files
 
-Read [references/permissions.md](references/permissions.md) only when building
-`--permissions ./permissions.json` files or debugging permission schema errors.
-
-## Read State
-
-```bash
-mega moss call \
-  --to 0x1234567890abcdef1234567890abcdef12345678 \
-  --data 0x
-```
-
-`call` is read-only and should be the default for inspection.
-If `--from` is omitted, the CLI uses the logged-in wallet account when a local
-profile exists. Pass `--from 0x...` only when a different simulation address is
-needed.
-
-## Execute Writes
-
-```bash
-mega moss execute \
-  --to 0x1234567890abcdef1234567890abcdef12345678 \
-  --data 0x \
-  --value 0
-```
-
-For multiple writes, pass `--calls ./calls.json`. Pass
-`--key 0xKEY_OR_ACCESS_ADDRESS` only when the user has approved using a
-non-default stored key. Confirm that the requested operation fits the approved
-delegated-key permissions before executing.
-
-When hand-writing raw calldata, verify the function selector first with an ABI
-encoder or `cast sig`; mismatched selectors cause wrong calls. For
-`--allow-call` and permission-file call scopes, use canonical human-readable
-function signatures, not raw 4-byte selectors or wildcard/sentinel selectors.
-
-> **ERC20 approvals must be bundled.** On the MegaETH relay, a standalone
-> `approve` is reset at end-of-transaction. Always include `approve` and its
-> consuming call in the same `--calls` array.
-
-Spend permission is not call permission. A key with `calls: []` or omitted
-`permissions.calls` cannot execute relay-backed writes, including native ETH
-transfers, even when it has spend allowance. Do not request `calls: []` and do
-not omit `permissions.calls`; use explicit `--allow-call <target:signature>`
-scopes or permission-file call entries with both `to` and `signature`.
-
-For workflows that move ERC20 value through another contract, the key usually
-needs both spend permission for the token and call permission for each contract
-function it invokes, such as ERC20 `approve` plus the downstream protocol call.
-
-### Common Patterns
-
-ERC20 approve plus protocol call, such as Aave supply or a swap:
-
-```json
-[
-  {
-    "to": "<TOKEN>",
-    "data": "0x<approve(spender,amount) calldata>",
-    "value": "0"
-  },
-  {
-    "to": "<PROTOCOL>",
-    "data": "0x<supply/swap/deposit calldata>",
-    "value": "0"
-  }
-]
-```
-
-Use one `mega moss execute --calls ./calls.json` command for the array above.
-Do not split approval and consumption across two `execute` calls.
+For the full permission schema and examples, read
+[references/permissions.md](references/permissions.md).
 
 ## Transfer Funds
 
 Native ETH:
 
 ```bash
+mega moss create-key \
+  --spend-limit 0x0000000000000000000000000000000000000000:0.1:week \
+  --allow-call '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd:0xe0e0e0e0'
 mega moss transfer --to 0xabcdefabcdefabcdefabcdefabcdefabcdefabcd --amount 0.1
 ```
 

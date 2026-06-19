@@ -14,6 +14,7 @@ import {
   runWalletPermissions,
   runWalletRevoke,
   runWalletSwitch,
+  runWalletUpdate,
   runWalletWhoami,
 } from "./wallet.js";
 import {
@@ -609,7 +610,7 @@ describe("wallet status commands", () => {
     );
   });
 
-  it("normalizes copied fee-token spend capacity before authorization", async () => {
+  it("copies delegated-key permissions without legacy fee-token request metadata", async () => {
     const env = await tempEnv();
     const profile = makeProfile();
     const source = profile.keys[0]!;
@@ -641,9 +642,11 @@ describe("wallet status commands", () => {
       },
       {
         authorizeKey: async (options) => {
+          expect(options.permissionRequest).not.toHaveProperty("feeToken");
+          expect(options.permissionRequest).not.toHaveProperty("maxFeesUSD");
           expect(options.permissionRequest.permissions.spend).toEqual([
             {
-              limit: "101000000000000000000",
+              limit: "100000000000000000000",
               period: "week",
               token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
             },
@@ -827,20 +830,18 @@ describe("wallet status commands", () => {
     program.exitOverride();
     registerWalletCommands(program, {
       authorizeKey: async (options) => {
-        expect(options.permissionRequest.feeToken).toEqual({
-          limit: "0.25",
-          symbol: "USDT0",
-        });
+        expect(options.permissionRequest).not.toHaveProperty("feeToken");
+        expect(options.permissionRequest).not.toHaveProperty("maxFeesUSD");
         expect(options.permissionRequest.permissions.spend).toEqual([
-          {
-            limit: "250000",
-            period: "week",
-            token: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
-          },
           {
             limit: "12500000000000000000",
             period: "week",
             token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
+          },
+          {
+            limit: "250000",
+            period: "week",
+            token: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
           },
         ]);
         return {
@@ -887,10 +888,8 @@ describe("wallet status commands", () => {
     program.exitOverride();
     registerWalletCommands(program, {
       authorizeKey: async (options) => {
-        expect(options.permissionRequest.feeToken).toEqual({
-          limit: "0.05",
-          symbol: "USDT0",
-        });
+        expect(options.permissionRequest).not.toHaveProperty("feeToken");
+        expect(options.permissionRequest).not.toHaveProperty("maxFeesUSD");
         expect(options.permissionRequest.permissions.spend).toEqual([
           {
             limit: "50000",
@@ -1041,6 +1040,56 @@ describe("wallet status commands", () => {
     expect(stderr.text).toBe("");
     await expect(readWalletProfile("mainnet", env)).resolves.toMatchObject({
       walletApiUrl: "https://wallet-api.example",
+      keys: [],
+    });
+  });
+
+  it("uses --config-dir ahead of the dependency environment", async () => {
+    const env = await tempEnv();
+    const overrideEnv = await tempEnv();
+    const stdout = memoryOutput();
+    const program = new Command();
+    program.exitOverride();
+    registerWalletCommands(program, {
+      env,
+      now: () => activeNow,
+      openBrowser: async (url) => {
+        const authUrl = new URL(url);
+        const redirectUri = authUrl.searchParams.get("redirectUri");
+        expect(redirectUri).not.toBeNull();
+        const callbackUrl = new URL(redirectUri!);
+        callbackUrl.searchParams.set(
+          "state",
+          authUrl.searchParams.get("state")!,
+        );
+        callbackUrl.searchParams.set("status", "approved");
+        callbackUrl.searchParams.set(
+          "accountAddress",
+          "0x1111111111111111111111111111111111111111",
+        );
+        const response = await fetch(callbackUrl);
+        expect(response.status).toBe(200);
+      },
+      stdout,
+    });
+
+    await program.parseAsync([
+      "node",
+      "mega",
+      "moss",
+      "login",
+      "--config-dir",
+      overrideEnv.MEGA_WALLET_CLI_CONFIG_DIR!,
+      "--wallet-url",
+      "https://wallet.example",
+      "--json",
+    ]);
+
+    await expect(profileExists("mainnet", env)).resolves.toBe(false);
+    await expect(
+      readWalletProfile("mainnet", overrideEnv),
+    ).resolves.toMatchObject({
+      accountAddress: "0x1111111111111111111111111111111111111111",
       keys: [],
     });
   });
@@ -1353,6 +1402,75 @@ describe("wallet status commands", () => {
     await expect(readWalletProfile("mainnet", env)).rejects.toThrow(
       "run mega moss login",
     );
+  });
+
+  it("checks for CLI updates without installing", async () => {
+    const stdout = memoryOutput();
+
+    const result = await runWalletUpdate(
+      { check: true },
+      {
+        env: {
+          MEGA_WALLET_CLI_INSTALLED_VERSION: "v0.1.0",
+        },
+        stdout,
+        update: {
+          fetch: async () =>
+            new Response(JSON.stringify({ tag_name: "v0.1.1" }), {
+              status: 200,
+            }),
+          runInstaller: async () => {
+            throw new Error("runInstaller should not be called");
+          },
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      currentVersion: "v0.1.0",
+      latestVersion: "v0.1.1",
+      updateAvailable: true,
+      updated: false,
+    });
+    expect(stdout.text).toContain("Update available.");
+    expect(stdout.text).toContain("Run: mega moss update");
+  });
+
+  it("updates the CLI and keeps installer output off JSON stdout", async () => {
+    const stdout = memoryOutput();
+    const stderr = memoryOutput();
+    const installed: string[] = [];
+
+    await runWalletUpdate(
+      { json: true },
+      {
+        env: {
+          MEGA_WALLET_CLI_INSTALLED_VERSION: "v0.1.0",
+        },
+        stderr,
+        stdout,
+        update: {
+          fetch: async () =>
+            new Response(JSON.stringify({ tag_name: "v0.1.1" }), {
+              status: 200,
+            }),
+          runInstaller: async ({ stderr, version }) => {
+            installed.push(version);
+            stderr?.("installer output\n");
+          },
+        },
+      },
+    );
+
+    expect(installed).toEqual(["v0.1.1"]);
+    expect(stderr.text).toBe("installer output\n");
+    const parsed = JSON.parse(stdout.text) as Record<string, unknown>;
+    expect(parsed).toMatchObject({
+      currentVersion: "v0.1.0",
+      latestVersion: "v0.1.1",
+      updateAvailable: true,
+      updated: true,
+    });
   });
 
   it("registers whoami through the command runner with a temp profile dir", async () => {

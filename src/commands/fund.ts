@@ -3,6 +3,8 @@ import { Command } from "commander";
 import {
   assertHttpUrl,
   normalizeNetwork,
+  resolveCommandEnv,
+  type ConfigDirCommandOptions,
   type OutputWriter,
 } from "./common.js";
 import type { Network } from "../config/chains.js";
@@ -14,7 +16,7 @@ import {
   formatTerminalFieldLines,
 } from "../terminal/style.js";
 
-export type FundCommandOptions = {
+export type FundCommandOptions = ConfigDirCommandOptions & {
   json?: boolean;
   network?: string;
   open?: boolean;
@@ -43,6 +45,7 @@ export function registerFundCommand(
     .command("fund")
     .description("Open the MegaETH wallet deposit flow for the active account")
     .option("--network <network>", "wallet network: mainnet or testnet")
+    .option("--config-dir <path>", "wallet CLI config directory")
     .option("--wallet-url <url>", "wallet UI URL")
     .option("--no-open", "print the funding URL without opening a browser")
     .option("--json", "print JSON output")
@@ -57,7 +60,8 @@ export async function runWalletFund(
   dependencies: FundCommandDependencies = {},
 ): Promise<FundCommandResult> {
   const network = normalizeNetwork(options.network);
-  const profile = await readWalletProfile(network, dependencies.env);
+  const env = resolveCommandEnv(options, dependencies.env);
+  const profile = await readWalletProfile(network, env);
   const walletUrl = options.walletUrl ?? profile.walletUrl;
   assertHttpUrl(walletUrl, "wallet-url must be an HTTP(S) URL");
   const fundingUrl = buildFundingUrl({
@@ -78,12 +82,7 @@ export async function runWalletFund(
     opened: shouldOpen,
   };
 
-  renderFundResult(
-    result,
-    options,
-    dependencies.stdout ?? process.stdout,
-    dependencies.env,
-  );
+  renderFundResult(result, options, dependencies.stdout ?? process.stdout, env);
 
   return result;
 }

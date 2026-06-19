@@ -21,8 +21,11 @@ writes from a terminal or automation workflow.
 curl -fsSL https://account.megaeth.com/install | sh
 ```
 
-The installer installs the `mega` command and the bundled agent skill. Add the
-printed install directory to `PATH` if needed.
+The installer downloads the latest release, verifies its checksum, installs the
+`mega` command, and installs the bundled agent skill for Codex, Claude, Hermes,
+and OpenClaw. Add the printed install directory to `PATH` if needed. Release
+installs check for CLI updates before launching, with the check throttled to
+avoid a network request on every command.
 
 Install a specific release:
 
@@ -45,27 +48,15 @@ pnpm build
 
 Requires Node.js 22 or newer and pnpm.
 
-## Uninstall
-
-Remove the CLI, installed releases, and the wrapper script:
+## Update
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/megaeth-labs/wallet-cli/main/scripts/uninstall.sh | sh
+mega moss update
 ```
 
-To also remove local wallet profiles and delegated key material:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/megaeth-labs/wallet-cli/main/scripts/uninstall.sh | sh -- --config
-```
-
-If you installed from source:
-
-```bash
-./scripts/uninstall.sh
-# or with profile cleanup:
-./scripts/uninstall.sh --config
-```
+Use `mega moss update --check` to check without installing. The explicit update
+command uses the same public release installer and also refreshes the bundled
+agent skill.
 
 ## Quick Start
 
@@ -181,7 +172,8 @@ token amount. Period is `minute`, `hour`, `day`, `week`, `month`, or `year`.
 
 Each `--allow-call` is `<contract_address>:<function_signature>`. Write keys
 must have explicit call scope. Empty or omitted call permissions cannot execute
-relay-backed writes.
+relay-backed writes. For native ETH transfers, scope the recipient target with
+the no-calldata selector `0xe0e0e0e0`.
 
 For advanced permission files, see
 [references/permissions.md](references/permissions.md).
@@ -195,7 +187,8 @@ mega moss revoke 0xKEY_OR_ACCESS_ADDRESS --fee-token USDm
 
 Revokes a delegated key on-chain after browser confirmation. After success, the
 CLI removes local private key material for that key and keeps an inactive audit
-record.
+record. On revoke only, `--fee-token` selects the relay payment token for the
+revoke transaction itself.
 
 ### Reads
 
@@ -276,10 +269,14 @@ mega moss debug --skip-chain --json
 
 Relay fees use the same spend accounting as token/native movement. Make sure a
 key has enough spend capacity for both the workflow amount and expected relay
-fees in the selected fee token.
+fees in the gas token selected in the wallet UI.
 
 Use `--fee-token <symbol>` and optional `--fee-limit <amount>` on `create-key`
-when a key should pay relay fees with a token other than the default.
+to request fee spend capacity. `--fee-limit` is a human amount in that token,
+defaulting to `1`; the CLI merges it into an existing spend row for the same
+token or adds a weekly row. The wallet UI user still selects the grant Gas
+Token, and later writes default to the `authorizedKey.feeToken` returned by
+approval.
 
 ## Logout And Uninstall
 

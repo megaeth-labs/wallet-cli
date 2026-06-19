@@ -7,6 +7,7 @@ import {
   type ExecuteWalletCallsOptions,
 } from "./execute.js";
 import {
+  type ConfigDirCommandOptions,
   normalizeNetwork,
   parsePositiveIntegerOption,
   type OutputWriter,
@@ -32,7 +33,7 @@ import {
   formatTerminalFieldLines,
 } from "../terminal/style.js";
 
-export type TransferCommandOptions = {
+export type TransferCommandOptions = ConfigDirCommandOptions & {
   amount?: string;
   decimals?: number;
   json?: boolean;
@@ -96,6 +97,7 @@ export function registerTransferCommand(
     .option("--token <address>", "ERC20 token contract address")
     .option("--key <key>", "delegated key id or access address to use")
     .option("--network <network>", "wallet network: mainnet or testnet")
+    .option("--config-dir <path>", "wallet CLI config directory")
     .option(
       "--decimals <decimals>",
       "ERC20 token decimals override",
@@ -131,6 +133,7 @@ export async function runWalletTransfer(
   const execution = await executor(
     {
       calls: [transfer.call],
+      configDir: options.configDir,
       ...(options.key === undefined ? {} : { key: options.key }),
       network,
     },

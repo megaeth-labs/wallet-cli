@@ -1,9 +1,11 @@
 import { execFile } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { promisify } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
 import { createCli } from "./cli.js";
+import { cliVersion } from "./version.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -39,6 +41,14 @@ describe("mega cli", () => {
     expect(help).toContain(
       "0x0000000000000000000000000000000000000000:0.01:week",
     );
+  });
+
+  it("keeps the CLI version aligned with package.json", () => {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
+      version: string;
+    };
+
+    expect(cliVersion).toBe(packageJson.version);
   });
 
   it("runs compiled mega --help", async () => {

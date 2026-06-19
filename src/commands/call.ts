@@ -1,6 +1,11 @@
 import { Command } from "commander";
 
-import { normalizeNetwork, type OutputWriter } from "./common.js";
+import {
+  normalizeNetwork,
+  resolveCommandEnv,
+  type ConfigDirCommandOptions,
+  type OutputWriter,
+} from "./common.js";
 import type { Network } from "../config/chains.js";
 import { readWalletProfile, type WalletProfile } from "../config/profile.js";
 import { CliError } from "../errors.js";
@@ -19,7 +24,7 @@ import {
   formatTerminalFieldLines,
 } from "../terminal/style.js";
 
-export type CallCommandOptions = {
+export type CallCommandOptions = ConfigDirCommandOptions & {
   abi?: string;
   args?: string;
   data?: string;
@@ -61,6 +66,7 @@ export function registerCallCommand(
     .requiredOption("--to <address>", "contract address to call")
     .option("--data <hex>", "raw calldata")
     .option("--from <address>", "eth_call sender address")
+    .option("--config-dir <path>", "wallet CLI config directory")
     .option("--abi <path>", "contract ABI JSON file")
     .option("--function <name>", "ABI function name")
     .option("--args <json>", "ABI function args as a JSON array")
@@ -136,7 +142,7 @@ async function resolveFrom(
   try {
     const profile = await (dependencies.readProfile ?? readWalletProfile)(
       network,
-      dependencies.env ?? process.env,
+      resolveCommandEnv(options, dependencies.env),
     );
     return profile.accountAddress;
   } catch (error) {

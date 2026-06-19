@@ -11,7 +11,6 @@ with_skill=1
 skill_agent="all"
 force_skill=0
 assume_yes=0
-default_wallet_url="${MEGA_WALLET_CLI_DEFAULT_WALLET_URL:-}"
 required_node_major=22
 package_manager="$(grep -E '"packageManager":' "$repo_root/package.json" | head -n 1 | sed -E 's/.*"packageManager":[[:space:]]*"([^"]+)".*/\1/')"
 pnpm_package="pnpm@10.23.0"
@@ -32,9 +31,8 @@ Options:
   --install-root DIR       Versioned install root (default: ~/.mega/wallet-cli)
   --skip-build             Reuse existing dist/ instead of running pnpm install/build
   --no-skill               Skip installing the agent skill from SKILL.md
-  --skill-agent AGENT      Skill target: codex, claude, or all (default: all)
+  --skill-agent AGENT      Skill target: codex, claude, hermes, openclaw, or all (default: all)
   --force-skill            Replace existing installed skill when it differs
-  --default-wallet-url URL Bake a wallet URL override into the installed wrapper (default: none)
   -y, --yes                Install missing prerequisites without prompting
   --dry-run                Print actions without writing files or running builds
   -h, --help               Show this help
@@ -83,10 +81,6 @@ while [ "$#" -gt 0 ]; do
       force_skill=1
       shift
       ;;
-    --default-wallet-url)
-      default_wallet_url="${2:?missing value for --default-wallet-url}"
-      shift 2
-      ;;
     -y|--yes)
       assume_yes=1
       shift
@@ -106,16 +100,6 @@ while [ "$#" -gt 0 ]; do
       ;;
 esac
 done
-
-if [ -n "$default_wallet_url" ]; then
-  case "$default_wallet_url" in
-    http://*|https://*) ;;
-    *)
-      echo "--default-wallet-url must be an HTTP(S) URL" >&2
-      exit 2
-      ;;
-  esac
-fi
 
 run() {
   if [ "$dry_run" -eq 1 ]; then
@@ -302,9 +286,6 @@ write_wrapper() {
   mkdir -p "$(dirname "$target")"
   {
     printf '#!/usr/bin/env sh\n'
-    if [ -n "$default_wallet_url" ]; then
-      printf 'export MEGA_WALLET_CLI_WALLET_URL="${MEGA_WALLET_CLI_WALLET_URL:-%s}"\n' "$default_wallet_url"
-    fi
     printf 'exec node "%s/current/dist/%s" "$@"\n' "$install_root" "$entry"
   } >"$target"
   chmod 0755 "$target"
@@ -347,12 +328,15 @@ staging_dir="$release_root/.tmp-$release_id-$$"
 
 if [ "$dry_run" -eq 1 ]; then
   echo "would install release: $release_dir"
+  echo "would install uninstall script: $release_dir/scripts/uninstall.sh"
 else
   rm -rf "$staging_dir"
-  mkdir -p "$staging_dir/dist"
+  mkdir -p "$staging_dir/dist" "$staging_dir/scripts"
   cp "$repo_root/package.json" "$staging_dir/package.json"
   cp "$repo_root/pnpm-lock.yaml" "$staging_dir/pnpm-lock.yaml"
+  cp "$repo_root/scripts/uninstall.sh" "$staging_dir/scripts/uninstall.sh"
   cp -R "$repo_root/dist/." "$staging_dir/dist/"
+  chmod 0755 "$staging_dir/scripts/uninstall.sh"
   run "${pnpm_cmd[@]}" -C "$staging_dir" install --prod --frozen-lockfile
   rm -rf "$release_dir"
   mv "$staging_dir" "$release_dir"

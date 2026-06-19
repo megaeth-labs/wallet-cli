@@ -159,6 +159,43 @@ describe("wallet profile storage", () => {
     ).toBe("https://wallet-api.example");
   });
 
+  it.each([
+    [
+      "reserved wildcard address",
+      {
+        to: "0x3232323232323232323232323232323232323232",
+        signature: "transfer(address,uint256)",
+      },
+      "wallet profile call permission target cannot use reserved wildcard address",
+    ],
+    [
+      "reserved wildcard selector",
+      {
+        to: "0x4444444444444444444444444444444444444444",
+        signature: "0x32323232",
+      },
+      "wallet profile call permission signature cannot use reserved wildcard selector",
+    ],
+  ])("rejects profile call permissions with %s", (_label, call, message) => {
+    expect(() =>
+      parseWalletProfile({
+        ...makeProfile(),
+        keys: [
+          {
+            ...makeProfile().keys[0]!,
+            authorizedKey: {
+              ...makeProfile().keys[0]!.authorizedKey,
+              permissions: {
+                calls: [call],
+                spend: makeProfile().keys[0]!.authorizedKey.permissions.spend,
+              },
+            },
+          },
+        ],
+      }),
+    ).toThrow(message);
+  });
+
   it("redacts private keys from summaries and json output", () => {
     const profile = makeProfile();
 

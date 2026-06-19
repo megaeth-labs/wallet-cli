@@ -85,10 +85,8 @@ describe("loopback login", () => {
       ),
     ) as ReturnType<typeof defaultKeyPermissions>;
     expect(decodedPermissions.expiry).toBe(1_778_716_800);
-    expect(decodedPermissions.feeToken).toEqual({
-      limit: "1",
-      symbol: "USDM",
-    });
+    expect(decodedPermissions).not.toHaveProperty("feeToken");
+    expect(decodedPermissions).not.toHaveProperty("maxFeesUSD");
     expect(decodedPermissions.permissions).toEqual({
       calls: [
         {
@@ -98,7 +96,7 @@ describe("loopback login", () => {
       ],
       spend: [
         {
-          limit: "100000000000000000000",
+          limit: "101000000000000000000",
           period: "week",
           token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
         },
@@ -394,6 +392,55 @@ describe("loopback login", () => {
     ).toEqual(permissions);
   });
 
+  it("allows the native ETH no-calldata transfer selector", async () => {
+    const permissions = await resolveKeyPermissions({
+      now: new Date("2026-05-07T00:00:00.000Z"),
+      spendLimits: ["0x0000000000000000000000000000000000000000:0.1:week"],
+      allowCalls: ["0x3333333333333333333333333333333333333333:0xe0e0e0e0"],
+    });
+
+    expect(permissions.permissions.calls).toEqual([
+      {
+        to: "0x3333333333333333333333333333333333333333",
+        signature: "0xe0e0e0e0",
+      },
+    ]);
+  });
+
+  it.each([
+    [
+      "reserved wildcard address",
+      "0x3232323232323232323232323232323232323232:transfer(address,uint256)",
+      "allow-call target cannot use reserved wildcard address",
+    ],
+    [
+      "reserved wildcard selector",
+      "0x3333333333333333333333333333333333333333:0x32323232",
+      "allow-call signature cannot use reserved wildcard selector",
+    ],
+  ])(
+    "rejects allow-call entries with %s",
+    async (_label, allowCall, message) => {
+      await expect(
+        resolveKeyPermissions({
+          now: new Date("2026-05-07T00:00:00.000Z"),
+          allowCalls: [allowCall],
+        }),
+      ).rejects.toThrow(message);
+    },
+  );
+
+  it("rejects allow-call entries with invalid signature formats", async () => {
+    await expect(
+      resolveKeyPermissions({
+        now: new Date("2026-05-07T00:00:00.000Z"),
+        allowCalls: ["0x3333333333333333333333333333333333333333:*"],
+      }),
+    ).rejects.toThrow(
+      "allow-call signature must be a function signature or 4-byte selector",
+    );
+  });
+
   it("includes a requested fee token in revoke auth URLs", () => {
     const url = new URL(
       buildCliRevokeUrl({
@@ -412,7 +459,7 @@ describe("loopback login", () => {
     expect(url.searchParams.get("feeToken")).toBe("USDm");
   });
 
-  it("applies a create-key spend limit to the default USDM spend request", async () => {
+  it("merges the default fee buffer into a matching spend request", async () => {
     const permissions = await resolveKeyPermissions({
       now: new Date("2026-05-07T00:00:00.000Z"),
       spendLimits: ["0xfafddbb3fc7688494971a79cc65dca3ef82079e7:12.5:week"],
@@ -436,7 +483,7 @@ describe("loopback login", () => {
     ]);
   });
 
-  it("adds fee spend capacity for create-key fee-token overrides", async () => {
+  it("adds explicit fee-token spend when the fee token is not already requested", async () => {
     const permissions = await resolveKeyPermissions({
       now: new Date("2026-05-07T00:00:00.000Z"),
       feeToken: "USDT0",
@@ -447,25 +494,23 @@ describe("loopback login", () => {
       ],
     });
 
-    expect(permissions.feeToken).toEqual({
-      limit: "0.25",
-      symbol: "USDT0",
-    });
+    expect(permissions).not.toHaveProperty("feeToken");
+    expect(permissions).not.toHaveProperty("maxFeesUSD");
     expect(permissions.permissions.spend).toEqual([
-      {
-        limit: "250000",
-        period: "week",
-        token: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
-      },
       {
         limit: "12500000000000000000",
         period: "week",
         token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
       },
+      {
+        limit: "250000",
+        period: "week",
+        token: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
+      },
     ]);
   });
 
-  it("does not add default USDM spend when create-key only overrides fees", async () => {
+  it("creates only fee-token spend when create-key only overrides fees", async () => {
     const permissions = await resolveKeyPermissions({
       now: new Date("2026-05-07T00:00:00.000Z"),
       feeToken: "USDT0",
@@ -475,14 +520,32 @@ describe("loopback login", () => {
       ],
     });
 
-    expect(permissions.feeToken).toEqual({
-      limit: "0.05",
-      symbol: "USDT0",
-    });
+    expect(permissions).not.toHaveProperty("feeToken");
+    expect(permissions).not.toHaveProperty("maxFeesUSD");
     expect(permissions.permissions.spend).toEqual([
       {
         limit: "50000",
         period: "week",
+        token: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
+      },
+    ]);
+  });
+
+  it("merges fee-token spend into an existing matching token period", async () => {
+    const permissions = await resolveKeyPermissions({
+      now: new Date("2026-05-07T00:00:00.000Z"),
+      feeToken: "USDT0",
+      feeLimit: "0.05",
+      spendLimits: ["0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb:0.25:day"],
+      allowCalls: [
+        "0x3333333333333333333333333333333333333333:transfer(address,uint256)",
+      ],
+    });
+
+    expect(permissions.permissions.spend).toEqual([
+      {
+        limit: "300000",
+        period: "day",
         token: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
       },
     ]);
@@ -507,7 +570,7 @@ describe("loopback login", () => {
     ]);
   });
 
-  it("maps zero-address spend limits to native ETH spend", async () => {
+  it("canonicalizes zero-address spend limits to wallet UI native ETH spend", async () => {
     const permissions = await resolveKeyPermissions({
       now: new Date("2026-05-07T00:00:00.000Z"),
       feeLimit: "0",
@@ -521,7 +584,25 @@ describe("loopback login", () => {
       {
         limit: "1000000000000000",
         period: "week",
-        token: "0x0000000000000000000000000000000000000000",
+      },
+    ]);
+  });
+
+  it("merges native fee-token spend into zero-address native spend rows", async () => {
+    const permissions = await resolveKeyPermissions({
+      now: new Date("2026-05-07T00:00:00.000Z"),
+      feeToken: "ETH",
+      feeLimit: "0.002",
+      spendLimits: ["0x0000000000000000000000000000000000000000:0.001:week"],
+      allowCalls: [
+        "0x3333333333333333333333333333333333333333:transfer(address,uint256)",
+      ],
+    });
+
+    expect(permissions.permissions.spend).toEqual([
+      {
+        limit: "3000000000000000",
+        period: "week",
       },
     ]);
   });
@@ -567,7 +648,7 @@ describe("loopback login", () => {
     ]);
   });
 
-  it("adds explicit spend capacity for custom fee-token requests", async () => {
+  it("merges custom permission file feeToken into explicit spend rows", async () => {
     const dir = await mkdtemp(join(tmpdir(), "mega-wallet-cli-permissions-"));
     tempDirs.push(dir);
     const permissionsFile = join(dir, "permissions.json");
@@ -577,7 +658,7 @@ describe("loopback login", () => {
         expiry: 1_800_000_000,
         feeToken: {
           limit: "0.001",
-          symbol: "ETH",
+          symbol: "USDM",
         },
         permissions: {
           calls: [
@@ -590,7 +671,7 @@ describe("loopback login", () => {
             {
               limit: "1000000000000000000",
               period: "week",
-              token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
+              token: "0xFaFdDBB3fC7688494971A79cC65DCA3ef82079E7",
             },
           ],
         },
@@ -602,13 +683,82 @@ describe("loopback login", () => {
 
     expect(permissions.permissions.spend).toEqual([
       {
-        limit: "1000000000000000",
-        period: "week",
-      },
-      {
-        limit: "1000000000000000000",
+        limit: "1001000000000000000",
         period: "week",
         token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
+      },
+    ]);
+  });
+
+  it.each([
+    [
+      "maxFeesUSD",
+      { maxFeesUSD: 1 },
+      "permissions maxFeesUSD is not supported",
+    ],
+  ])(
+    "rejects custom permission files with unsupported %s metadata",
+    async (_label, extra, message) => {
+      const dir = await mkdtemp(join(tmpdir(), "mega-wallet-cli-permissions-"));
+      tempDirs.push(dir);
+      const permissionsFile = join(dir, "permissions.json");
+      await writeFile(
+        permissionsFile,
+        JSON.stringify({
+          expiry: 1_800_000_000,
+          ...extra,
+          permissions: {
+            calls: [
+              {
+                to: "0x3333333333333333333333333333333333333333",
+                signature: "transfer(address,uint256)",
+              },
+            ],
+            spend: [],
+          },
+        }),
+        "utf8",
+      );
+
+      await expect(resolveKeyPermissions({ permissionsFile })).rejects.toThrow(
+        message,
+      );
+    },
+  );
+
+  it("adds custom permission file feeToken spend when no matching spend exists", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mega-wallet-cli-permissions-"));
+    tempDirs.push(dir);
+    const permissionsFile = join(dir, "permissions.json");
+    await writeFile(
+      permissionsFile,
+      JSON.stringify({
+        expiry: 1_800_000_000,
+        feeToken: {
+          limit: "0.05",
+          symbol: "USDT0",
+        },
+        permissions: {
+          calls: [
+            {
+              to: "0x3333333333333333333333333333333333333333",
+              signature: "transfer(address,uint256)",
+            },
+          ],
+          spend: [],
+        },
+      }),
+      "utf8",
+    );
+
+    const permissions = await resolveKeyPermissions({ permissionsFile });
+
+    expect(permissions).not.toHaveProperty("feeToken");
+    expect(permissions.permissions.spend).toEqual([
+      {
+        limit: "50000",
+        period: "week",
+        token: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
       },
     ]);
   });
@@ -630,10 +780,6 @@ describe("loopback login", () => {
       permissionsFile,
       JSON.stringify({
         expiry: 1_800_000_000,
-        feeToken: {
-          limit: "1",
-          symbol: "USDM",
-        },
         permissions: {
           calls: [],
           spend: [
@@ -660,10 +806,6 @@ describe("loopback login", () => {
       permissionsFile,
       JSON.stringify({
         expiry: 1_800_000_000,
-        feeToken: {
-          limit: "1",
-          symbol: "USDM",
-        },
         permissions: {
           spend: [
             {
@@ -695,10 +837,6 @@ describe("loopback login", () => {
         permissionsFile,
         JSON.stringify({
           expiry: 1_800_000_000,
-          feeToken: {
-            limit: "1",
-            symbol: "USDM",
-          },
           permissions: {
             calls: [call],
             spend: [
@@ -714,6 +852,47 @@ describe("loopback login", () => {
 
       await expect(resolveKeyPermissions({ permissionsFile })).rejects.toThrow(
         "each permissions.calls entry must include both to and signature",
+      );
+    },
+  );
+
+  it.each([
+    [
+      "reserved wildcard address",
+      {
+        to: "0x3232323232323232323232323232323232323232",
+        signature: "transfer(address,uint256)",
+      },
+      "call permission target cannot use reserved wildcard address",
+    ],
+    [
+      "reserved wildcard selector",
+      {
+        to: "0x3333333333333333333333333333333333333333",
+        signature: "0x32323232",
+      },
+      "call permission signature cannot use reserved wildcard selector",
+    ],
+  ])(
+    "rejects custom permission files with %s",
+    async (_label, call, message) => {
+      const dir = await mkdtemp(join(tmpdir(), "mega-wallet-cli-permissions-"));
+      tempDirs.push(dir);
+      const permissionsFile = join(dir, "permissions.json");
+      await writeFile(
+        permissionsFile,
+        JSON.stringify({
+          expiry: 1_800_000_000,
+          permissions: {
+            calls: [call],
+            spend: [],
+          },
+        }),
+        "utf8",
+      );
+
+      await expect(resolveKeyPermissions({ permissionsFile })).rejects.toThrow(
+        message,
       );
     },
   );
