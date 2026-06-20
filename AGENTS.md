@@ -319,3 +319,9 @@ has enough USDM to cover relay fees. Add
 - Do not revert changes made by other workers.
 - Stage only files owned by the current task.
 - Use conventional commits with no AI attribution.
+- Never push, force-push, delete, or move a remote tag, and never trigger a
+  GitHub Release workflow, without explicit confirmation from the user in the
+  current task. Before any approved release/tag repair, state the exact tag,
+  commit, release assets, workflow state, and verification steps. If a workflow
+  is disabled for an approved tag repair, verify no release run is queued or
+  in progress before re-enabling it.
