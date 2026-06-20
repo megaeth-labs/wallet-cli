@@ -11,8 +11,9 @@ writes from a terminal or automation workflow.
 
 ### Shell Script
 
-> **Note:** The installer downloads a versioned GitHub Release asset and verifies
-> its `.sha256` checksum before installing.
+> **Note:** The hosted install URL bootstraps the canonical installer published
+> with each GitHub Release. The release installer downloads a versioned archive
+> and verifies its `.sha256` checksum before installing.
 >
 > On Windows, run this command inside
 > [WSL](https://learn.microsoft.com/en-us/windows/wsl/install) or Git Bash.

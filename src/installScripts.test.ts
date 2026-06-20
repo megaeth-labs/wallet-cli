@@ -124,12 +124,21 @@ describe("installer scripts", () => {
     ]);
 
     expect(stdout).toContain("would package release: mega-wallet-cli-v0.1.0");
+    expect(stdout).toContain(
+      "would include installer: scripts/install-release.sh",
+    );
     expect(stdout).toContain("would include script: scripts/uninstall.sh");
     expect(stdout).toContain(
       `would write archive: ${join(dir, "artifacts", "mega-wallet-cli-v0.1.0.tar.gz")}`,
     );
     expect(stdout).toContain(
       `would write checksum: ${join(dir, "artifacts", "mega-wallet-cli-v0.1.0.tar.gz.sha256")}`,
+    );
+    expect(stdout).toContain(
+      `would write installer: ${join(dir, "artifacts", "mega-wallet-cli-v0.1.0-install.sh")}`,
+    );
+    expect(stdout).toContain(
+      `would write installer checksum: ${join(dir, "artifacts", "mega-wallet-cli-v0.1.0-install.sh.sha256")}`,
     );
   });
 
