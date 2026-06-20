@@ -11,8 +11,9 @@ writes from a terminal or automation workflow.
 
 ### Shell Script
 
-> **Note:** The installer downloads a versioned GitHub Release asset and verifies
-> its `.sha256` checksum before installing.
+> **Note:** The hosted install URL bootstraps the canonical installer published
+> with each GitHub Release. The release installer downloads a versioned archive
+> and verifies its `.sha256` checksum before installing.
 >
 > On Windows, run this command inside
 > [WSL](https://learn.microsoft.com/en-us/windows/wsl/install) or Git Bash.
@@ -24,8 +25,9 @@ curl -fsSL https://account.megaeth.com/install | sh
 The installer downloads the latest release, verifies its checksum, installs the
 `mega` command, and installs the bundled agent skill for Codex, Claude, Hermes,
 and OpenClaw. Add the printed install directory to `PATH` if needed. Release
-installs check for CLI updates before launching, with the check throttled to
-avoid a network request on every command.
+installs smoke-check the new CLI before pruning stale release directories.
+Release installs also check for CLI updates before launching, with the check
+throttled to avoid a network request on every command.
 
 Install a specific release:
 

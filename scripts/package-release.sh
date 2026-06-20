@@ -24,6 +24,8 @@ Options:
 Outputs:
   mega-wallet-cli-<VERSION>.tar.gz
   mega-wallet-cli-<VERSION>.tar.gz.sha256
+  mega-wallet-cli-<VERSION>-install.sh
+  mega-wallet-cli-<VERSION>-install.sh.sha256
 USAGE
 }
 
@@ -75,12 +77,18 @@ release_name="$asset_prefix-$version"
 archive_name="$release_name.tar.gz"
 archive_path="$out_dir/$archive_name"
 checksum_path="$archive_path.sha256"
+installer_name="$release_name-install.sh"
+installer_path="$out_dir/$installer_name"
+installer_checksum_path="$installer_path.sha256"
 
 if [ "$dry_run" -eq 1 ]; then
   echo "would package release: $release_name"
+  echo "would include installer: scripts/install-release.sh"
   echo "would include script: scripts/uninstall.sh"
   echo "would write archive: $archive_path"
   echo "would write checksum: $checksum_path"
+  echo "would write installer: $installer_path"
+  echo "would write installer checksum: $installer_checksum_path"
   exit 0
 fi
 
@@ -115,15 +123,28 @@ chmod 0755 \
 pnpm -C "$release_dir" install --prod --frozen-lockfile
 
 mkdir -p "$out_dir"
-rm -f "$archive_path" "$checksum_path"
+rm -f "$archive_path" "$checksum_path" "$installer_path" "$installer_checksum_path"
 tar -czf "$archive_path" -C "$tmp_dir" "$release_name"
+cp "$repo_root/scripts/install-release.sh" "$installer_path"
+chmod 0755 "$installer_path"
 
-if command -v sha256sum >/dev/null 2>&1; then
-  checksum="$(sha256sum "$archive_path" | awk '{print $1}')"
-else
-  checksum="$(shasum -a 256 "$archive_path" | awk '{print $1}')"
-fi
-printf '%s  %s\n' "$checksum" "$archive_name" >"$checksum_path"
+write_checksum() {
+  file_path="$1"
+  output_path="$2"
+  file_name="$(basename "$file_path")"
+
+  if command -v sha256sum >/dev/null 2>&1; then
+    checksum="$(sha256sum "$file_path" | awk '{print $1}')"
+  else
+    checksum="$(shasum -a 256 "$file_path" | awk '{print $1}')"
+  fi
+  printf '%s  %s\n' "$checksum" "$file_name" >"$output_path"
+}
+
+write_checksum "$archive_path" "$checksum_path"
+write_checksum "$installer_path" "$installer_checksum_path"
 
 echo "packaged release archive: $archive_path"
 echo "packaged release checksum: $checksum_path"
+echo "packaged release installer: $installer_path"
+echo "packaged release installer checksum: $installer_checksum_path"

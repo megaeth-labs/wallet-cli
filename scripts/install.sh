@@ -274,6 +274,35 @@ remove_legacy_wallet_wrapper() {
   fi
 }
 
+smoke_check_current() {
+  previous_target="$1"
+
+  if ! node "$install_root/current/dist/index.js" moss --help >/dev/null 2>&1; then
+    if [ -n "$previous_target" ]; then
+      rm -f "$install_root/current"
+      ln -s "$previous_target" "$install_root/current" 2>/dev/null || true
+    else
+      rm -f "$install_root/current"
+    fi
+    echo "installed CLI failed smoke check" >&2
+    exit 1
+  fi
+}
+
+prune_releases() {
+  keep_dir="$1"
+
+  if [ ! -d "$release_root" ]; then
+    return
+  fi
+
+  for path in "$release_root"/* "$release_root"/.tmp-*; do
+    [ -e "$path" ] || [ -L "$path" ] || continue
+    [ "$path" = "$keep_dir" ] && continue
+    rm -rf "$path"
+  done
+}
+
 write_wrapper() {
   target="$1"
   entry="$2"
@@ -325,6 +354,7 @@ release_id="$release_id-$timestamp"
 release_root="$install_root/releases"
 release_dir="$release_root/$release_id"
 staging_dir="$release_root/.tmp-$release_id-$$"
+previous_target="$(readlink "$install_root/current" 2>/dev/null || true)"
 
 if [ "$dry_run" -eq 1 ]; then
   echo "would install release: $release_dir"
@@ -346,6 +376,8 @@ else
     rm -rf "$install_root/current"
   fi
   ln -s "$release_dir" "$install_root/current"
+  smoke_check_current "$previous_target"
+  prune_releases "$release_dir"
 fi
 
 write_wrapper "$bin_dir/mega" "index.js"

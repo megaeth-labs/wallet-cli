@@ -216,6 +216,18 @@ remove_legacy_wallet_wrapper() {
   fi
 }
 
+prune_releases() {
+  keep_dir="$1"
+  release_root="$install_root/releases"
+
+  [ -d "$release_root" ] || return
+  for path in "$release_root"/* "$release_root"/.tmp-*; do
+    [ -e "$path" ] || [ -L "$path" ] || continue
+    [ "$path" = "$keep_dir" ] && continue
+    rm -rf "$path"
+  done
+}
+
 write_wrapper() {
   target="$bin_dir/mega"
 
@@ -306,6 +318,7 @@ install_release() {
   release_root="$install_root/releases"
   release_dir="$release_root/$version"
   staging_dir="$release_root/.tmp-$version-$$"
+  previous_target="$(readlink "$install_root/current" 2>/dev/null || true)"
   mkdir -p "$release_root" || {
     rm -rf "$tmp_dir"
     return
@@ -331,12 +344,36 @@ install_release() {
     return
   }
 
+  if ! node "$install_root/current/dist/index.js" moss --help >/dev/null 2>&1; then
+    if [ -n "$previous_target" ]; then
+      rm -f "$install_root/current"
+      ln -s "$previous_target" "$install_root/current" 2>/dev/null || true
+    else
+      rm -f "$install_root/current"
+    fi
+    rm -rf "$tmp_dir"
+    return
+  fi
+  prune_releases "$release_dir"
+
   if command -v bash >/dev/null 2>&1 && [ -f "$release_dir/scripts/install-skill.sh" ]; then
     bash "$release_dir/scripts/install-skill.sh" --agent "${MEGA_WALLET_CLI_SKILL_AGENT:-all}" --force >/dev/null 2>&1 || true
   fi
 
   rm -rf "$tmp_dir"
   printf 'info: Updated MegaETH MOSS CLI %s -> %s\n' "$current_version" "$version" >&2
+}
+
+prune_releases() {
+  keep_dir="$1"
+  release_root="$install_root/releases"
+
+  [ -d "$release_root" ] || return
+  for path in "$release_root"/* "$release_root"/.tmp-*; do
+    [ -e "$path" ] || [ -L "$path" ] || continue
+    [ "$path" = "$keep_dir" ] && continue
+    rm -rf "$path"
+  done
 }
 
 auto_update() {
@@ -497,6 +534,7 @@ fi
 release_root="$install_root/releases"
 release_dir="$release_root/$version"
 staging_dir="$release_root/.tmp-$version-$$"
+previous_target="$(readlink "$install_root/current" 2>/dev/null || true)"
 
 mkdir -p "$release_root"
 rm -rf "$staging_dir"
@@ -510,6 +548,17 @@ elif [ -d "$install_root/current" ]; then
   rm -rf "$install_root/current"
 fi
 ln -s "$release_dir" "$install_root/current"
+
+if ! node "$install_root/current/dist/index.js" moss --help >/dev/null 2>&1; then
+  if [ -n "$previous_target" ]; then
+    rm -f "$install_root/current"
+    ln -s "$previous_target" "$install_root/current" 2>/dev/null || true
+  else
+    rm -f "$install_root/current"
+  fi
+  error "installed CLI failed smoke check"
+fi
+prune_releases "$release_dir"
 
 write_wrapper
 remove_legacy_wallet_wrapper

@@ -37,9 +37,12 @@ command results belong on stdout.
 
 The release install path is repo-owned and deterministic:
 
-- `scripts/install-release.sh` is the public installer intended to be served at
-  `https://account.megaeth.com/install`. It downloads the latest GitHub Release
-  archive, verifies its `.sha256` checksum, installs a versioned release under
+- `scripts/install-release.sh` is the canonical release installer. Future
+  releases publish it as a versioned GitHub Release asset, and
+  `https://account.megaeth.com/install` should remain a small hosted
+  bootstrapper that downloads and verifies that release-owned installer before
+  executing it. The release installer downloads the GitHub Release archive,
+  verifies its `.sha256` checksum, installs a versioned release under
   `~/.mega/wallet-cli/releases/`, updates `~/.mega/wallet-cli/current`, writes
   the auto-updating `mega` wrapper into `~/.local/bin` by default, removes
   repo-owned legacy `wallet` wrappers, and installs the bundled skill unless
@@ -47,7 +50,8 @@ The release install path is repo-owned and deterministic:
   launching but must keep update notices on stderr and must not read wallet
   profiles or key material. It must not require pnpm or a source checkout.
 - `scripts/package-release.sh` builds the self-contained GitHub Release assets:
-  `mega-wallet-cli-<tag>.tar.gz` plus `.sha256`. The archive must include
+  `mega-wallet-cli-<tag>.tar.gz` plus `.sha256`, and
+  `mega-wallet-cli-<tag>-install.sh` plus `.sha256`. The archive must include
   `dist/`, production `node_modules/`, `package.json`, `pnpm-lock.yaml`,
   `SKILL.md`, `references/`, `scripts/install-skill.sh`, and
   `scripts/uninstall.sh` so the public installer can install CLI and skill
@@ -312,3 +316,9 @@ has enough USDM to cover relay fees. Add
 - Do not revert changes made by other workers.
 - Stage only files owned by the current task.
 - Use conventional commits with no AI attribution.
+- Never push, force-push, delete, or move a remote tag, and never trigger a
+  GitHub Release workflow, without explicit confirmation from the user in the
+  current task. Before any approved release/tag repair, state the exact tag,
+  commit, release assets, workflow state, and verification steps. If a workflow
+  is disabled for an approved tag repair, verify no release run is queued or
+  in progress before re-enabling it.
