@@ -21,18 +21,19 @@ const chainConfigs = {
   mainnet: {
     chainIdHex: "0x10e6",
     rpcUrl: "https://mainnet.megaeth.com/rpc",
+    relayUrl: "https://mainnet.megaeth.com/relay",
     usdmAddress: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
     usdt0Address: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
   },
   testnet: {
     chainIdHex: "0x18c7",
     rpcUrl: "https://carrot.megaeth.com/rpc",
+    relayUrl: "https://carrot.megaeth.com/relay",
     usdmAddress: "0x15e9f2b0a747ac05c7446559306687085d161e5c",
     usdt0Address: "0xd7617e72202b060ff8f315177748b52c7163a010",
   },
 };
 const nativeTokenAddress = "native";
-const defaultRelayUrl = "https://mainnet.megaeth.com/relay";
 const relaySmokeFeeLimit = "0.05";
 const relaySmokeLabel = "e2e-relay-smoke";
 const relaySmokeDeviceLabel = "e2e-relay-smoke-device";
@@ -153,7 +154,7 @@ function parseArgs(args) {
     e2eDir: defaultE2eDir,
     headed: false,
     hold: false,
-    relayUrl: defaultRelayUrl,
+    relayUrl: undefined,
     management: false,
     mockRelay: false,
     network: "mainnet",
@@ -276,6 +277,7 @@ function parseArgs(args) {
   if (parsed.relaySmoke && !customE2eDir) {
     parsed.e2eDir = defaultRelaySmokeE2eDir;
   }
+  parsed.relayUrl ??= e2eChainConfig(parsed.network).relayUrl;
   parsed.walletUrl = stripTrailingSlash(parsed.walletUrl);
   parsed.configDir = configDir ?? resolve(parsed.e2eDir, "cli-config");
   parsed.credentialsPath =
@@ -353,7 +355,7 @@ Options:
   --shim-port <port>     Local shim backend port (default: 4002)
   --shim-only            Start only the local shim backend
   --smoke-amount <amt>   USDM amount for --relay-smoke self-transfer (default: 0.0001)
-  --relay-url <url>      Relay proxy target (default: ${defaultRelayUrl})
+  --relay-url <url>      Relay proxy target (default: selected network relay)
   --timeout-ms <ms>      Login timeout (default: 120000)
   --profile-dir <path>   Playwright profile directory
   --credentials-path <p>  Virtual WebAuthn credentials file
@@ -1616,7 +1618,8 @@ function buildDeviceApproval(record, body) {
 }
 
 async function routeWalletRelayToShim(page, runOptions) {
-  const relayOrigin = new URL(defaultRelayUrl).origin;
+  const relayOrigin = new URL(e2eChainConfig(runOptions.network).relayUrl)
+    .origin;
   await page.route(`${relayOrigin}/**`, async (route) => {
     const request = route.request();
     const target = new URL(request.url());
