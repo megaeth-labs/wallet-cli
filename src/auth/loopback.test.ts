@@ -99,7 +99,7 @@ describe("loopback login", () => {
       ],
       spend: [
         {
-          limit: "100000000000000000000",
+          limit: "101000000000000000000",
           period: "week",
           token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
         },
@@ -462,7 +462,7 @@ describe("loopback login", () => {
     expect(url.searchParams.get("feeToken")).toBe("USDm");
   });
 
-  it("keeps default fee metadata separate from matching spend requests", async () => {
+  it("adds default fee capacity to matching spend requests", async () => {
     const permissions = await resolveKeyPermissions({
       now: new Date("2026-05-07T00:00:00.000Z"),
       spendLimits: ["0xfafddbb3fc7688494971a79cc65dca3ef82079e7:12.5:week"],
@@ -473,7 +473,7 @@ describe("loopback login", () => {
 
     expect(permissions.permissions.spend).toEqual([
       {
-        limit: "12500000000000000000",
+        limit: "13500000000000000000",
         period: "week",
         token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
       },
@@ -487,7 +487,7 @@ describe("loopback login", () => {
     ]);
   });
 
-  it("preserves explicit fee-token metadata when the fee token is not already requested", async () => {
+  it("adds explicit fee-token spend when the fee token is not already requested", async () => {
     const permissions = await resolveKeyPermissions({
       now: new Date("2026-05-07T00:00:00.000Z"),
       feeToken: "USDT0",
@@ -509,10 +509,15 @@ describe("loopback login", () => {
         period: "week",
         token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
       },
+      {
+        limit: "250000",
+        period: "week",
+        token: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
+      },
     ]);
   });
 
-  it("creates no workflow spend when create-key only overrides fees", async () => {
+  it("creates only fee-token spend when create-key only overrides fees", async () => {
     const permissions = await resolveKeyPermissions({
       now: new Date("2026-05-07T00:00:00.000Z"),
       feeToken: "USDT0",
@@ -527,10 +532,16 @@ describe("loopback login", () => {
       symbol: "USDT0",
     });
     expect(permissions).not.toHaveProperty("maxFeesUSD");
-    expect(permissions.permissions.spend).toEqual([]);
+    expect(permissions.permissions.spend).toEqual([
+      {
+        limit: "50000",
+        period: "week",
+        token: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
+      },
+    ]);
   });
 
-  it("does not merge fee-token metadata into an existing matching token period", async () => {
+  it("merges fee-token spend into an existing matching token period", async () => {
     const permissions = await resolveKeyPermissions({
       now: new Date("2026-05-07T00:00:00.000Z"),
       feeToken: "USDT0",
@@ -543,7 +554,7 @@ describe("loopback login", () => {
 
     expect(permissions.permissions.spend).toEqual([
       {
-        limit: "250000",
+        limit: "300000",
         period: "day",
         token: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
       },
@@ -591,7 +602,7 @@ describe("loopback login", () => {
     ]);
   });
 
-  it("does not merge native fee-token metadata into zero-address native spend rows", async () => {
+  it("merges native fee-token spend into zero-address native spend rows", async () => {
     const permissions = await resolveKeyPermissions({
       now: new Date("2026-05-07T00:00:00.000Z"),
       feeToken: "ETH",
@@ -604,7 +615,7 @@ describe("loopback login", () => {
 
     expect(permissions.permissions.spend).toEqual([
       {
-        limit: "1000000000000000",
+        limit: "3000000000000000",
         period: "week",
       },
     ]);
@@ -655,7 +666,7 @@ describe("loopback login", () => {
     ]);
   });
 
-  it("preserves custom permission file feeToken beside explicit spend rows", async () => {
+  it("merges custom permission file feeToken into explicit spend rows", async () => {
     const dir = await mkdtemp(join(tmpdir(), "mega-wallet-cli-permissions-"));
     tempDirs.push(dir);
     const permissionsFile = join(dir, "permissions.json");
@@ -690,7 +701,7 @@ describe("loopback login", () => {
 
     expect(permissions.permissions.spend).toEqual([
       {
-        limit: "1000000000000000000",
+        limit: "1001000000000000000",
         period: "week",
         token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
       },
@@ -737,7 +748,7 @@ describe("loopback login", () => {
     },
   );
 
-  it("preserves custom permission file feeToken when no matching spend exists", async () => {
+  it("adds custom permission file feeToken spend when no matching spend exists", async () => {
     const dir = await mkdtemp(join(tmpdir(), "mega-wallet-cli-permissions-"));
     tempDirs.push(dir);
     const permissionsFile = join(dir, "permissions.json");
@@ -768,7 +779,13 @@ describe("loopback login", () => {
       limit: "0.05",
       symbol: "USDT0",
     });
-    expect(permissions.permissions.spend).toEqual([]);
+    expect(permissions.permissions.spend).toEqual([
+      {
+        limit: "50000",
+        period: "week",
+        token: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
+      },
+    ]);
   });
 
   it("rejects default create-key permissions without an explicit call scope", async () => {
@@ -917,7 +934,7 @@ describe("loopback login", () => {
 
     expect(permissions.permissions.spend).toEqual([
       {
-        limit: "12500000000000000000",
+        limit: "13500000000000000000",
         period: "week",
         token: "0x15e9f2b0a747ac05c7446559306687085d161e5c",
       },

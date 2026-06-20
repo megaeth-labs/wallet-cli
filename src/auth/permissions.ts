@@ -119,7 +119,10 @@ export async function resolveKeyPermissions(
           },
         };
 
-  return finalizeKeyPermissions(merged, options.network ?? defaultNetwork);
+  return finalizeKeyPermissions(
+    applyFeeSpendCapacity(merged, options.network ?? defaultNetwork),
+    options.network ?? defaultNetwork,
+  );
 }
 
 export function defaultKeyPermissions(
@@ -137,7 +140,10 @@ export function defaultKeyPermissions(
   );
   const spend = [defaultSpendPermission(network)];
 
-  return buildDefaultKeyPermissions(now, options, spend, feeToken);
+  return applyFeeSpendCapacity(
+    buildDefaultKeyPermissions(now, options, spend, feeToken),
+    network,
+  );
 }
 
 async function resolveDefaultKeyPermissions(
@@ -177,10 +183,12 @@ function buildDefaultKeyPermissions(
   spend: SpendPermission[],
   feeToken: SpendTarget,
 ): CliPermissionRequest {
+  const feeLimit = options.feeLimit ?? defaultFeeLimit;
+
   return {
     expiry: Math.floor(now.getTime() / 1000) + defaultPermissionTtlSeconds,
     feeToken: {
-      limit: options.feeLimit ?? defaultFeeLimit,
+      limit: feeLimit,
       symbol: feeToken.symbol,
     },
     permissions: {
@@ -188,6 +196,69 @@ function buildDefaultKeyPermissions(
       spend,
     },
   };
+}
+
+function applyFeeSpendCapacity(
+  request: CliPermissionRequest,
+  network: Network,
+): CliPermissionRequest {
+  if (request.feeToken === undefined) {
+    return request;
+  }
+
+  const feeToken = resolveFeeSpendTarget(
+    request.feeToken.symbol ?? getChainConfig(network).defaultFeeToken.symbol,
+    network,
+  );
+
+  return {
+    ...request,
+    permissions: {
+      ...request.permissions,
+      spend: addFeeSpendCapacity(
+        request.permissions.spend,
+        feeToken,
+        request.feeToken.limit,
+      ),
+    },
+  };
+}
+
+function addFeeSpendCapacity(
+  spend: readonly SpendPermission[],
+  feeToken: SpendTarget,
+  feeLimit: string,
+): SpendPermission[] {
+  const feeUnits = decimalToBaseUnits(
+    feeLimit,
+    feeToken.decimals,
+    `fee-limit must use at most ${feeToken.decimals} decimal places for ${feeToken.symbol}`,
+  );
+  const feeAmount = BigInt(feeUnits);
+  const next = spend.map((entry) => ({ ...entry }));
+  if (feeAmount === 0n) {
+    return next;
+  }
+
+  const feeSpendToken = canonicalSpendToken(feeToken.token);
+  const existing = next.find(
+    (entry) =>
+      normalizeSpendToken(entry.token) === normalizeSpendToken(feeSpendToken),
+  );
+
+  if (existing !== undefined) {
+    existing.limit = (BigInt(existing.limit) + feeAmount).toString();
+    return next;
+  }
+
+  return [
+    ...next,
+    {
+      limit: feeAmount.toString(),
+      period: "week",
+      ...(feeSpendToken === undefined ? {} : { token: feeSpendToken }),
+    },
+  ];
 }
 
 export function normalizeFeeTokenSymbol(

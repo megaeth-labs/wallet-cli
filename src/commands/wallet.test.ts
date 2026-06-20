@@ -687,7 +687,7 @@ describe("wallet status commands", () => {
       authorizeKey: async (options) => {
         expect(options.permissionRequest.permissions.spend).toEqual([
           {
-            limit: "12500000000000000000",
+            limit: "13500000000000000000",
             period: "week",
             token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
           },
@@ -848,6 +848,11 @@ describe("wallet status commands", () => {
             period: "week",
             token: "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
           },
+          {
+            limit: "250000",
+            period: "week",
+            token: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
+          },
         ]);
         return {
           accountAddress: profile.accountAddress,
@@ -898,7 +903,13 @@ describe("wallet status commands", () => {
           symbol: "USDT0",
         });
         expect(options.permissionRequest).not.toHaveProperty("maxFeesUSD");
-        expect(options.permissionRequest.permissions.spend).toEqual([]);
+        expect(options.permissionRequest.permissions.spend).toEqual([
+          {
+            limit: "50000",
+            period: "week",
+            token: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
+          },
+        ]);
         return {
           accountAddress: profile.accountAddress,
           authUrl: "https://wallet.example/cli-auth/loopback",
@@ -945,7 +956,7 @@ describe("wallet status commands", () => {
         expect(options.network).toBe("testnet");
         expect(options.permissionRequest.permissions.spend).toEqual([
           {
-            limit: "25000000000000000000",
+            limit: "26000000000000000000",
             period: "week",
             token: "0x15e9f2b0a747ac05c7446559306687085d161e5c",
           },
