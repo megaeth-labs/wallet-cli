@@ -133,6 +133,21 @@ describe("installer scripts", () => {
     );
   });
 
+  it("smoke-checks installs before pruning stale releases", async () => {
+    const sourceInstaller = await readFile("scripts/install.sh", "utf8");
+    const releaseInstaller = await readFile("scripts/install-release.sh", "utf8");
+
+    for (const script of [sourceInstaller, releaseInstaller]) {
+      expect(script).toContain(
+        'node "$install_root/current/dist/index.js" moss --help',
+      );
+      expect(script).toContain('prune_releases "$release_dir"');
+      expect(script.indexOf("moss --help")).toBeLessThan(
+        script.indexOf('prune_releases "$release_dir"'),
+      );
+    }
+  });
+
   it("offers to install missing prerequisites in dry-run mode", async () => {
     const dir = await tempDir();
     const fakeBin = join(dir, "bin");
