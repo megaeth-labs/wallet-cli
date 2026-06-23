@@ -210,6 +210,11 @@ export class HttpDeviceAuthClient implements DeviceAuthClient {
         );
       }
       const detail = extractErrorMessage(payload);
+      if (path.endsWith("/token") && isPkceError(detail)) {
+        throw new CliError(
+          "device authorization security check failed; rerun the command",
+        );
+      }
       throw new CliError(
         detail === undefined
           ? `wallet device authorization request failed (${response.status})`
@@ -705,6 +710,10 @@ async function parseJsonResponse(
 
 function isUnavailableStatus(status: number): boolean {
   return status === 404 || status === 405 || status === 501;
+}
+
+function isPkceError(message: string | undefined): boolean {
+  return message !== undefined && /PKCE|code verifier/i.test(message);
 }
 
 function extractErrorMessage(value: unknown): string | undefined {

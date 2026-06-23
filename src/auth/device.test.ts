@@ -507,6 +507,28 @@ describe("device auth helpers", () => {
       }),
     ).rejects.toThrow("device-code auth is not available");
   });
+
+  it("maps invalid PKCE token responses to a security-check error", async () => {
+    const fetchImpl: typeof fetch = async () =>
+      new Response(JSON.stringify({ error: "Invalid PKCE verifier" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+
+    const client = new HttpDeviceAuthClient(
+      "https://wallet-api.example",
+      fetchImpl,
+    );
+
+    await expect(
+      client.token({
+        deviceCode: "device-secret",
+        codeVerifier: "verifier-secret",
+      }),
+    ).rejects.toThrow(
+      "device authorization security check failed; rerun the command",
+    );
+  });
 });
 
 function makeClient(
