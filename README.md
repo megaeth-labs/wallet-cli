@@ -38,6 +38,15 @@ curl -fsSL https://account.megaeth.com/install | sh -- --version v0.1.0
 Prefer to inspect the artifact manually first? See the
 [GitHub Releases page](https://github.com/megaeth-labs/wallet-cli/releases).
 
+### Agent Skill Only
+
+The release installer installs the bundled agent skill automatically. To install
+or refresh only the skill through the open skills installer:
+
+```bash
+npx skills add megaeth-labs/wallet-cli
+```
+
 ### Build From Source
 
 ```bash
